@@ -540,7 +540,7 @@ function Uninstall-Wsguard {
         $any = $true
     }
     if (-not $any) { Write-Log '跳过: wsguard 服务不存在（可能已卸载）' }
-    Write-Log '提示: 已注入网易 UU GameViewerService 的 gv_hook.dll 仍驻留内存，重启电脑或重启 UU 服务后彻底清除'
+    Write-Log '提示: 与 UU 远程的会话兼容组件仍驻留内存，重启电脑或重启 UU 服务后彻底清除'
 }
 
 # 2 · 卸载 rdpWrapper（官方命令行 -uninstall）
