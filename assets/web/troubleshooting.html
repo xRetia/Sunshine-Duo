@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="auto">
+
+<head>
+      <!-- TEMPLATE_HEADER - Used by Every UI Page -->
+<meta charset="UTF-8" />
+<meta http-equiv="X-UA-Compatible" content="IE=edge" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Apollo</title>
+<link rel="icon" type="image/x-icon" href="./images/apollo.ico">
+
+
+<link href="./assets/css/apollo.css" rel="stylesheet" />
+
+      <style>
+        .troubleshooting-logs {
+          white-space: pre;
+          font-family: monospace;
+          overflow: auto;
+          max-height: 500px;
+          min-height: 500px;
+          font-size: 16px;
+          position: relative;
+        }
+
+        .copy-icon {
+          position: absolute;
+          top: 8px;
+          right: 8px;
+          padding: 8px;
+          cursor: pointer;
+          color: rgba(0, 0, 0, 1);
+          appearance: none;
+          border: none;
+          background: none;
+        }
+
+        .copy-icon:hover {
+          color: rgba(0, 0, 0, 0.75);
+        }
+
+        .copy-icon:active {
+          color: rgba(0, 0, 0, 1);
+        }
+      </style>
+  <script type="module" crossorigin src="./assets/troubleshooting-2be9c869.js"></script>
+  <link rel="modulepreload" crossorigin href="./assets/init-fc38a260.js">
+  <link rel="modulepreload" crossorigin href="./assets/_plugin-vue_export-helper-c27b6911.js">
+  <link rel="modulepreload" crossorigin href="./assets/Navbar-df2d9aef.js">
+  <link rel="stylesheet" href="./assets/init-3a9792a4.css">
+  <link rel="stylesheet" href="./assets/Navbar-13079613.css">
+</head>
+
+<body id="app" v-cloak>
+  <Navbar></Navbar>
+  <div class="container">
+    <h1 class="my-4">{{ $t('troubleshooting.troubleshooting') }}</h1>
+    <!-- Force Close App -->
+    <div class="card p-2 my-4">
+      <div class="card-body">
+        <h2 id="close_apps">{{ $t('troubleshooting.force_close') }}</h2>
+        <br>
+        <p>{{ $t('troubleshooting.force_close_desc') }}</p>
+        <div class="alert alert-success" v-if="closeAppStatus === true">
+          {{ $t('troubleshooting.force_close_success') }}
+        </div>
+        <div class="alert alert-danger" v-if="closeAppStatus === false">
+          {{ $t('troubleshooting.force_close_error') }}
+        </div>
+        <div>
+          <button class="btn btn-warning" :disabled="closeAppPressed" @click="closeApp">
+            {{ $t('troubleshooting.force_close') }}
+          </button>
+        </div>
+      </div>
+    </div>
+    <!-- Restart Apollo -->
+    <div class="card p-2 my-4">
+      <div class="card-body">
+        <h2 id="restart">{{ $t('troubleshooting.restart_apollo') }}</h2>
+        <br>
+        <p>{{ $t('troubleshooting.restart_apollo_desc') }}</p>
+        <div class="alert alert-success" v-if="serverRestarting">
+          {{ $t('troubleshooting.restart_apollo_success') }}
+        </div>
+        <div>
+          <button class="btn btn-warning" :disabled="serverQuitting || serverRestarting" @click="restart">
+            {{ $t('troubleshooting.restart_apollo') }}
+          </button>
+        </div>
+      </div>
+    </div>
+    <!-- Quit Apollo -->
+    <div class="card p-2 my-4">
+      <div class="card-body">
+        <h2 id="quit">{{ $t('troubleshooting.quit_apollo') }}</h2>
+        <br>
+        <p>{{ $t('troubleshooting.quit_apollo_desc') }}</p>
+        <div class="alert alert-success" v-if="serverQuit">
+          {{ $t('troubleshooting.quit_apollo_success') }}
+        </div>
+        <div class="alert alert-success" v-if="serverQuitting">
+          {{ $t('troubleshooting.quit_apollo_success_ongoing') }}
+        </div>
+        <div>
+          <button class="btn btn-warning" :disabled="serverQuitting || serverRestarting" @click="quit">
+            {{ $t('troubleshooting.quit_apollo') }}
+          </button>
+        </div>
+      </div>
+    </div>
+    <!-- Reset persistent display device settings -->
+    <div class="card p-2 my-4" v-if="platform === 'windows'">
+      <div class="card-body">
+        <h2 id="dd_reset">{{ $t('troubleshooting.dd_reset') }}</h2>
+        <br>
+        <p style="white-space: pre-line">{{ $t('troubleshooting.dd_reset_desc') }}</p>
+        <div class="alert alert-success" v-if="ddResetStatus === true">
+          {{ $t('troubleshooting.dd_reset_success') }}
+        </div>
+        <div class="alert alert-danger" v-if="ddResetStatus === false">
+          {{ $t('troubleshooting.dd_reset_error') }}
+        </div>
+        <div>
+          <button class="btn btn-warning" :disabled="ddResetPressed" @click="ddResetPersistence">
+            {{ $t('troubleshooting.dd_reset') }}
+          </button>
+        </div>
+      </div>
+    </div>
+    <!-- Logs -->
+    <div class="card p-2 my-4">
+      <div class="card-body">
+        <h2 id="logs">{{ $t('troubleshooting.logs') }}</h2>
+        <br>
+        <div class="d-flex justify-content-between align-items-baseline py-2">
+          <p>{{ $t('troubleshooting.logs_desc') }}</p>
+          <input type="text" class="form-control" v-model="logFilter" :placeholder="$t('troubleshooting.logs_find')" style="width: 300px">
+        </div>
+        <div>
+          <div class="troubleshooting-logs">
+            <button class="copy-icon"><i class="fas fa-copy " @click="copyLogs"></i></button>{{actualLogs}}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  
+
+</body>

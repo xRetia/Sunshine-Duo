@@ -1,0 +1,27 @@
+{
+    "apps": [
+        {
+            "allow-client-commands": false,
+            "image-path": "desktop.png",
+            "name": "桌面",
+            "uuid": "DD25BCE6-EE24-C70E-BD89-EDDF4C66038A"
+        },
+        {
+            "detached": [
+                "steam://open/bigpicture"
+            ],
+            "image-path": "steam.png",
+            "name": "游戏菜单",
+            "prep-cmd": [
+                {
+                    "do": "",
+                    "elevated": false,
+                    "undo": "steam://close/bigpicture"
+                }
+            ],
+            "uuid": "F64ABBAA-1BED-DA06-6717-A8B388DD39A3"
+        }
+    ],
+    "env": {},
+    "version": 2
+}

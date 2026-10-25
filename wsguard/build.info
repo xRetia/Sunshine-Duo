@@ -1,0 +1,6 @@
+{
+    "service_name":  "WSGuard",
+    "display_name":  "Game Windows Session Guard",
+    "style":  "dynamic-path",
+    "built":  "2026-10-25T09:47:19"
+}

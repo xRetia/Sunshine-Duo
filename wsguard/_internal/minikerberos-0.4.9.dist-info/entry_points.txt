@@ -1,0 +1,17 @@
+[console_scripts]
+minikerberos-asreproast = minikerberos.examples.asreproast:main
+minikerberos-ccache2kirbi = minikerberos.examples.ccache2kirbi:main
+minikerberos-ccacheedit = minikerberos.examples.ccache_editor:main
+minikerberos-ccacheroast = minikerberos.examples.ccacheroast:main
+minikerberos-cve202233647 = minikerberos.examples.CVE_2022_33647:main
+minikerberos-cve202233679 = minikerberos.examples.CVE_2022_33679:main
+minikerberos-getNTPKInit = minikerberos.examples.getNT:main
+minikerberos-getS4U2proxy = minikerberos.examples.getS4U2proxy:main
+minikerberos-getS4U2self = minikerberos.examples.getS4U2self:main
+minikerberos-getTGS = minikerberos.examples.getTGS:main
+minikerberos-getTGT = minikerberos.examples.getTGT:main
+minikerberos-kerb23hashdecrypt = minikerberos.examples.kerb23hashdecrypt:main
+minikerberos-kerberoast = minikerberos.examples.spnroast:main
+minikerberos-keylist = minikerberos.examples.keylist:main
+minikerberos-kirbi2ccache = minikerberos.examples.kirbi2ccache:main
+minikerberos-pw = minikerberos.examples.changepassword:main
