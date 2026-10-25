@@ -10,7 +10,7 @@
 | --- | --- | --- | --- |
 | Apollo 串流服务端（含 Web UI、audio-info / dxgi-info / sunshinesvc 等附属工具） | `sunshine.exe`、`assets\`、`tools\audio-info.exe`、`tools\dxgi-info.exe`、`tools\sunshinesvc.exe` | GPL-3.0 | https://github.com/ClassicOldSong/Apollo |
 | RDP Wrapper Library | `tools\rdpWrapper.exe` | Apache-2.0 | https://github.com/stascorp/rdpwrap |
-| Game Manager（作者本人项目，随本仓库以 GPL-3.0 授权） | `tools\GameManager.exe` | GPL-3.0 | https://github.com/xRetia/game-manager |
+| Game Manager | `tools\GameManager.exe` | GPL-3.0 | https://github.com/xRetia/game-manager |
 | ViGEm Bus Driver 安装器 | `scripts\vigembus_installer.exe` | BSD-3-Clause | https://github.com/nefarius/ViGEmBus |
 | SudoVDA 虚拟显示驱动（上游为 Virtual-Display-Driver 的分支） | `drivers\sudovda\` | MIT | https://github.com/SudoMaker/SudoVDA |
 | nefcon 驱动安装工具 | `drivers\sudovda\nefconc.exe` | MIT | https://github.com/nefarius/nefcon |
@@ -66,5 +66,5 @@ PyInstaller 许可证原文：https://github.com/pyinstaller/pyinstaller/blob/de
 ## 四、其他说明
 
 - 本仓库按 GPL-3.0 分发 Apollo（未修改的官方发行版），对应源代码见上游仓库；Apollo 及其附属工具的 GPL-3.0 义务（附许可证文本、指明源代码获取方式）通过本文件与 `LICENSE` 履行。
-- `tools\GameManager.exe` 为本仓库作者本人的开源项目（xRetia/game-manager），随本仓库以 GPL-3.0 一并授权。
+- `tools\GameManager.exe` 来自开源项目 https://github.com/xRetia/game-manager （GPL-3.0），随本仓库一并授权。
 - 网易 UU 远程（GameViewer）**不包含**在本仓库中，wsguard 仅在运行时与其本机已安装的服务交互，不涉及该软件的再分发。
