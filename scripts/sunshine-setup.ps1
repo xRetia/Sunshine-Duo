@@ -603,51 +603,55 @@ $xaml = @'
   <DockPanel>
     <Border DockPanel.Dock="Top" Background="#0F172A" Padding="16,12">
       <StackPanel>
-        <TextBlock Text="Sunshine 串流环境部署工具" Foreground="White" FontSize="17" FontWeight="Bold"/>
+        <TextBlock Text="Sunshine-Duo 安装器" Foreground="White" FontSize="17" FontWeight="Bold"/>
         <StackPanel Orientation="Horizontal" Margin="0,5,0,0">
           <TextBlock Text="程序位置：" Foreground="#94A3B8" FontSize="11" VerticalAlignment="Center"/>
           <TextBlock x:Name="lblRoot" Foreground="#CBD5E1" FontSize="11" VerticalAlignment="Center"/>
         </StackPanel>
       </StackPanel>
     </Border>
+    <Border DockPanel.Dock="Top" Background="#FEF3C7" Padding="10,6" Margin="10,4,10,0">
+      <TextBlock FontSize="11.5" Foreground="#92400E" TextWrapping="Wrap"
+                 Text="🛡 杀毒软件可能误报：本工具要装后台服务、驱动和远程会话组件（断开后保活游戏画面用），容易被杀毒软件当成黑客工具拦掉。如遇拦截，把整个文件夹加入杀毒软件的信任区/白名单，再重新运行即可。源码全开放，放心用。"/>
+    </Border>
     <TabControl x:Name="tabs" Margin="10,8,10,10">
       <TabItem Header=" 安装 ">
         <ScrollViewer VerticalScrollBarVisibility="Auto">
           <StackPanel Margin="10">
-            <GroupBox Header="1 · Sunshine 串流服务（必装）">
+            <GroupBox Header="1 · 串流服务（必装）">
               <StackPanel Margin="6">
                 <CheckBox x:Name="chkConf" IsChecked="True" IsEnabled="False"
-                          Content="写入默认配置（显卡配置 / 手柄 / UPnP 等）"/>
+                          Content="自动写入推荐配置（显卡 / 手柄等，不用操心）"/>
                 <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
-                  <TextBlock Text="渲染显卡选择：" VerticalAlignment="Center"/>
+                  <TextBlock Text="用哪块显卡串流：" VerticalAlignment="Center"/>
                   <ComboBox x:Name="cmbGpu" Width="360"/>
                 </StackPanel>
                 <TextBlock x:Name="lblGpuInfo" Foreground="#64748B" FontSize="11"
                            Margin="0,4,0,0" TextWrapping="Wrap" Text="检测中..."/>
                 <CheckBox x:Name="chkFirewall" IsChecked="True" Margin="0,8,0,0"
-                          Content="防火墙放行 Sunshine（TCP / UDP 入站，规则名 Apollo）"/>
+                          Content="允许 Sunshine 穿透防火墙（不勾就连不上）"/>
                 <CheckBox x:Name="chkGamepad" IsChecked="True" Margin="0,6,0,0"
-                          Content="虚拟手柄驱动（ViGEmBus）"/>
+                          Content="手柄支持（把串流手柄认成 Xbox 手柄）"/>
                 <TextBlock FontSize="11" Foreground="#64748B" Margin="20,2,0,0" TextWrapping="Wrap"
-                           Text="已装 1.17 或更新版本时自动跳过"/>
+                           Text="装过的会自动跳过，不用重复装"/>
               </StackPanel>
             </GroupBox>
-            <GroupBox Header="2 · 远程桌面解锁（必装）" Margin="0,8,0,0">
+            <GroupBox Header="2 · 双人同机（必装）" Margin="0,8,0,0">
               <StackPanel Margin="6">
                 <CheckBox x:Name="chkRdpWrap" IsChecked="True" IsEnabled="False"
-                          Content="RdpWrapper：允许同一电脑可同时登录主用户和串流用户"/>
+                          Content="允许电脑同时登录两个用户 —— 一人打游戏，另一人照常用电脑"/>
               </StackPanel>
             </GroupBox>
-            <GroupBox Header="3 · 串流会话守护服务（必装）" Margin="0,8,0,0">
+            <GroupBox Header="3 · 后台保活（必装）" Margin="0,8,0,0">
               <StackPanel Margin="6">
                 <StackPanel Orientation="Horizontal">
-                  <TextBlock Text="当前用户：" VerticalAlignment="Center" FontWeight="Bold"/>
+                  <TextBlock Text="打游戏用的账号：" VerticalAlignment="Center" FontWeight="Bold"/>
                   <TextBlock x:Name="lblUser" VerticalAlignment="Center" Margin="4,0,0,0"/>
                 </StackPanel>
                 <TextBlock Foreground="#DC2626" FontSize="11" Margin="0,4,0,0" TextWrapping="Wrap"
-                           Text="当前用户将设置为串流用户；如需更换用户，请先登录对应用户会话再运行本工具。"/>
+                           Text="上面这个账号会被用来打游戏。想换账号？先登录那个账号再来运行。"/>
                 <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
-                  <TextBlock Text="登录密码：" VerticalAlignment="Center"/>
+                  <TextBlock Text="电脑开机密码：" VerticalAlignment="Center"/>
                   <PasswordBox x:Name="pwdRdp" Width="200"/>
                   <Button x:Name="btnVerifyPw" Content="验证" Width="60" Margin="6,0,0,0"/>
                   <TextBlock x:Name="lblPwState" Margin="8,0,0,0" VerticalAlignment="Center"
@@ -655,31 +659,29 @@ $xaml = @'
                 </StackPanel>
                 <TextBlock x:Name="lblCredState" Foreground="#64748B" FontSize="11" Margin="0,4,0,0"/>
                 <CheckBox x:Name="chkAutoLogon" IsChecked="True" Margin="0,8,0,0"
-                          Content="开机自动登录串流用户（无人值守）"/>
+                          Content="开机自动登录（重启后不用输密码，直接就能连）"/>
                 <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                  <TextBlock Text="虚拟屏分辨率：" VerticalAlignment="Center"/>
+                  <TextBlock Text="游戏画面分辨率：" VerticalAlignment="Center"/>
                   <TextBox x:Name="txtWidth" Width="64" Text="1600" VerticalAlignment="Center"/>
                   <TextBlock Text=" × " VerticalAlignment="Center"/>
                   <TextBox x:Name="txtHeight" Width="64" Text="720" VerticalAlignment="Center"/>
-                  <TextBlock Text="（宽 × 高）" Foreground="#64748B" FontSize="11"
+                  <TextBlock Text="（手机横屏推荐 1920×1080）" Foreground="#64748B" FontSize="11"
                              VerticalAlignment="Center" Margin="6,0,0,0"/>
                 </StackPanel>
                 <CheckBox x:Name="chkWsguard" IsChecked="True" IsEnabled="False" Margin="0,8,0,0"
-                          Content="WSGuard：启用串流会话守护服务（断开串流后自动保持虚拟屏在线，并开机自启 Sunshine）"/>
+                          Content="断开手机后游戏画面不掉（下次秒连），开机自动启动 Sunshine"/>
                 <TextBlock x:Name="lblWgWarn" Foreground="#DC2626" FontSize="11"
                            Margin="0,4,0,0" TextWrapping="Wrap" Text="" Visibility="Collapsed"/>
               </StackPanel>
             </GroupBox>
-            <GroupBox Header="4 · 可选功能" Margin="0,8,0,0">
+            <GroupBox Header="4 · 可选功能（想装再勾）" Margin="0,8,0,0">
               <StackPanel Margin="6">
                 <CheckBox x:Name="chkGameMgr"
-                          Content="游戏菜单（可直接启动需要管理员权限的游戏，建议安装）"/>
+                          Content="游戏菜单 —— 在电视上直接选游戏开玩（推荐勾上）"/>
                 <TextBlock FontSize="11" Foreground="#64748B" Margin="20,2,0,0" TextWrapping="Wrap"
-                           Text="装好后把游戏快捷方式放进 Sunshine 目录里的 Links 文件夹"/>
+                           Text="装好后把游戏快捷方式丢进 Links 文件夹就能在电视上看到"/>
                 <CheckBox x:Name="chkReset" Margin="0,6,0,0"
-                          Content="解绑所有已配对设备（手机 / 平板 / 电视需重新配对）"/>
-                <TextBlock Foreground="#DC2626" FontSize="11" Margin="20,2,0,0" TextWrapping="Wrap"
-                           Text="点开始后会再问一次，确认才执行。"/>
+                          Content="忘记所有已配对的手机 / 电视（换设备时才用）"/>
               </StackPanel>
             </GroupBox>
             <Button x:Name="btnInstall" Content="开 始 安 装" Height="36" Margin="0,12,0,0"
@@ -691,34 +693,34 @@ $xaml = @'
       <TabItem Header=" 卸载 ">
         <ScrollViewer VerticalScrollBarVisibility="Auto">
           <StackPanel Margin="10">
-            <GroupBox Header="1 · Sunshine 串流服务">
+            <GroupBox Header="1 · 串流服务">
               <StackPanel Margin="6">
                 <CheckBox x:Name="chkUFirewall" IsChecked="True" Margin="0,2"
-                          Content="移除防火墙放行规则（Apollo）"/>
-                <CheckBox x:Name="chkUGamepad" Margin="0,2"
-                          Content="卸载虚拟手柄驱动（ViGEmBus，其他程序依赖它时请勿勾选）"/>
+                          Content="取消防火墙放行"/>
+                <CheckBox x:Name="chkUGamepad" IsChecked="True" Margin="0,2"
+                          Content="卸载手柄驱动（其他软件也在用手柄的话就取消勾选）"/>
               </StackPanel>
             </GroupBox>
-            <GroupBox Header="2 · 远程桌面解锁" Margin="0,8,0,0">
+            <GroupBox Header="2 · 双人同机" Margin="0,8,0,0">
               <StackPanel Margin="6">
-                <CheckBox x:Name="chkURdpWrap" Margin="0,2"
-                          Content="卸载 RdpWrapper（恢复系统默认的单会话限制）"/>
+                <CheckBox x:Name="chkURdpWrap" IsChecked="True" Margin="0,2"
+                          Content="恢复默认限制（同一时间只能一个用户用电脑）"/>
               </StackPanel>
             </GroupBox>
-            <GroupBox Header="3 · 串流会话守护服务" Margin="0,8,0,0">
+            <GroupBox Header="3 · 后台保活" Margin="0,8,0,0">
               <StackPanel Margin="6">
                 <CheckBox x:Name="chkUWsguard" IsChecked="True" Margin="0,2"
-                          Content="卸载 WSGuard 服务并取消 Sunshine 开机自启（保留密码与设置）"/>
+                          Content="卸载后台保活服务，取消开机自启（密码和设置保留）"/>
               </StackPanel>
             </GroupBox>
             <GroupBox Header="4 · 可选功能" Margin="0,8,0,0">
               <StackPanel Margin="6">
-                <CheckBox x:Name="chkUGameMgr" Margin="0,2"
-                          Content="卸载游戏菜单（GameManager）"/>
+                <CheckBox x:Name="chkUGameMgr" IsChecked="True" Margin="0,2"
+                          Content="卸载游戏菜单"/>
               </StackPanel>
             </GroupBox>
             <TextBlock Foreground="#64748B" FontSize="11" Margin="2,8,2,0" TextWrapping="Wrap"
-                       Text="卸载不会删除 Sunshine 本体和任何游戏存档，也不删除配置与已保存的密码。卸载远程桌面解锁或手柄驱动时屏幕可能闪一下，属正常现象；若正远程操作本机，连接会断开重连一次；手柄驱动可能需重启电脑后才彻底移除。"/>
+                       Text="卸载不会删掉 Sunshine 本体、游戏存档、设置和已保存的密码。卸载过程中屏幕可能闪一下、远程连接可能断开重连一次，都正常；手柄驱动可能要重启电脑才算卸干净。"/>
             <Button x:Name="btnUninstall" Content="开 始 卸 载" Height="36" Margin="0,12,0,0"
                     Background="#DC2626" Foreground="White" FontWeight="Bold" FontSize="13"
                     BorderThickness="0"/>
@@ -903,8 +905,8 @@ if ($SelfTest) {
 # GUI 需要管理员（注册服务 / 防火墙规则 / 驱动安装）；非管理员时自我提权重启
 if (-not $isAdmin) {
     Write-Host '需要管理员权限，正在请求 UAC...'
-    Start-Process -FilePath 'powershell.exe' -Verb RunAs -ArgumentList @(
-        '-NoProfile', '-ExecutionPolicy', 'Bypass', '-STA', '-File', ('"{0}"' -f $PSCommandPath))
+    Start-Process -FilePath 'powershell.exe' -Verb RunAs -WindowStyle Hidden -ArgumentList @(
+        '-NoProfile', '-ExecutionPolicy', 'Bypass', '-STA', '-WindowStyle', 'Hidden', '-File', ('"{0}"' -f $PSCommandPath))
     exit
 }
 
@@ -967,11 +969,11 @@ try {
 } catch { }
 if (-not $curAd -and $script:GpuNames.Count -ge 1) { $ui['cmbGpu'].SelectedIndex = 0 }
 
-# rdp.cred 状态（密码输入在第 3 组“串流会话守护服务”）
+# rdp.cred 状态（密码输入在第 3 组「后台保活」）
 if (Test-Path $WgCredPath) {
-    $ui['lblCredState'].Text = '已保存过密码，留空则继续用原来的'
+    $ui['lblCredState'].Text = '密码已保存过，留空就用原来的'
 } else {
-    $ui['lblCredState'].Text = '请输入登录密码并点“验证”'
+    $ui['lblCredState'].Text = '输入开机密码，点「验证」'
 }
 $script:PwVerified = $false
 
@@ -991,7 +993,7 @@ if (-not $wgNewStyle) {
 $ui['btnVerifyPw'].Add_Click({
     $pw = $ui['pwdRdp'].Password
     if ([string]::IsNullOrEmpty($pw)) {
-        $ui['lblPwState'].Text = '请先输入密码'
+        $ui['lblPwState'].Text = '先输入密码哦'
         $ui['lblPwState'].Foreground = [System.Windows.Media.Brushes]::DarkOrange
         $script:PwVerified = $false
         return
@@ -1046,7 +1048,7 @@ $ui['btnInstall'].Add_Click({
         $ui['lblPwState'].Foreground = [System.Windows.Media.Brushes]::Green
         Write-Log 'OK: 密码验证通过'
     } elseif (-not (Test-Path $WgCredPath)) {
-        [void][System.Windows.MessageBox]::Show($window, '请先在“串流会话守护服务”一栏输入登录密码并点“验证”。', '需要密码',
+        [void][System.Windows.MessageBox]::Show($window, '请先在「后台保活」一组输入电脑开机密码，点「验证」。', '需要密码',
             [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
         return
     }
@@ -1056,14 +1058,14 @@ $ui['btnInstall'].Add_Click({
         return
     }
     if ($ui['cmbGpu'].SelectedIndex -lt 0) {
-        [void][System.Windows.MessageBox]::Show($window, '请先选择渲染显卡。', '提示',
+        [void][System.Windows.MessageBox]::Show($window, '还没选显卡 —— 在第 1 组「用哪块显卡串流」里选一个（有独立显卡就选它）。', '提示',
             [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
         return
     }
     # 解绑已配对设备：二次确认
     if ($steps -contains 'reset') {
-        $r = [System.Windows.MessageBox]::Show($window,
-            "确定清空已配对设备吗？`n清空后所有 Moonlight 客户端都需要重新配对。", '确认',
+    $r = [System.Windows.MessageBox]::Show($window,
+        "确定要把所有已配对的手机/电视都忘记吗？`n忘记后每台设备都要重新配对一次。", '确认',
             [System.Windows.MessageBoxButton]::YesNo, [System.Windows.MessageBoxImage]::Warning)
         if ($r -ne [System.Windows.MessageBoxResult]::Yes) {
             $steps = @($steps | Where-Object { $_ -ne 'reset' })
@@ -1081,8 +1083,8 @@ $ui['btnInstall'].Add_Click({
         try {
             $adapter = $script:GpuNames[$ui['cmbGpu'].SelectedIndex]
             Write-SunshineConf -AdapterName $adapter
-            [void]$results.Add('[OK] 默认配置')
-        } catch { Write-Log "失败: $($_.Exception.Message)"; [void]$results.Add('[失败] 默认配置') }
+            [void]$results.Add('[OK] 推荐配置')
+        } catch { Write-Log "失败: $($_.Exception.Message)"; [void]$results.Add('[失败] 推荐配置') }
 
         if ($steps -contains 'firewall') {
             Write-Log '── [1/安装] 防火墙放行 Sunshine ──'
@@ -1091,14 +1093,14 @@ $ui['btnInstall'].Add_Click({
         }
         if ($steps -contains 'gamepad') {
             Write-Log '── [1/安装] 虚拟手柄驱动（ViGEmBus）──'
-            try { Install-Gamepad; [void]$results.Add('[OK] 虚拟手柄') }
-            catch { Write-Log "失败: $($_.Exception.Message)"; [void]$results.Add('[失败] 虚拟手柄') }
+            try { Install-Gamepad; [void]$results.Add('[OK] 手柄支持') }
+            catch { Write-Log "失败: $($_.Exception.Message)"; [void]$results.Add('[失败] 手柄支持') }
         }
 
         # ── 2 · 远程桌面解锁 ──
         Write-Log '── [2/安装] RDP Wrapper 远程桌面解锁 ──'
-        try { Install-RdpWrapper; [void]$results.Add('[OK] 远程桌面解锁') }
-        catch { Write-Log "失败: $($_.Exception.Message)"; [void]$results.Add('[失败] 远程桌面解锁') }
+        try { Install-RdpWrapper; [void]$results.Add('[OK] 双人同机') }
+        catch { Write-Log "失败: $($_.Exception.Message)"; [void]$results.Add('[失败] 双人同机') }
 
         # ── 3 · 串流会话守护服务 ──
         # 虚拟屏分辨率（守护服务用，先解析一次）
@@ -1115,8 +1117,8 @@ $ui['btnInstall'].Add_Click({
         Write-Log "── [3/安装] WSGuard 串流会话守护服务（用户：$user）──"
         try {
             Install-Wsguard -RdpUser $user -Password $ui['pwdRdp'].Password -Vw $script:Vw -Vh $script:Vh -AutoLogon ([bool]$ui['chkAutoLogon'].IsChecked)
-            [void]$results.Add('[OK] WSGuard 守护服务')
-        } catch { Write-Log "失败: $($_.Exception.Message)"; [void]$results.Add('[失败] WSGuard 守护服务') }
+            [void]$results.Add('[OK] 后台保活')
+        } catch { Write-Log "失败: $($_.Exception.Message)"; [void]$results.Add('[失败] 后台保活') }
         Write-Log '── [3/安装] Sunshine 开机自启（Apollo 守卫）──'
         try { Install-ApolloGuard -User $user; [void]$results.Add('[OK] 开机自启') }
         catch { Write-Log "失败: $($_.Exception.Message)"; [void]$results.Add('[失败] 开机自启') }
@@ -1129,8 +1131,8 @@ $ui['btnInstall'].Add_Click({
         }
         if ($steps -contains 'reset') {
             Write-Log '── [4/安装] 解绑所有已配对设备 ──'
-            try { Reset-SunshineState; [void]$results.Add('[OK] 已解绑全部设备') }
-            catch { Write-Log "失败: $($_.Exception.Message)"; [void]$results.Add('[失败] 解绑设备') }
+            try { Reset-SunshineState; [void]$results.Add('[OK] 已忘记全部设备') }
+            catch { Write-Log "失败: $($_.Exception.Message)"; [void]$results.Add('[失败] 忘记设备') }
         }
         if (Get-Process -Name 'sunshine' -ErrorAction SilentlyContinue) {
             Write-Log '提示: Sunshine 正在运行，需要重启 Sunshine 后新配置才生效'
@@ -1170,20 +1172,20 @@ $ui['btnUninstall'].Add_Click({
         # ── 1 · Sunshine 串流服务 ──
         if ($steps -contains 'firewall') {
             Write-Log '── [1/卸载] 移除防火墙放行规则 ──'
-            try { Uninstall-FirewallRule; [void]$results.Add('[OK] 已移除防火墙规则') }
-            catch { Write-Log "失败: $($_.Exception.Message)"; [void]$results.Add('[失败] 防火墙规则') }
+            try { Uninstall-FirewallRule; [void]$results.Add('[OK] 已取消防火墙放行') }
+            catch { Write-Log "失败: $($_.Exception.Message)"; [void]$results.Add('[失败] 防火墙放行') }
         }
         if ($steps -contains 'gamepad') {
             Write-Log '── [1/卸载] 虚拟手柄驱动（ViGEmBus）──'
-            try { Uninstall-Gamepad; [void]$results.Add('[OK] 已卸载虚拟手柄驱动') }
-            catch { Write-Log "失败: $($_.Exception.Message)"; [void]$results.Add('[失败] 虚拟手柄驱动') }
+            try { Uninstall-Gamepad; [void]$results.Add('[OK] 已卸载手柄驱动') }
+            catch { Write-Log "失败: $($_.Exception.Message)"; [void]$results.Add('[失败] 手柄支持驱动') }
         }
 
         # ── 2 · 远程桌面解锁 ──
         if ($steps -contains 'rdpwrap') {
             Write-Log '── [2/卸载] RDP Wrapper ──'
-            try { Uninstall-RdpWrapper; [void]$results.Add('[OK] 已卸载远程桌面解锁') }
-            catch { Write-Log "失败: $($_.Exception.Message)"; [void]$results.Add('[失败] 远程桌面解锁') }
+            try { Uninstall-RdpWrapper; [void]$results.Add('[OK] 已恢复单人限制') }
+            catch { Write-Log "失败: $($_.Exception.Message)"; [void]$results.Add('[失败] 双人同机') }
         }
 
         # ── 3 · 串流会话守护服务 ──
@@ -1192,8 +1194,8 @@ $ui['btnUninstall'].Add_Click({
             try { Uninstall-ApolloGuard; [void]$results.Add('[OK] 已取消开机自启') }
             catch { Write-Log "失败: $($_.Exception.Message)"; [void]$results.Add('[失败] 取消自启') }
             Write-Log '── [3/卸载] WSGuard 服务 ──'
-            try { Uninstall-Wsguard; [void]$results.Add('[OK] 已卸载守护服务') }
-            catch { Write-Log "失败: $($_.Exception.Message)"; [void]$results.Add('[失败] 守护服务') }
+            try { Uninstall-Wsguard; [void]$results.Add('[OK] 已卸载后台保活') }
+            catch { Write-Log "失败: $($_.Exception.Message)"; [void]$results.Add('[失败] 后台保活') }
         }
 
         # ── 4 · 可选功能 ──
