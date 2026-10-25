@@ -449,6 +449,11 @@ def launch_apollo(session_id):
                 si = STARTUPINFOW()
                 si.cb = ctypes.sizeof(STARTUPINFOW)
                 si.lpDesktop = 'WinSta0\\Default'
+                # sunshine.exe is a console app: without STARTF_USESHOWWINDOW/SW_HIDE
+                # CreateProcessAsUserW gives it a visible console window in the
+                # user session. Hide it the same way the PS guard child is hidden.
+                si.dwFlags = 0x00000001  # STARTF_USESHOWWINDOW
+                si.wShowWindow = 0       # SW_HIDE
                 pi = PROCESS_INFORMATION()
                 cmdline = ctypes.create_unicode_buffer('"%s"' % exe)
                 ok = _advapi32.CreateProcessAsUserW(wintypes.HANDLE(tok), None, cmdline, None, None, False,
