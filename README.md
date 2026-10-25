@@ -19,7 +19,8 @@
 | 目录 / 文件 | 说明 |
 | --- | --- |
 | `setup.bat` | 一键安装入口（实际逻辑在 `scripts\sunshine-setup.ps1`） |
-| `sunshine.exe` / `zlib1.dll` | Sunshine 本体 |
+| `sunshine.exe` / `zlib1.dll` | Sunshine 本体（Apollo） |
+| `LICENSE` / `licenses\` / `THIRD-PARTY-NOTICES.md` | 许可证：自有代码 GPL-3.0，第三方组件许可声明 |
 | `config\` | Sunshine 配置（`credentials\`、`sunshine_state.json` 为本机生成，不入库） |
 | `scripts\` | 安装 / 卸载 / 防火墙 / 手柄驱动等脚本 |
 | `tools\` | rdpWrapper、GameManager 等工具 |
@@ -56,6 +57,25 @@ python -m pip install --target ..\..\.wsguard-build\rdp-lib      -r requirements
   - `wsguard\rdp.cred`（DPAPI 本机加密的串流用户密码）
 - **构建现场**：`.wsguard-build\`（pip 依赖可随时重装，见上一节）
 - **临时文件**：`.temp\`、`__pycache__\`、`*.pyc`
+
+## 许可证
+
+本仓库自有代码（安装脚本、wsguard、gv_hook 等）以 **GPL-3.0** 授权，全文见 [LICENSE](LICENSE)。
+
+仓库内捆绑的第三方组件各自保留原始许可证：
+
+| 组件 | 许可证 |
+| --- | --- |
+| Apollo（sunshine.exe 及附属工具） | GPL-3.0 |
+| RDP Wrapper | Apache-2.0 |
+| GameManager（作者本人的开源项目） | GPL-3.0 |
+| ViGEmBus 驱动 | BSD-3-Clause |
+| SudoVDA 虚拟显示驱动 | MIT |
+| nefcon | MIT |
+| zlib | zlib License |
+| wsguard 的 Python 依赖（aardwolf 等） | MIT / BSD / Apache-2.0 / MPL-2.0 / PSF 等 |
+
+完整清单、版本号与许可证全文见 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) 与 [licenses\](licenses) 目录。
 
 ## 自检
 
