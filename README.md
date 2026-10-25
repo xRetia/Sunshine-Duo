@@ -9,13 +9,13 @@
 <a href="https://github.com/xRetia/Sunshine-Duo/archive/refs/heads/main.zip">
   <img src="https://img.shields.io/badge/⬇_下载最新版-ZIP_绿色免安装-22c55e?style=for-the-badge" alt="下载最新版">
 </a>&nbsp;
-<a href="https://ghfast.top/https://github.com/xRetia/Sunshine-Duo/archive/refs/heads/main.zip">
-  <img src="https://img.shields.io/badge/🇨🇳_国内镜像下载-ghfast.top-f59e0b?style=for-the-badge" alt="国内镜像下载">
+<a href="https://gh-proxy.com/https://github.com/xRetia/Sunshine-Duo/archive/refs/heads/main.zip">
+  <img src="https://img.shields.io/badge/🇨🇳_国内镜像下载-gh--proxy.com-f59e0b?style=for-the-badge" alt="国内镜像下载">
 </a>
 
 <br/>
 
-<sub>备用镜像：<a href="https://gh-proxy.com/https://github.com/xRetia/Sunshine-Duo/archive/refs/heads/main.zip">gh-proxy.com</a>　·　下载后解压到任意目录，双击 <code>setup.bat</code> 即装</sub>
+<sub>备用镜像：<a href="https://ghfast.top/https://github.com/xRetia/Sunshine-Duo/archive/refs/heads/main.zip">ghfast.top</a>　·　下载后解压到任意目录，双击 <code>setup.bat</code> 即装</sub>
 
 <br/>
 
@@ -26,6 +26,16 @@
 </div>
 
 ---
+
+## 🛡️ 杀毒软件报毒？先别慌，这不是黑客工具
+
+本工具为了实现「断开后游戏画面不掉线」「手柄即插即用」这些体验，需要安装**后台服务、虚拟手柄驱动、远程会话组件**——这些行为特征和某些远程管理工具很像，**部分杀毒软件可能误报**。
+
+- ✅ 全部源码开放（GPL-3.0），每一行都能自己审
+- ✅ 核心组件都是知名开源项目：Apollo、RDP Wrapper、ViGEmBus、SudoVDA（见[开源许可](#️-开源许可)）
+- ✅ 不碰你的隐私、不开后门、不联网上传任何东西
+
+**遇到拦截怎么办**：把解压出来的整个文件夹加入杀毒软件的**信任区 / 白名单**（Windows Defender → 病毒和威胁防护 → 允许的威胁；其他杀软类似），然后重新运行 `setup.bat` 就行。
 
 ## 🎮 一台电脑，当两台用
 
