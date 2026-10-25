@@ -9,7 +9,7 @@
    - **1 · Sunshine 串流服务**：写入默认配置（显卡 / 手柄 / UPnP）+ 渲染显卡选择 + 防火墙放行（可选）+ 虚拟手柄驱动 ViGEmBus（可选，虚拟为 Xbox 360 手柄）
    - **2 · 远程桌面解锁**：RdpWrapper，允许同一电脑同时登录主用户和串流用户
    - **3 · 串流会话守护服务**：串流用户与密码（LogonUser 验证）、开机自动登录、虚拟屏分辨率、WSGuard 服务（断开串流后自动保活虚拟屏、开机自启并拉起 Sunshine）
-   - **4 · 可选功能**：游戏菜单（可直接启动需要管理员权限的游戏，快捷方式放 `Links\`）、解绑所有已配对设备
+   - **4 · 可选功能**：游戏菜单（可直接启动需要管理员权限的游戏，快捷方式放 `Links\`，目录不入库）、解绑所有已配对设备
 3. 点「开始安装」，执行过程实时见「运行日志」选项卡。
 
 卸载：同一界面切到「卸载」选项卡，执行反向反注册（不删除程序文件、配置与凭据）。
@@ -28,7 +28,7 @@
 | `wsguard\src\` | wsguard 源码与重打包脚本（PyInstaller） |
 | `drivers\` | 虚拟显示驱动（sudovda） |
 | `assets\` | Sunshine 资源文件 |
-| `Links\` | 游戏菜单快捷方式目录（GameManager 用） |
+| `Links\` | 游戏菜单快捷方式目录（GameManager 用，本机游戏快捷方式不入库） |
 
 ## 重新构建 wsguard（可选）
 
@@ -57,6 +57,7 @@ python -m pip install --target ..\..\.wsguard-build\rdp-lib      -r requirements
   - `wsguard\rdp.cred`（DPAPI 本机加密的串流用户密码）
 - **构建现场**：`.wsguard-build\`（pip 依赖可随时重装，见上一节）
 - **临时文件**：`.temp\`、`__pycache__\`、`*.pyc`
+- **游戏快捷方式**：`Links\`（指向本机已安装的游戏，他人克隆后无效，自行创建）
 
 ## 许可证
 
