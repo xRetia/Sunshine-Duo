@@ -16,5 +16,6 @@ wsguard/rdp.cred
 __pycache__/
 *.pyc
 
-# ---- 游戏快捷方式（指向本机游戏，别人机器无效）----
-Links/
+# ---- 游戏快捷方式（指向本机游戏，别人机器无效；目录本身靠 README.md 占位入库）----
+Links/*
+!Links/README.md
