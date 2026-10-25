@@ -15,3 +15,6 @@ wsguard/rdp.cred
 .temp/
 __pycache__/
 *.pyc
+
+# ---- 游戏快捷方式（指向本机游戏，别人机器无效）----
+Links/
