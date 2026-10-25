@@ -11,11 +11,14 @@
 </a>&nbsp;
 <a href="https://gh-proxy.com/https://github.com/xRetia/Sunshine-Duo/archive/refs/heads/main.zip">
   <img src="https://img.shields.io/badge/🇨🇳_国内镜像下载-gh--proxy.com-f59e0b?style=for-the-badge" alt="国内镜像下载">
+</a>&nbsp;
+<a href="https://github.com/Axixi2233/moonlight-android/releases/latest">
+  <img src="https://img.shields.io/badge/📱_配套客户端-阿西西月光_安卓端-7289DA?style=for-the-badge" alt="阿西西月光">
 </a>
 
 <br/>
 
-<sub>备用镜像：<a href="https://ghfast.top/https://github.com/xRetia/Sunshine-Duo/archive/refs/heads/main.zip">ghfast.top</a>　·　下载后解压到任意目录，双击 <code>setup.bat</code> 即装</sub>
+<sub>备用镜像：<a href="https://ghfast.top/https://github.com/xRetia/Sunshine-Duo/archive/refs/heads/main.zip">ghfast.top</a>　·　iOS / 电视 / PC 端请用官方 <a href="https://moonlight-stream.org">Moonlight</a>，功能完全兼容</sub>
 
 <br/>
 
@@ -64,9 +67,11 @@
 
 ## 🚀 三步开玩
 
-1. **下载解压**——点上面的下载按钮，解压到任意目录（D 盘 E 盘都行，放游戏盘旁边也可以）
-2. **双击 `setup.bat`**——会自动申请管理员权限；界面里的选项都有中文说明，看一眼默认值，输入一次 Windows 登录密码，点「开始安装」
-3. **手机/电视装 [Moonlight](https://moonlight-stream.org)**——同一 WiFi 下自动发现主机，输 4 位配对码，开玩 🎉
+> ⚠️ **安装前先做一件事：暂时关闭杀毒软件**（或直接把解压出的文件夹加入信任区 / 白名单）。原因见上方蓝底说明——装后台服务、驱动这些行为容易被误报拦截，导致安装失败。装完后可以再打开。
+
+1. **解压并安装**——解压到任意目录（D 盘 E 盘都行），双击 **`setup.bat`**；弹出蓝色 UAC 授权窗口时点 **「是」**（安装需要管理员权限，不点它没法装服务、驱动和防火墙规则）
+2. **按向导走完三步**——选串流用的显卡 → 输入电脑登录密码 → 勾选可选功能，点「开始安装」等完成
+3. **手机装客户端，连上开玩**——安卓手机推荐上面的 **阿西西月光**（Moonlight 汉化增强版）；iPhone / iPad / 电视 / PC 用官方 [Moonlight](https://moonlight-stream.org)。同一 WiFi 下客户端会自动发现主机，输入主机网页显示的 4 位配对码即可连接 🎉
 
 > 💡 **第一次用**：安装完建议先用 Moonlight 串流进去确认一切正常，再把游戏快捷方式放进 `Links\` 文件夹，之后从游戏菜单一键启动。
 
