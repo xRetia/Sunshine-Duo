@@ -1,10 +1,13 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-  Sunshine 串流环境一键部署 / 反注册工具（WPF 图形界面，单文件，零外部依赖）。
+  Sunshine 串流环境一键部署 / 反注册工具（游戏安装器风格 WPF 界面，单文件，零外部依赖）。
 
 .DESCRIPTION
-  安装（界面 4 组：1/2/3 组必装，第 4 组可选；可选项直接调用 scripts\ 下现成脚本）：
+  界面为无边框深色多页框架（欢迎 → 配置 → 执行 → 结果），渲染走 WPF(DirectX 合成)；
+  安装 / 卸载逻辑在后台 Runspace 执行，UI 线程只负责动画、进度与日志泵，全程不冻结。
+
+  安装（页面为配置卡片：1/2/3 组必装，第 4 组可选；可选项直接调用 scripts\ 下现成脚本）：
     1 · Sunshine 串流服务（必装）：
        - 写入 config\sunshine.conf：adapter_name 自动检测物理显卡
          （Intel / NVIDIA / AMD，已排除各类虚拟显卡），多卡时人工选择。
@@ -13,8 +16,10 @@
        - 虚拟手柄驱动（默认勾选，可取消）：调用 scripts\install-gamepad.ps1 安装
          ViGEmBus（串流手柄虚拟为 Xbox 360 手柄，已装 1.17+ 自动跳过）。
     2 · 远程桌面解锁（必装）：静默安装 tools\rdpWrapper.exe（官方命令行 -install，
-       解锁单用户并发 RDP，同一账号可同时本地 + 远程在线）。
-    3 · 串流会话守护服务（必装，登录信息在本组）：
+        解锁单用户并发 RDP，同一账号可同时本地 + 远程在线）。
+       - 会话 GPU 加速（默认勾选）：Terminal Services 策略写 3 个 DWORD，
+         RDP 型会话改用物理显卡渲染 + AVC444 + 硬件编码。
+    3 · 串流会话守护服务（必装，登录信息在密码卡片）：
        - 当前用户作为串流用户，密码经 LogonUser 验证；含“开机自动登录”选项
          （无会话时 wsguard 自动 RDP 拉起会话，auto_logon）与虚拟屏分辨率。
        - 注册 wsguard 服务 WSGuard / 显示名 Game Windows Session Guard；密码经 DPAPI
@@ -31,9 +36,9 @@
        - 解绑所有已配对设备（执行时二次确认）、清空 sunshine.log。
   卸载：与安装分组一一对应的反注册操作（不删除程序文件、配置与凭据）：
         移除防火墙规则（scripts\delete-firewall-rule.bat）、卸载手柄驱动
-        （scripts\uninstall-gamepad.ps1）、卸载 RdpWrapper、关闭 Apollo 守卫并删除
-        WSGuard 服务、卸载 GameManager；同步清理旧名任务「Sunshine Autostart (Game)」
-        与旧服务 GameViewerSessionHook。
+        （scripts\uninstall-gamepad.ps1）、卸载 RdpWrapper、删除会话 GPU 加速策略、
+        关闭 Apollo 守卫并删除 WSGuard 服务、卸载 GameManager；同步清理旧名任务
+        「Sunshine Autostart (Game)」与旧服务 GameViewerSessionHook。
   路径全部由脚本所在目录（scripts\ 的父目录）推导，Sunshine 目录可整体移动。
 
 .PARAMETER SelfTest
@@ -52,13 +57,13 @@ param([switch]$SelfTest)
 $Root         = Split-Path -Parent $PSScriptRoot          # Sunshine 根目录
 $TaskName     = 'Sunshine Autostart'                      # 旧计划任务名（仅迁移清理用）
 $RunValueName = 'Sunshine'                                # 旧 HKCU Run 键值名（仅迁移清理用）
-$SvcName      = 'WSGuard'                                  # wsguard 服务名（与 exe 内嵌一致）
-$SvcDispName  = 'Game Windows Session Guard'               # wsguard 服务显示名
-$LegacySvc    = 'GameViewerSessionHook'                    # 旧服务名（迁移清理用）
-$LegacyTask   = 'Sunshine Autostart (Game)'                # 旧任务名（迁移清理用）
+$SvcName      = 'WSGuard'                                 # wsguard 服务名（与 exe 内嵌一致）
+$SvcDispName  = 'Game Windows Session Guard'              # wsguard 服务显示名
+$LegacySvc    = 'GameViewerSessionHook'                   # 旧服务名（迁移清理用）
+$LegacyTask   = 'Sunshine Autostart (Game)'               # 旧任务名（迁移清理用）
 $GmSvcName    = 'GameManagerService'                      # GameManager 服务名
 $RdpWrapDir   = 'C:\Program Files\RDP Wrapper'            # rdpWrapper 默认安装目录
-$LinksDir     = Join-Path $Root 'Links'                    # GameManager 快捷方式目录
+$LinksDir     = Join-Path $Root 'Links'                   # GameManager 快捷方式目录
 
 $ConfPath     = Join-Path $Root 'config\sunshine.conf'
 $StatePath    = Join-Path $Root 'config\sunshine_state.json'
@@ -73,25 +78,60 @@ $WgExe        = Join-Path $WgDir 'wsguard.exe'
 $WgCredPath   = Join-Path $WgDir 'rdp.cred'
 $WgCfgPath    = Join-Path $WgDir 'config.json'
 
-$script:LogBox = $null
-$script:Window = $null
+$script:LogBox   = $null
+$script:Window   = $null
+$script:SLogQueue = $null       # 后台 Runspace 的日志队列（主线程恒为空）
 
 # ----------------------------------------------------------------------------
-# 基础函数
+# 安装 / 卸载操作代码（主线程 Invoke-Expression 仅为自检定义函数；
+# 实际执行由后台 Runspace 载入同一段代码后调用 Invoke-InstallRun / Invoke-UninstallRun）
+# 函数体内的 $Root 等常量：主线程取本文件常量，Runspace 内取共享哈希表 $S 的同名键。
 # ----------------------------------------------------------------------------
+$OpsCode = @'
+# ── Runspace / 自检共用的常量回退 ──────────────────────────────
+$ScriptsDir = if ($PSScriptRoot)          { $PSScriptRoot }           elseif ($S) { $S.ScriptsDir }
+$Root          = if ($Root)          { $Root }          elseif ($S) { $S.Root }
+$TaskName      = if ($TaskName)      { $TaskName }      elseif ($S) { $S.TaskName }
+$RunValueName  = if ($RunValueName)  { $RunValueName }  elseif ($S) { $S.RunValueName }
+$SvcName       = if ($SvcName)       { $SvcName }       elseif ($S) { $S.SvcName }
+$SvcDispName   = if ($SvcDispName)   { $SvcDispName }   elseif ($S) { $S.SvcDispName }
+$LegacySvc     = if ($LegacySvc)     { $LegacySvc }     elseif ($S) { $S.LegacySvc }
+$LegacyTask    = if ($LegacyTask)    { $LegacyTask }    elseif ($S) { $S.LegacyTask }
+$GmSvcName     = if ($GmSvcName)     { $GmSvcName }     elseif ($S) { $S.GmSvcName }
+$RdpWrapDir    = if ($RdpWrapDir)    { $RdpWrapDir }    elseif ($S) { $S.RdpWrapDir }
+$LinksDir      = if ($LinksDir)      { $LinksDir }      elseif ($S) { $S.LinksDir }
+$ConfPath      = if ($ConfPath)      { $ConfPath }      elseif ($S) { $S.ConfPath }
+$StatePath     = if ($StatePath)     { $StatePath }     elseif ($S) { $S.StatePath }
+$LogPath       = if ($LogPath)       { $LogPath }       elseif ($S) { $S.LogPath }
+$LogBakPath    = if ($LogBakPath)    { $LogBakPath }    elseif ($S) { $S.LogBakPath }
+$TsPolicyKey   = if ($TsPolicyKey)   { $TsPolicyKey }   elseif ($S) { $S.TsPolicyKey }
+$TsGpuAccelValues = if ($TsGpuAccelValues) { $TsGpuAccelValues } elseif ($S) { $S.TsGpuAccelValues }
+$RdpWrapExe    = if ($RdpWrapExe)    { $RdpWrapExe }    elseif ($S) { $S.RdpWrapExe }
+$GmExe         = if ($GmExe)         { $GmExe }         elseif ($S) { $S.GmExe }
+$WgDir         = if ($WgDir)         { $WgDir }         elseif ($S) { $S.WgDir }
+$WgExe         = if ($WgExe)         { $WgExe }         elseif ($S) { $S.WgExe }
+$WgCredPath    = if ($WgCredPath)    { $WgCredPath }    elseif ($S) { $S.WgCredPath }
+$WgCfgPath     = if ($WgCfgPath)     { $WgCfgPath }     elseif ($S) { $S.WgCfgPath }
+
+# ── 基础函数 ──────────────────────────────────────────────────
+# Write-Log：后台 Runspace($script:SLogQueue 非空)写队列；UI 线程直接写日志框。
 function Write-Log {
     param([string]$Message)
     $line = ('[{0}] {1}' -f (Get-Date -Format 'HH:mm:ss'), $Message)
+    if ($script:SLogQueue) {
+        $script:SLogQueue.Enqueue($line)
+        return
+    }
     if ($script:LogBox) {
         $script:LogBox.AppendText($line + "`r`n")
         $script:LogBox.ScrollToEnd()
-        # 在 UI 线程内刷新渲染队列，让日志即时可见
         $script:LogBox.Dispatcher.Invoke([action]{}, [System.Windows.Threading.DispatcherPriority]::Render)
     } else {
         Write-Host $line
     }
 }
 
+# Update-Ui：仅主线程有意义；后台 Runspace 内为 no-op（UI 由 DispatcherTimer 驱动）
 function Update-Ui {
     if ($script:Window) {
         $script:Window.Dispatcher.Invoke([action]{}, [System.Windows.Threading.DispatcherPriority]::Render)
@@ -140,10 +180,9 @@ function Get-PhysicalGpus {
     return ,$list
 }
 
-# ----------------------------------------------------------------------------
-# 安装操作（函数按界面分组标注：1 Sunshine 服务 / 2 远程桌面解锁 / 3 守护服务 / 4 可选；
-# 实际执行顺序由“安装按钮”处理器按组依次调用）
-# ----------------------------------------------------------------------------
+# ============================================================================
+# 安装操作（函数按界面分组标注：1 Sunshine 服务 / 2 远程桌面解锁 / 3 守护服务 / 4 可选）
+# ============================================================================
 
 # 3 · Sunshine 开机自启 = wsguard Apollo 守卫：写 config.json 的 guard_apollo，
 #     并清理旧自启机制（Run 键 / 计划任务）。Apollo 由 wsguard 服务以提升令牌拉起。
@@ -210,7 +249,7 @@ function Write-SunshineConf {
 # 1 · 防火墙放行 Sunshine（默认勾选，可取消）：直接调用现成 scripts\add-firewall-rule.bat，
 #     为 sunshine.exe 放行 TCP/UDP 入站（规则名 Apollo，路径由 bat 自身相对推导）
 function Install-FirewallRule {
-    $bat = Join-Path $PSScriptRoot 'add-firewall-rule.bat'
+    $bat = Join-Path $ScriptsDir 'add-firewall-rule.bat'
     if (-not (Test-Path $bat)) { throw "未找到 $bat" }
     Write-Log '执行 scripts\add-firewall-rule.bat（放行 TCP/UDP 入站，规则名 Apollo）...'
     Start-Process -FilePath $bat -WindowStyle Hidden -Wait
@@ -225,7 +264,7 @@ function Install-FirewallRule {
 # 1 · 虚拟手柄驱动（默认勾选，可取消）：直接调用现成 scripts\install-gamepad.ps1
 #     安装 ViGEmBus（串流手柄虚拟为 Xbox 360 手柄；已装 1.17+ 时脚本自身跳过）
 function Install-Gamepad {
-    $ps1 = Join-Path $PSScriptRoot 'install-gamepad.ps1'
+    $ps1 = Join-Path $ScriptsDir 'install-gamepad.ps1'
     if (-not (Test-Path $ps1)) { throw "未找到 $ps1" }
     $sys = Join-Path $env:SystemRoot 'System32\drivers\ViGEmBus.sys'
     $had = Test-Path $sys
@@ -461,12 +500,12 @@ function Install-Wsguard {
     }
 }
 
-# ----------------------------------------------------------------------------
+# ============================================================================
 # 卸载操作（与安装界面分组一一对应，不删除程序文件、配置与凭据）
-# ----------------------------------------------------------------------------
+# ============================================================================
 # 1 · 移除防火墙放行规则：直接调用现成 scripts\delete-firewall-rule.bat
 function Uninstall-FirewallRule {
-    $bat = Join-Path $PSScriptRoot 'delete-firewall-rule.bat'
+    $bat = Join-Path $ScriptsDir 'delete-firewall-rule.bat'
     if (-not (Test-Path $bat)) { throw "未找到 $bat" }
     Write-Log '执行 scripts\delete-firewall-rule.bat（删除规则 Apollo）...'
     Start-Process -FilePath $bat -WindowStyle Hidden -Wait
@@ -480,7 +519,7 @@ function Uninstall-FirewallRule {
 
 # 1 · 卸载虚拟手柄驱动：直接调用现成 scripts\uninstall-gamepad.ps1（Win32_Product 方式）
 function Uninstall-Gamepad {
-    $ps1 = Join-Path $PSScriptRoot 'uninstall-gamepad.ps1'
+    $ps1 = Join-Path $ScriptsDir 'uninstall-gamepad.ps1'
     if (-not (Test-Path $ps1)) { throw "未找到 $ps1" }
     Write-Log '执行 scripts\uninstall-gamepad.ps1（Win32_Product 卸载，可能耗时数分钟）...'
     $p = Start-Process -FilePath 'powershell.exe' -WindowStyle Hidden -PassThru -ArgumentList @(
@@ -611,199 +650,788 @@ function Uninstall-GameManager {
     }
 }
 
+# ============================================================================
+# 执行编排（后台 Runspace 调用；进度 / 结果写回共享哈希表 $S.Prog）
+# ============================================================================
+function Invoke-InstallRun {
+    param([hashtable]$Opts)
+    $keys   = @($Opts.Steps)
+    $labels = $Opts.Labels
+    $S.Prog.StepTotal = $keys.Count
+    $S.Prog.StepIndex = 0
+    $results = New-Object System.Collections.ArrayList
+    foreach ($k in $keys) {
+        $S.Prog.Current = [string]$labels[$k]
+        $S.Prog.Steps[$k] = 'running'
+        $S.Prog.StepIndex++
+        try {
+            switch ($k) {
+                'conf'     { Write-SunshineConf -AdapterName $Opts.Adapter }
+                'gpuaccel' { Install-GpuAcceleration }
+                'firewall' { Install-FirewallRule }
+                'gamepad'  { Install-Gamepad }
+                'rdpwrap'  { Install-RdpWrapper }
+                'wsguard'  {
+                    Install-Wsguard -RdpUser $Opts.User -Password $Opts.Password -Vw $Opts.Vw -Vh $Opts.Vh -AutoLogon $Opts.AutoLogon
+                    Install-ApolloGuard -User $Opts.User
+                }
+                'gamemgr'  { Install-GameManager }
+                'reset'    { Reset-SunshineState }
+                default    { throw "未知安装项 $k" }
+            }
+            $S.Prog.Steps[$k] = 'ok'
+            [void]$results.Add(@{ Key = $k; Label = [string]$labels[$k]; Ok = $true })
+        } catch {
+            Write-Log "失败: $($_.Exception.Message)"
+            $S.Prog.Steps[$k] = 'fail'
+            [void]$results.Add(@{ Key = $k; Label = [string]$labels[$k]; Ok = $false })
+        }
+    }
+    if (Get-Process -Name 'sunshine' -ErrorAction SilentlyContinue) {
+        Write-Log '提示: Sunshine 正在运行，需要重启 Sunshine 后新配置才生效'
+    }
+    $S.Prog.Results = @($results | ForEach-Object {
+        [PSCustomObject]@{ Key = $_.Key; Label = [string]$_.Label; Ok = $_.Ok }
+    })
+    $S.Prog.Done = $true
+}
+
+function Invoke-UninstallRun {
+    param([hashtable]$Opts)
+    $keys   = @($Opts.Steps)
+    $labels = $Opts.Labels
+    $S.Prog.StepTotal = $keys.Count
+    $S.Prog.StepIndex = 0
+    $results = New-Object System.Collections.ArrayList
+    foreach ($k in $keys) {
+        $S.Prog.Current = [string]$labels[$k]
+        $S.Prog.Steps[$k] = 'running'
+        $S.Prog.StepIndex++
+        try {
+            switch ($k) {
+                'firewall' { Uninstall-FirewallRule }
+                'gamepad'  { Uninstall-Gamepad }
+                'rdpwrap'  { Uninstall-RdpWrapper }
+                'gpuaccel' { Uninstall-GpuAcceleration }
+                'wsguard'  {
+                    Uninstall-ApolloGuard
+                    Uninstall-Wsguard
+                }
+                'gamemgr'  { Uninstall-GameManager }
+                default    { throw "未知卸载项 $k" }
+            }
+            $S.Prog.Steps[$k] = 'ok'
+            [void]$results.Add(@{ Key = $k; Label = [string]$labels[$k]; Ok = $true })
+        } catch {
+            Write-Log "失败: $($_.Exception.Message)"
+            $S.Prog.Steps[$k] = 'fail'
+            [void]$results.Add(@{ Key = $k; Label = [string]$labels[$k]; Ok = $false })
+        }
+    }
+    $S.Prog.Results = @($results | ForEach-Object {
+        [PSCustomObject]@{ Key = $_.Key; Label = [string]$_.Label; Ok = $_.Ok }
+    })
+    $S.Prog.Done = $true
+}
+'@
+
+# 上述共用代码在主线程定义（自检需要 Install-GpuAcceleration / Uninstall-GpuAcceleration 等存在）
+Invoke-Expression $OpsCode
+
 # ----------------------------------------------------------------------------
-# XAML（界面）
+# XAML（界面：无边框深色多页框架，WPF/DirectX 合成渲染）
 # ----------------------------------------------------------------------------
 $xaml = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Sunshine 串流环境部署工具" Width="800" Height="720"
-        MinWidth="760" MinHeight="660" WindowStartupLocation="CenterScreen"
-        Background="#EEF1F6">
-  <DockPanel>
-    <Border DockPanel.Dock="Top" Background="#0F172A" Padding="16,12">
-      <StackPanel>
-        <TextBlock Text="Sunshine-Duo 安装器" Foreground="White" FontSize="17" FontWeight="Bold"/>
-        <StackPanel Orientation="Horizontal" Margin="0,5,0,0">
-          <TextBlock Text="程序位置：" Foreground="#94A3B8" FontSize="11" VerticalAlignment="Center"/>
-          <TextBlock x:Name="lblRoot" Foreground="#CBD5E1" FontSize="11" VerticalAlignment="Center"/>
-        </StackPanel>
-      </StackPanel>
-    </Border>
-    <Border DockPanel.Dock="Top" Background="#FEF3C7" Padding="10,6" Margin="10,4,10,0">
-      <TextBlock FontSize="11.5" Foreground="#92400E" TextWrapping="Wrap"
-                  Text="🛡 杀毒软件可能误报：本工具需安装服务、驱动与远程会话组件，行为特征与远程管理工具相似，可能被误报为风险程序。如遇拦截，将本目录加入杀毒软件信任区 / 白名单后重新运行即可。全部源码开放（GPL-3.0）。"/>
-    </Border>
-    <TabControl x:Name="tabs" Margin="10,8,10,10">
-      <TabItem Header=" 安装 ">
-        <StackPanel Margin="10">
-          <!-- 步骤指示器 -->
-          <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,2,0,10">
-            <TextBlock x:Name="lblStep1" Text="① 显卡与组件" Foreground="#2563EB" FontWeight="Bold" FontSize="13"/>
-            <TextBlock Text="  ──  " Foreground="#94A3B8"/>
-            <TextBlock x:Name="lblStep2" Text="② 串流用户密码" Foreground="#94A3B8" FontWeight="Bold" FontSize="13"/>
-            <TextBlock Text="  ──  " Foreground="#94A3B8"/>
-            <TextBlock x:Name="lblStep3" Text="③ 可选功能" Foreground="#94A3B8" FontWeight="Bold" FontSize="13"/>
+        Title="Sunshine-Duo 部署工具" Width="960" Height="700"
+        WindowStartupLocation="CenterScreen" ResizeMode="NoResize"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        FontFamily="Segoe UI, Microsoft YaHei UI" FontSize="12.5">
+  <Window.Resources>
+    <SolidColorBrush x:Key="TextBrush" Color="#E2E8F0"/>
+    <SolidColorBrush x:Key="MutedBrush" Color="#94A3B8"/>
+
+    <!-- 全局隐式样式：深色主题下的默认字色（局部显式 Foreground 仍然优先） -->
+    <Style TargetType="TextBlock">
+      <Setter Property="Foreground" Value="#E2E8F0"/>
+    </Style>
+    <Style TargetType="CheckBox">
+      <Setter Property="Foreground" Value="#E2E8F0"/>
+    </Style>
+    <Style TargetType="TextBox">
+      <Setter Property="Foreground" Value="#E2E8F0"/>
+      <Setter Property="Background" Value="#0C1526"/>
+      <Setter Property="BorderBrush" Value="#2A3B5F"/>
+      <Setter Property="CaretBrush" Value="#E2E8F0"/>
+      <Setter Property="Padding" Value="4,2"/>
+    </Style>
+    <Style TargetType="PasswordBox">
+      <Setter Property="Foreground" Value="#E2E8F0"/>
+      <Setter Property="Background" Value="#0C1526"/>
+      <Setter Property="BorderBrush" Value="#2A3B5F"/>
+      <Setter Property="CaretBrush" Value="#E2E8F0"/>
+      <Setter Property="Padding" Value="4,2"/>
+    </Style>
+    <Style TargetType="ComboBox">
+      <Setter Property="Foreground" Value="#E2E8F0"/>
+      <Setter Property="SnapsToDevicePixels" Value="True"/>
+      <Setter Property="OverridesDefaultStyle" Value="True"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ComboBox">
+            <Grid>
+              <Border x:Name="Border" CornerRadius="6" Background="#0C1526"
+                      BorderBrush="#2A3B5F" BorderThickness="1"/>
+              <ToggleButton x:Name="tgl" Focusable="False" ClickMode="Press"
+                            Background="Transparent"
+                            IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
+                <ToggleButton.Template>
+                  <ControlTemplate TargetType="ToggleButton">
+                    <Border Background="{TemplateBinding Background}" BorderThickness="0"/>
+                  </ControlTemplate>
+                </ToggleButton.Template>
+              </ToggleButton>
+              <ContentPresenter Margin="9,0,26,0" VerticalAlignment="Center" IsHitTestVisible="False"
+                                Content="{TemplateBinding SelectionBoxItem}"/>
+              <Path Data="M 0 0 L 4 4 L 8 0 Z" Fill="#94A3B8"
+                    HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,10,0"/>
+              <Popup x:Name="PART_Popup" Placement="Bottom" AllowsTransparency="True"
+                     PopupAnimation="Fade" Focusable="False"
+                     IsOpen="{Binding IsDropDownOpen, RelativeSource={RelativeSource TemplatedParent}}">
+                <Border CornerRadius="6" Background="#131F38" BorderBrush="#2A3B5F"
+                        BorderThickness="1" MinWidth="{TemplateBinding ActualWidth}"
+                        Margin="0,4,0,0" Padding="0,4">
+                  <ScrollViewer MaxHeight="220">
+                    <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Contained"/>
+                  </ScrollViewer>
+                </Border>
+              </Popup>
+            </Grid>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Border" Property="BorderBrush" Value="#3B82F6"/>
+              </Trigger>
+              <Trigger Property="IsDropDownOpen" Value="True">
+                <Setter TargetName="Border" Property="BorderBrush" Value="#3B82F6"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+    <Style TargetType="ComboBoxItem">
+      <Setter Property="Foreground" Value="#E2E8F0"/>
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="Padding" Value="9,5"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ComboBoxItem">
+            <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="4"
+                    Padding="{TemplateBinding Padding}" Margin="4,1">
+              <ContentPresenter VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsHighlighted" Value="True">
+                <Setter TargetName="bd" Property="Background" Value="#22305C"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+    <Style TargetType="ToolTip">
+      <Setter Property="Foreground" Value="#E2E8F0"/>
+      <Setter Property="Background" Value="#1B2A4A"/>
+      <Setter Property="BorderBrush" Value="#2A3B5F"/>
+      <Setter Property="Padding" Value="8,6"/>
+    </Style>
+
+    <SolidColorBrush x:Key="AccentBrush" Color="#3B82F6"/>
+    <SolidColorBrush x:Key="GreenBrush" Color="#22C55E"/>
+    <SolidColorBrush x:Key="RedBrush" Color="#F87171"/>
+    <SolidColorBrush x:Key="CardBrush" Color="#131F38"/>
+    <SolidColorBrush x:Key="CardLineBrush" Color="#223052"/>
+
+    <!-- 幽灵按钮 -->
+    <Style x:Key="BtnGhost" TargetType="Button">
+      <Setter Property="Foreground" Value="#E2E8F0"/>
+      <Setter Property="Background" Value="#1B2A4A"/>
+      <Setter Property="BorderBrush" Value="#2A3B5F"/>
+      <Setter Property="Padding" Value="14,7"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="bd" CornerRadius="6" Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1"
+                    Padding="{TemplateBinding Padding}">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="bd" Property="Background" Value="#24345A"/>
+              </Trigger>
+              <Trigger Property="IsPressed" Value="True">
+                <Setter TargetName="bd" Property="Background" Value="#16223D"/>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Opacity" Value="0.4"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+    <!-- 主色按钮 -->
+    <Style x:Key="BtnPrimary" TargetType="Button" BasedOn="{StaticResource BtnGhost}">
+      <Setter Property="Background" Value="#3B82F6"/>
+      <Setter Property="BorderBrush" Value="#3B82F6"/>
+      <Setter Property="FontWeight" Value="Bold"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="bd" CornerRadius="6" Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1"
+                    Padding="{TemplateBinding Padding}">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="bd" Property="Background" Value="#4C8DF6"/>
+              </Trigger>
+              <Trigger Property="IsPressed" Value="True">
+                <Setter TargetName="bd" Property="Background" Value="#2F6FE0"/>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Opacity" Value="0.4"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+    <!-- 绿色按钮（安装） -->
+    <Style x:Key="BtnGreen" TargetType="Button" BasedOn="{StaticResource BtnPrimary}">
+      <Setter Property="Background" Value="#16A34A"/>
+      <Setter Property="BorderBrush" Value="#16A34A"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="bd" CornerRadius="6" Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1"
+                    Padding="{TemplateBinding Padding}">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="bd" Property="Background" Value="#1CB356"/>
+              </Trigger>
+              <Trigger Property="IsPressed" Value="True">
+                <Setter TargetName="bd" Property="Background" Value="#128A3F"/>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Opacity" Value="0.4"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+    <!-- 红色按钮（卸载） -->
+    <Style x:Key="BtnRed" TargetType="Button" BasedOn="{StaticResource BtnPrimary}">
+      <Setter Property="Background" Value="#DC2626"/>
+      <Setter Property="BorderBrush" Value="#DC2626"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="bd" CornerRadius="6" Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1"
+                    Padding="{TemplateBinding Padding}">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="bd" Property="Background" Value="#E04848"/>
+              </Trigger>
+              <Trigger Property="IsPressed" Value="True">
+                <Setter TargetName="bd" Property="Background" Value="#B91C1C"/>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Opacity" Value="0.4"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <!-- 标题栏按钮 -->
+    <Style x:Key="BtnTitle" TargetType="Button">
+      <Setter Property="Foreground" Value="#94A3B8"/>
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="0">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="bd" Property="Background" Value="#1A2340"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <!-- 卡片 -->
+    <Style x:Key="Card" TargetType="Border">
+      <Setter Property="Background" Value="#E6131F38"/>
+      <Setter Property="BorderBrush" Value="{StaticResource CardLineBrush}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CornerRadius" Value="10"/>
+      <Setter Property="Padding" Value="16,12"/>
+      <Setter Property="Margin" Value="0,0,0,12"/>
+    </Style>
+
+    <!-- 进度条 -->
+    <Style x:Key="PbStyle" TargetType="ProgressBar">
+      <Setter Property="Height" Value="12"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ProgressBar">
+            <Grid>
+              <Border x:Name="trackBg" Background="#1E293B" CornerRadius="6"/>
+              <Border>
+                <Border x:Name="PART_Track">
+                  <Border x:Name="PART_Indicator" Background="#3B82F6" CornerRadius="6"
+                          HorizontalAlignment="Left"/>
+                </Border>
+              </Border>
+            </Grid>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+  </Window.Resources>
+
+  <Border x:Name="rootFrame" BorderBrush="#2A3B5F" BorderThickness="1"
+          Background="#DD0F172A" CornerRadius="10">
+    <Grid>
+      <Grid.RowDefinitions>
+        <RowDefinition Height="34"/>
+        <RowDefinition Height="*"/>
+      </Grid.RowDefinitions>
+
+      <!-- ── 自绘标题栏 ── -->
+      <Border Grid.Row="0" Background="#880B1220" BorderBrush="#223052" BorderThickness="0,0,0,1">
+        <Grid>
+          <TextBlock x:Name="lblHeadTitle" Text="Welcome" Foreground="#94A3B8" FontSize="12"
+                     Margin="14,0,0,0" VerticalAlignment="Center"/>
+          <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button x:Name="btnMin" Width="42" Height="32" Content="─" Style="{StaticResource BtnTitle}"
+                    FontSize="11"/>
+            <Button x:Name="btnClose" Width="42" Height="32" Content="✕" Style="{StaticResource BtnTitle}"
+                    FontSize="12"/>
           </StackPanel>
+        </Grid>
+      </Border>
 
-          <!-- 第 1 步：渲染显卡 + 组件清单（必装项灰色不可选） -->
-          <GroupBox x:Name="grpStep1" Header="第 1 步 · 渲染显卡与安装组件">
-            <StackPanel Margin="6">
-              <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
-                <TextBlock Text="渲染显卡：" VerticalAlignment="Center" FontWeight="Bold"/>
-                <ComboBox x:Name="cmbGpu" Width="400"/>
-              </StackPanel>
-              <TextBlock x:Name="lblGpuInfo" Foreground="#64748B" FontSize="11"
-                         Margin="0,4,0,0" TextWrapping="Wrap" Text="检测中..."/>
+      <!-- ── 主体：侧边栏 + 内容 ── -->
+      <Grid Grid.Row="1">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="200"/>
+          <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
 
-              <TextBlock Foreground="#64748B" FontSize="11.5" FontWeight="Bold" Margin="0,12,0,4"
-                         Text="安装组件："/>
-              <StackPanel Margin="12,0,0,0">
-                <CheckBox x:Name="chkConf" IsChecked="True" IsEnabled="False"
-                          Content="默认配置"/>
-                <TextBlock FontSize="11" Foreground="#64748B" Margin="20,2,0,0" TextWrapping="Wrap"
-                            Text="按所选显卡写入 Sunshine 配置文件，含编码 / 手柄 / UPnP"/>
-                <CheckBox x:Name="chkFirewall" IsChecked="True" IsEnabled="False" Margin="0,4,0,0"
-                          Content="防火墙规则"/>
-                <TextBlock FontSize="11" Foreground="#64748B" Margin="20,2,0,0"
-                           Text="放行 Sunshine 串流端口 TCP / UDP 入站"/>
-                <CheckBox x:Name="chkRdpWrap" IsChecked="True" IsEnabled="False" Margin="0,4,0,0"
-                          Content="RDP 并发解锁"/>
-                <TextBlock FontSize="11" Foreground="#64748B" Margin="20,2,0,0" TextWrapping="Wrap"
-                           Text="同一主机同时登录主用户与串流用户，Console 会话与游戏会话互不抢占"/>
-                <CheckBox x:Name="chkGpuAccel" IsChecked="True" Margin="0,4,0,0"
-                          Content="会话 GPU 加速"/>
-                <TextBlock FontSize="11" Foreground="#64748B" Margin="20,2,0,0" TextWrapping="Wrap"
-                           Text="远程会话改用物理显卡渲染，优先 AVC444 画质与硬件编码；已连接的会话需断开重连后生效"/>
-                <CheckBox x:Name="chkWsguard" IsChecked="True" IsEnabled="False" Margin="0,4,0,0"
-                          Content="串流会话守护服务"/>
-                <TextBlock FontSize="11" Foreground="#64748B" Margin="20,2,0,0" TextWrapping="Wrap"
-                           Text="WSGuard：串流断开后维持虚拟显示输出；开机自动启动 Sunshine"/>
-                <CheckBox x:Name="chkGamepad" IsChecked="True" Margin="0,4,0,0"
-                          Content="虚拟手柄驱动"/>
-                <TextBlock FontSize="11" Foreground="#64748B" Margin="20,2,0,0" TextWrapping="Wrap"
-                           Text="ViGEmBus：串流手柄识别为 Xbox 360 手柄；已安装 1.17 或更新版本时自动跳过"/>
+        <!-- 侧边栏 -->
+        <Border Grid.Column="0" Background="#880B1220" BorderBrush="#223052" BorderThickness="0,0,1,0">
+          <Grid Margin="12,0">
+            <Grid.RowDefinitions>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="*"/>
+              <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            <!-- 品牌 -->
+            <StackPanel Grid.Row="0" Margin="4,16,0,14">
+              <StackPanel Orientation="Horizontal">
+                <Border Width="30" Height="30" CornerRadius="8" Background="#1D4ED8" Margin="0,0,10,0">
+                  <TextBlock Text="S" Foreground="White" FontSize="17" FontWeight="Bold"
+                             HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+                <TextBlock Text="Sunshine-Duo" Foreground="White" FontSize="14.5" FontWeight="Bold"
+                           VerticalAlignment="Center"/>
               </StackPanel>
+              <TextBlock Text="串流环境一键部署" Foreground="#64748B" FontSize="11" Margin="0,7,0,0"/>
             </StackPanel>
-          </GroupBox>
+            <!-- 导航 -->
+            <StackPanel Grid.Row="1" x:Name="navHost">
+              <!-- 生成于代码：四个导航项 + 两个模式项 -->
+            </StackPanel>
+            <!-- 底部路径与版权 -->
+            <StackPanel Grid.Row="3" Margin="4,0,0,12">
+              <TextBlock x:Name="lblSideRoot" Foreground="#475569" FontSize="10.5"
+                         TextTrimming="CharacterEllipsis" ToolTip=""/>
+              <TextBlock Text="版权所有 (c) 苏羽茜工作室" Foreground="#3D4A63" FontSize="10.5"
+                         Margin="0,4,0,0"/>
+            </StackPanel>
+          </Grid>
+        </Border>
 
-          <!-- 第 2 步：串流用户与密码 -->
-          <GroupBox x:Name="grpStep2" Header="第 2 步 · 串流用户登录密码" Margin="0,8,0,0" Visibility="Collapsed">
-            <StackPanel Margin="6">
-              <StackPanel Orientation="Horizontal">
-                <TextBlock Text="串流用户：" VerticalAlignment="Center" FontWeight="Bold"/>
-                <TextBlock x:Name="lblUser" VerticalAlignment="Center" Margin="4,0,0,0" FontWeight="Bold"/>
-              </StackPanel>
-              <TextBlock Foreground="#DC2626" FontSize="11" Margin="0,4,0,8" TextWrapping="Wrap"
-                         Text="当前用户将设置为串流用户；如需更换用户，请先登录对应用户会话再运行本工具。"/>
-              <StackPanel Orientation="Horizontal">
-                <TextBlock Text="登录密码：" VerticalAlignment="Center" FontWeight="Bold"/>
-                <PasswordBox x:Name="pwdRdp" Width="200"/>
-                <Button x:Name="btnVerifyPw" Content="验证" Width="60" Margin="6,0,0,0"/>
-                <TextBlock x:Name="lblPwState" Margin="8,0,0,0" VerticalAlignment="Center"
-                           FontSize="11" Foreground="#64748B"/>
-              </StackPanel>
-              <TextBlock x:Name="lblCredState" Foreground="#64748B" FontSize="11" Margin="0,6,0,0"/>
-              <TextBlock Foreground="#64748B" FontSize="11.5" FontWeight="Bold" Margin="0,10,0,4"
-                         Text="守护服务设置："/>
-              <StackPanel Margin="12,0,0,0">
-                <CheckBox x:Name="chkAutoLogon" IsChecked="True"
-                          Content="开机自动登录串流用户"/>
-                <TextBlock FontSize="11" Foreground="#64748B" Margin="20,2,0,0"
-                           Text="无人值守：重启后无需登录即恢复串流"/>
-                <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                  <TextBlock Text="虚拟屏分辨率：" VerticalAlignment="Center"/>
-                  <TextBox x:Name="txtWidth" Width="64" Text="1600" VerticalAlignment="Center"/>
-                  <TextBlock Text=" × " VerticalAlignment="Center"/>
-                  <TextBox x:Name="txtHeight" Width="64" Text="720" VerticalAlignment="Center"/>
-                  <TextBlock Text="（手机横屏推荐 1920×1080）" Foreground="#64748B" FontSize="11"
-                             VerticalAlignment="Center" Margin="6,0,0,0"/>
+        <!-- 内容区 -->
+        <Grid Grid.Column="1">
+          <!-- ── 欢迎页 ── -->
+          <Grid x:Name="pgW" Margin="32,28,32,24">
+            <Grid.RenderTransform><TranslateTransform x:Name="ttW"/></Grid.RenderTransform>
+            <StackPanel Width="560" HorizontalAlignment="Center">
+              <TextBlock Text="欢迎使用 Sunshine-Duo" FontSize="24" FontWeight="Bold" Foreground="White"/>
+              <TextBlock Foreground="#94A3B8" FontSize="12.5" Margin="0,8,0,16" TextWrapping="Wrap"
+                         Text="一键完成串流环境部署：Sunshine 服务、远程桌面并发解锁、串流会话守护。安装过程在后台执行，界面全程保持流畅。"/>
+              <Border Style="{StaticResource Card}">
+                <StackPanel>
+                  <Grid Margin="0,2">
+                    <Grid.ColumnDefinitions>
+                      <ColumnDefinition Width="84"/>
+                      <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="部署目录" Foreground="#94A3B8"/>
+                    <TextBlock Grid.Column="1" x:Name="lblRoot" Foreground="#E2E8F0"
+                               TextTrimming="CharacterEllipsis"/>
+                  </Grid>
+                  <Grid Margin="0,7">
+                    <Grid.ColumnDefinitions>
+                      <ColumnDefinition Width="84"/>
+                      <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="串流用户" Foreground="#94A3B8"/>
+                    <TextBlock Grid.Column="1" x:Name="lblWelcomeUser" Foreground="#E2E8F0"/>
+                  </Grid>
+                  <Grid Margin="0,7">
+                    <Grid.ColumnDefinitions>
+                      <ColumnDefinition Width="84"/>
+                      <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="渲染显卡" Foreground="#94A3B8"/>
+                    <TextBlock Grid.Column="1" x:Name="lblWelcomeGpu" Foreground="#E2E8F0"
+                               TextTrimming="CharacterEllipsis"/>
+                  </Grid>
+                  <Grid Margin="0,7">
+                    <Grid.ColumnDefinitions>
+                      <ColumnDefinition Width="84"/>
+                      <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="WSGuard" Foreground="#94A3B8"/>
+                    <TextBlock Grid.Column="1" x:Name="lblWelcomeWg" Foreground="#E2E8F0"
+                               TextWrapping="Wrap"/>
+                  </Grid>
+                  <Grid Margin="0,7,0,2">
+                    <Grid.ColumnDefinitions>
+                      <ColumnDefinition Width="84"/>
+                      <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="密码凭据" Foreground="#94A3B8"/>
+                    <TextBlock Grid.Column="1" x:Name="lblWelcomeCred" Foreground="#E2E8F0"/>
+                  </Grid>
                 </StackPanel>
+              </Border>
+              <Border Background="#E62A2410" BorderBrush="#4D3D14" BorderThickness="1" CornerRadius="8"
+                      Padding="12,9" Margin="0,2,0,0">
+                <TextBlock Foreground="#FCD34D" FontSize="11.5" TextWrapping="Wrap"
+                           Text="🛡 杀毒软件可能误报：本工具需安装服务、驱动与远程会话组件，行为特征与远程管理工具相似。如遇拦截，将本目录加入白名单后重新运行。全部源码开放（GPL-3.0）。"/>
+              </Border>
+              <Button x:Name="btnGoSetup" Content="下一步：配置 &gt;" Style="{StaticResource BtnPrimary}"
+                      Width="200" Height="38" FontSize="13" Margin="0,20,0,0" HorizontalAlignment="Center"/>
+            </StackPanel>
+          </Grid>
+
+          <!-- ── 配置页（三步向导） ── -->
+          <Grid x:Name="pgS" Margin="28,20,28,16" Visibility="Collapsed">
+            <Grid.RenderTransform><TranslateTransform x:Name="ttS"/></Grid.RenderTransform>
+            <Grid.RowDefinitions>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="*"/>
+              <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <!-- 步骤指示器 -->
+            <StackPanel Grid.Row="0" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,2,0,10">
+              <TextBlock x:Name="lblStep1" Text="① 显卡与组件" FontSize="13" FontWeight="Bold"
+                         Foreground="#3B82F6"/>
+              <TextBlock Text="  ──  " Foreground="#475569"/>
+              <TextBlock x:Name="lblStep2" Text="② 串流用户密码" FontSize="13" FontWeight="Bold"
+                         Foreground="#64748B"/>
+              <TextBlock Text="  ──  " Foreground="#475569"/>
+              <TextBlock x:Name="lblStep3" Text="③ 可选功能" FontSize="13" FontWeight="Bold"
+                         Foreground="#64748B"/>
+            </StackPanel>
+
+            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+              <!-- 第 1 步 · 渲染显卡与组件（必装项灰色不可选） -->
+              <StackPanel x:Name="grpStep1" Margin="4,0,10,0">
+                <Border Style="{StaticResource Card}">
+                  <StackPanel>
+                    <TextBlock Text="渲染显卡（用于串流编码与渲染）" Foreground="#7DD3FC" FontSize="12.5"
+                               FontWeight="Bold" Margin="0,0,0,8"/>
+                    <StackPanel Orientation="Horizontal">
+                      <TextBlock Text="渲染显卡：" VerticalAlignment="Center"/>
+                      <ComboBox x:Name="cmbGpu" Width="420" Height="26" VerticalContentAlignment="Center"/>
+                    </StackPanel>
+                    <TextBlock x:Name="lblGpuInfo" Foreground="#64748B" FontSize="11"
+                               Margin="0,6,0,0" TextWrapping="Wrap" Text="检测中..."/>
+                  </StackPanel>
+                </Border>
+                <Border Style="{StaticResource Card}">
+                  <StackPanel>
+                    <TextBlock Text="必装组件（默认全部安装）" Foreground="#94A3B8" FontSize="11" Margin="0,0,0,6"/>
+                    <CheckBox x:Name="chkConf" IsChecked="True" IsEnabled="False" Content="默认配置"/>
+                    <TextBlock FontSize="11" Foreground="#64748B" Margin="20,2,0,0" TextWrapping="Wrap"
+                               Text="按所选显卡写入 Sunshine 配置文件，含编码 / 手柄 / UPnP"/>
+                    <CheckBox x:Name="chkFirewall" IsChecked="True" IsEnabled="False" Margin="0,4,0,0"
+                              Content="防火墙规则"/>
+                    <TextBlock FontSize="11" Foreground="#64748B" Margin="20,2,0,0"
+                               Text="放行 Sunshine 串流端口 TCP / UDP 入站"/>
+                    <CheckBox x:Name="chkRdpWrap" IsChecked="True" IsEnabled="False" Margin="0,4,0,0"
+                              Content="RDP 并发解锁"/>
+                    <TextBlock FontSize="11" Foreground="#64748B" Margin="20,2,0,0" TextWrapping="Wrap"
+                               Text="同一主机同时登录主用户与串流用户，Console 会话与游戏会话互不抢占"/>
+                    <CheckBox x:Name="chkWsguard" IsChecked="True" IsEnabled="False" Margin="0,4,0,0"
+                              Content="串流会话守护服务"/>
+                    <TextBlock FontSize="11" Foreground="#64748B" Margin="20,2,0,0" TextWrapping="Wrap"
+                               Text="WSGuard：串流断开后维持虚拟显示输出；开机自动启动 Sunshine"/>
+                  </StackPanel>
+                </Border>
+                <Border Style="{StaticResource Card}">
+                  <StackPanel>
+                    <CheckBox x:Name="chkGpuAccel" IsChecked="True" Content="会话 GPU 加速"/>
+                    <TextBlock FontSize="11" Foreground="#64748B" Margin="20,2,0,0" TextWrapping="Wrap"
+                               Text="远程会话改用物理显卡渲染，优先 AVC444 画质与硬件编码；已连接的会话需断开重连后生效"/>
+                    <CheckBox x:Name="chkGamepad" IsChecked="True" Margin="0,6,0,0" Content="虚拟手柄驱动"/>
+                    <TextBlock FontSize="11" Foreground="#64748B" Margin="20,2,0,0" TextWrapping="Wrap"
+                               Text="ViGEmBus：串流手柄识别为 Xbox 360 手柄；已安装 1.17 或更新版本时自动跳过"/>
+                  </StackPanel>
+                </Border>
+              </StackPanel>
+            </ScrollViewer>
+
+            <!-- 第 2 步 · 串流用户与密码（默认隐藏，Set-WizardStep 切换） -->
+            <StackPanel Grid.Row="1" x:Name="grpStep2" Margin="4,0,10,0" Visibility="Collapsed">
+              <Border Style="{StaticResource Card}">
+                <StackPanel>
+                  <TextBlock x:Name="txtStep2Title" Text="第 2 步 · 串流用户登录密码"
+                             Foreground="#7DD3FC" FontSize="12.5" FontWeight="Bold" Margin="0,0,0,8"/>
+                  <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="串流用户：" VerticalAlignment="Center" FontWeight="Bold"/>
+                    <TextBlock x:Name="lblUser" VerticalAlignment="Center" Margin="4,0,0,0" FontWeight="Bold"/>
+                    <TextBlock Foreground="#DC2626" FontSize="11" Margin="14,0,0,0" VerticalAlignment="Center"
+                               TextWrapping="Wrap" Text="当前用户，如需更换请先登录对应用户再运行。"/>
+                  </StackPanel>
+                  <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                    <TextBlock Text="登录密码：" VerticalAlignment="Center" FontWeight="Bold"/>
+                    <PasswordBox x:Name="pwdRdp" Width="200" Height="24" VerticalContentAlignment="Center"/>
+                    <Button x:Name="btnVerifyPw" Content="验证" Style="{StaticResource BtnGhost}"
+                            Width="62" Margin="6,0,0,0" Padding="0,4"/>
+                    <TextBlock x:Name="lblPwState" Margin="8,0,0,0" VerticalAlignment="Center"
+                               FontSize="11" Foreground="#64748B"/>
+                  </StackPanel>
+                  <TextBlock x:Name="lblCredState" Foreground="#64748B" FontSize="11" Margin="0,8,0,0"/>
+                  <CheckBox x:Name="chkAutoLogon" IsChecked="True" Margin="0,10,0,0"
+                            Content="开机自动登录串流用户"/>
+                  <TextBlock FontSize="11" Foreground="#64748B" Margin="20,2,0,0"
+                             Text="无人值守：重启后无需登录即恢复串流"/>
+                  <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                    <TextBlock Text="虚拟屏分辨率：" VerticalAlignment="Center"/>
+                    <TextBox x:Name="txtWidth" Width="64" Height="24" Text="1600"
+                             VerticalContentAlignment="Center"/>
+                    <TextBlock Text=" × " VerticalAlignment="Center"/>
+                    <TextBox x:Name="txtHeight" Width="64" Height="24" Text="720"
+                             VerticalContentAlignment="Center"/>
+                    <TextBlock Text="（手机横屏推荐 1920×1080）" Foreground="#64748B" FontSize="11"
+                               VerticalAlignment="Center" Margin="6,0,0,0"/>
+                  </StackPanel>
+                </StackPanel>
+              </Border>
+            </StackPanel>
+
+            <!-- 第 3 步 · 可选功能（默认隐藏，Set-WizardStep 切换） -->
+            <StackPanel Grid.Row="1" x:Name="grpStep3" Margin="4,0,10,0" Visibility="Collapsed">
+              <Border Style="{StaticResource Card}">
+                <StackPanel>
+                  <TextBlock Text="可选功能" Foreground="#7DD3FC" FontSize="12.5"
+                             FontWeight="Bold" Margin="0,0,0,8"/>
+                  <CheckBox x:Name="chkGameMgr" Content="游戏菜单（GameManager），建议安装"/>
+                  <TextBlock FontSize="11" Foreground="#64748B" Margin="20,2,0,0" TextWrapping="Wrap"
+                             Text="可直接启动需要管理员权限的游戏；游戏快捷方式放入 Links 目录，串流端即可启动"/>
+                  <CheckBox x:Name="chkReset" Margin="0,8,0,0" Content="解绑所有已配对设备"/>
+                  <TextBlock FontSize="11" Foreground="#64748B" Margin="20,2,0,0" TextWrapping="Wrap"
+                             Text="手机 / 平板 / 电视需重新配对"/>
+                </StackPanel>
+              </Border>
+            </StackPanel>
+
+            <!-- 底部导航条（上一步 / 下一步 / 开始安装） -->
+            <Border Grid.Row="2" BorderBrush="#223052" BorderThickness="0,1,0,0" Padding="4,12,4,0"
+                    Background="#880B1220" CornerRadius="0">
+              <Grid>
+                <Button x:Name="btnBack" Content="&lt; 上一步" Style="{StaticResource BtnGhost}"
+                        Height="34" Padding="16,6" HorizontalAlignment="Left" Visibility="Collapsed"/>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                  <Button x:Name="btnNext" Content="下一步 &gt;" Style="{StaticResource BtnPrimary}"
+                          Height="34" Width="120"/>
+                  <Button x:Name="btnInstall" Content="开 始 安 装" Style="{StaticResource BtnGreen}"
+                          Height="34" Width="150" Margin="8,0,0,0" Visibility="Collapsed" FontWeight="Bold"/>
+                </StackPanel>
+              </Grid>
+            </Border>
+          </Grid>
+
+          <!-- ── 执行页 ── -->
+          <Grid x:Name="pgR" Margin="28,22,28,18" Visibility="Collapsed">
+            <Grid.RenderTransform><TranslateTransform x:Name="ttR"/></Grid.RenderTransform>
+            <Grid.RowDefinitions>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <TextBlock Grid.Row="0" x:Name="lblPhaseTitle" Text="正在部署串流环境..."
+                       FontSize="17" FontWeight="Bold" Foreground="White"/>
+            <TextBlock Grid.Row="0" x:Name="lblCurrent" Text="" Foreground="#7DD3FC"
+                       FontSize="12.5" Margin="0,6,0,0" TextTrimming="CharacterEllipsis"/>
+
+            <StackPanel Grid.Row="1" Width="560" HorizontalAlignment="Center" Margin="0,14,0,0">
+              <Grid Height="12">
+                <ProgressBar x:Name="pgBar" Style="{StaticResource PbStyle}" Minimum="0" Maximum="100"
+                             Value="0" Width="560"/>
+                <Border x:Name="sheenClip" CornerRadius="6" Width="560">
+                  <Rectangle x:Name="sheen" Width="80" HorizontalAlignment="Left" Opacity="0.25">
+                    <Rectangle.Fill>
+                      <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                        <GradientStop Color="#00FFFFFF" Offset="0"/>
+                        <GradientStop Color="#A8FFFFFF" Offset="0.5"/>
+                        <GradientStop Color="#00FFFFFF" Offset="1"/>
+                      </LinearGradientBrush>
+                    </Rectangle.Fill>
+                    <Rectangle.RenderTransform><TranslateTransform x:Name="sheenTt" X="-100"/></Rectangle.RenderTransform>
+                  </Rectangle>
+                </Border>
+              </Grid>
+              <Grid Margin="0,5,0,0">
+                <TextBlock x:Name="lblStepCount" Text="" Foreground="#64748B" FontSize="11"
+                           HorizontalAlignment="Center"/>
+              </Grid>
+            </StackPanel>
+
+            <StackPanel Grid.Row="2" x:Name="stepsHost" Width="560" HorizontalAlignment="Center"
+                        Margin="0,10,0,4"/>
+
+            <Border Grid.Row="3" Background="#D90C1526" CornerRadius="8" Margin="0,10,0,0"
+                    BorderBrush="#1E293B" BorderThickness="1">
+              <TextBox x:Name="txtLog" IsReadOnly="True" FontFamily="Consolas" FontSize="11.5"
+                       Background="Transparent" Foreground="#D1E3F8" BorderThickness="0" Padding="8,6"
+                       VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                       TextWrapping="NoWrap"/>
+            </Border>
+          </Grid>
+
+          <!-- ── 结果页 ── -->
+          <Grid x:Name="pgF" Margin="32,28,32,24" Visibility="Collapsed">
+            <Grid.RenderTransform><TranslateTransform x:Name="ttF"/></Grid.RenderTransform>
+            <StackPanel Width="560" HorizontalAlignment="Center">
+              <TextBlock x:Name="lblFinishIcon" Text="✓" FontSize="46" FontWeight="Bold"
+                         Foreground="#22C55E" HorizontalAlignment="Center"/>
+              <TextBlock x:Name="lblFinishTitle" Text="部署完成" FontSize="19" FontWeight="Bold"
+                         Foreground="White" HorizontalAlignment="Center" Margin="0,6,0,4"/>
+              <TextBlock x:Name="lblFinishNote" Text="" Foreground="#94A3B8" FontSize="12"
+                         HorizontalAlignment="Center" TextWrapping="Wrap"/>
+              <Border Style="{StaticResource Card}" Margin="0,16,0,0" MaxHeight="260">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                  <StackPanel x:Name="resHost"/>
+                </ScrollViewer>
+              </Border>
+              <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,18,0,0">
+                <Button x:Name="btnViewLog" Content="查看完整日志" Style="{StaticResource BtnGhost}"
+                        Height="36" Padding="18,7" Margin="0,0,10,0"/>
+                <Button x:Name="btnFinishOk" Content="完 成" Style="{StaticResource BtnPrimary}"
+                        Height="36" Width="130" FontWeight="Bold"/>
               </StackPanel>
             </StackPanel>
-          </GroupBox>
+          </Grid>
 
-          <!-- 第 3 步：可选功能 -->
-          <GroupBox x:Name="grpStep3" Header="第 3 步 · 可选功能" Margin="0,8,0,0" Visibility="Collapsed">
-            <StackPanel Margin="6">
-              <CheckBox x:Name="chkGameMgr"
-                        Content="游戏菜单（GameManager），建议安装"/>
-              <TextBlock FontSize="11" Foreground="#64748B" Margin="20,2,0,0" TextWrapping="Wrap"
-                         Text="可直接启动需要管理员权限的游戏；游戏快捷方式放入 Links 目录，串流端即可启动"/>
-              <CheckBox x:Name="chkReset" Margin="0,8,0,0"
-                        Content="解绑所有已配对设备"/>
-              <TextBlock FontSize="11" Foreground="#64748B" Margin="20,2,0,0" TextWrapping="Wrap"
-                         Text="手机 / 平板 / 电视需重新配对"/>
-            </StackPanel>
-          </GroupBox>
+          <!-- ── 卸载页 ── -->
+          <Grid x:Name="pgU" Margin="28,20,28,16" Visibility="Collapsed">
+            <Grid.RenderTransform><TranslateTransform x:Name="ttU"/></Grid.RenderTransform>
+            <Grid.RowDefinitions>
+              <RowDefinition Height="*"/>
+              <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto">
+              <StackPanel Margin="4,0,10,0">
+                <TextBlock Text="选择要反注册的组件" Foreground="#7DD3FC" FontSize="13" FontWeight="Bold"
+                           Margin="2,2,0,8"/>
+                <Border Style="{StaticResource Card}">
+                  <StackPanel>
+                    <TextBlock Text="1 · 串流服务" Foreground="#94A3B8" FontSize="11" Margin="0,0,0,6"/>
+                    <CheckBox x:Name="chkUFirewall" IsChecked="True" Content="移除防火墙放行规则"/>
+                    <TextBlock FontSize="11" Foreground="#64748B" Margin="20,2,0,0" Text="Apollo"/>
+                    <CheckBox x:Name="chkUGamepad" IsChecked="True" Margin="0,4,0,0"
+                              Content="卸载虚拟手柄驱动（ViGEmBus）"/>
+                    <TextBlock FontSize="11" Foreground="#64748B" Margin="20,2,0,0" TextWrapping="Wrap"
+                               Text="其他程序依赖它时请勿勾选"/>
+                  </StackPanel>
+                </Border>
+                <Border Style="{StaticResource Card}">
+                  <StackPanel>
+                    <TextBlock Text="2 · RDP 并发解锁" Foreground="#94A3B8" FontSize="11" Margin="0,0,0,6"/>
+                    <CheckBox x:Name="chkURdpWrap" IsChecked="True" Content="卸载 RdpWrapper"/>
+                    <TextBlock FontSize="11" Foreground="#64748B" Margin="20,2,0,0" TextWrapping="Wrap"
+                               Text="恢复系统默认的单会话限制"/>
+                    <CheckBox x:Name="chkUGpuAccel" IsChecked="True" Margin="0,4,0,0"
+                              Content="删除会话 GPU 加速策略"/>
+                    <TextBlock FontSize="11" Foreground="#64748B" Margin="20,2,0,0" TextWrapping="Wrap"
+                               Text="恢复远程会话默认渲染策略，三个注册表值一并移除"/>
+                  </StackPanel>
+                </Border>
+                <Border Style="{StaticResource Card}">
+                  <StackPanel>
+                    <TextBlock Text="3 · 串流会话守护服务" Foreground="#94A3B8" FontSize="11" Margin="0,0,0,6"/>
+                    <CheckBox x:Name="chkUWsguard" IsChecked="True"
+                              Content="卸载 WSGuard 服务并取消 Sunshine 开机自启"/>
+                    <TextBlock FontSize="11" Foreground="#64748B" Margin="20,2,0,0"
+                               Text="保留密码与设置"/>
+                  </StackPanel>
+                </Border>
+                <Border Style="{StaticResource Card}">
+                  <StackPanel>
+                    <TextBlock Text="4 · 可选功能" Foreground="#94A3B8" FontSize="11" Margin="0,0,0,6"/>
+                    <CheckBox x:Name="chkUGameMgr" IsChecked="True" Content="卸载游戏菜单（GameManager）"/>
+                  </StackPanel>
+                </Border>
+                <TextBlock Foreground="#64748B" FontSize="11" Margin="2,2,2,0" TextWrapping="Wrap"
+                           Text="卸载不会删除 Sunshine 本体和任何游戏存档，也不删除配置与已保存的密码。卸载 RDP 并发解锁或虚拟手柄驱动时屏幕可能闪烁，属正常现象；若正通过远程操作本机，连接会断开重连一次；虚拟手柄驱动可能需重启电脑后才彻底移除。"/>
+              </StackPanel>
+            </ScrollViewer>
 
-          <!-- 导航按钮 -->
-          <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
-            <Button x:Name="btnBack" Content="← 上一步" Height="32" Width="96" Margin="0,0,8,0"/>
-            <Button x:Name="btnNext" Content="下一步 →" Height="32" Width="120" FontWeight="Bold"
-                    Background="#2563EB" Foreground="White" BorderThickness="0"/>
-            <Button x:Name="btnInstall" Content="开 始 安 装" Height="32" Width="140" Margin="8,0,0,0" FontWeight="Bold"
-                    Background="#16A34A" Foreground="White" BorderThickness="0" Visibility="Collapsed"/>
-          </StackPanel>
-        </StackPanel>
-      </TabItem>
-      <TabItem Header=" 卸载 ">
-        <ScrollViewer VerticalScrollBarVisibility="Auto">
-          <StackPanel Margin="10">
-            <GroupBox Header="1 · 串流服务">
-              <StackPanel Margin="6">
-                <CheckBox x:Name="chkUFirewall" IsChecked="True" Margin="0,2"
-                          Content="移除防火墙放行规则"/>
-                <TextBlock FontSize="11" Foreground="#64748B" Margin="20,2,0,0"
-                           Text="Apollo"/>
-                <CheckBox x:Name="chkUGamepad" IsChecked="True" Margin="0,2"
-                          Content="卸载虚拟手柄驱动（ViGEmBus）"/>
-                <TextBlock FontSize="11" Foreground="#64748B" Margin="20,2,0,0" TextWrapping="Wrap"
-                           Text="其他程序依赖它时请勿勾选"/>
-              </StackPanel>
-            </GroupBox>
-            <GroupBox Header="2 · RDP 并发解锁" Margin="0,8,0,0">
-              <StackPanel Margin="6">
-                <CheckBox x:Name="chkURdpWrap" IsChecked="True" Margin="0,2"
-                          Content="卸载 RdpWrapper"/>
-                <TextBlock FontSize="11" Foreground="#64748B" Margin="20,2,0,0" TextWrapping="Wrap"
-                           Text="恢复系统默认的单会话限制"/>
-                <CheckBox x:Name="chkUGpuAccel" IsChecked="True" Margin="0,4,0,0"
-                          Content="删除会话 GPU 加速策略"/>
-                <TextBlock FontSize="11" Foreground="#64748B" Margin="20,2,0,0" TextWrapping="Wrap"
-                           Text="恢复远程会话默认渲染策略，三个注册表值一并移除"/>
-              </StackPanel>
-            </GroupBox>
-            <GroupBox Header="3 · 串流会话守护服务" Margin="0,8,0,0">
-              <StackPanel Margin="6">
-                <CheckBox x:Name="chkUWsguard" IsChecked="True" Margin="0,2"
-                          Content="卸载 WSGuard 服务并取消 Sunshine 开机自启"/>
-                <TextBlock FontSize="11" Foreground="#64748B" Margin="20,2,0,0"
-                           Text="保留密码与设置"/>
-              </StackPanel>
-            </GroupBox>
-            <GroupBox Header="4 · 可选功能" Margin="0,8,0,0">
-              <StackPanel Margin="6">
-                <CheckBox x:Name="chkUGameMgr" IsChecked="True" Margin="0,2"
-                          Content="卸载游戏菜单（GameManager）"/>
-              </StackPanel>
-            </GroupBox>
-            <TextBlock Foreground="#64748B" FontSize="11" Margin="2,8,2,0" TextWrapping="Wrap"
-                       Text="卸载不会删除 Sunshine 本体和任何游戏存档，也不删除配置与已保存的密码。卸载 RDP 并发解锁或虚拟手柄驱动时屏幕可能闪烁，属正常现象；若正通过远程操作本机，连接会断开重连一次；虚拟手柄驱动可能需重启电脑后才彻底移除。"/>
-            <Button x:Name="btnUninstall" Content="开 始 卸 载" Height="36" Margin="0,12,0,0"
-                    Background="#DC2626" Foreground="White" FontWeight="Bold" FontSize="13"
-                    BorderThickness="0"/>
-          </StackPanel>
-        </ScrollViewer>
-      </TabItem>
-      <TabItem Header=" 运行日志 ">
-        <TextBox x:Name="txtLog" IsReadOnly="True" FontFamily="Consolas" FontSize="11.5"
-                 Background="#0F172A" Foreground="#D1E3F8" BorderThickness="0" Padding="6"
-                 VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
-                 TextWrapping="NoWrap" Margin="2,4,2,6"/>
-      </TabItem>
-    </TabControl>
-  </DockPanel>
+            <Border Grid.Row="1" BorderBrush="#223052" BorderThickness="0,1,0,0" Padding="4,12,4,0"
+                    Background="#880B1220">
+              <Grid>
+                <Button x:Name="btnUninstallBack" Content="← 返回总览" Style="{StaticResource BtnGhost}"
+                        Height="34" Padding="16,6" HorizontalAlignment="Left"/>
+                <Button x:Name="btnUninstallStart" Content="开 始 卸 载" Style="{StaticResource BtnRed}"
+                        Height="34" Width="150" HorizontalAlignment="Right" FontWeight="Bold"/>
+              </Grid>
+            </Border>
+          </Grid>
+        </Grid>
+      </Grid>
+    </Grid>
+  </Border>
 </Window>
 '@
 
@@ -842,20 +1470,6 @@ function Invoke-SelfTest {
     foreach ($g in $gpus) { Write-Host "         - $($g.Name)  [$($g.Vendor)]" }
     Check '物理显卡枚举非空' { $gpus.Count -ge 1 }
 
-    # wsguard 版本检查：读 build.info（build.ps1 部署时生成；旧版无此文件）
-    $script:WgNewStyle = $false
-    try {
-        $info = Get-Content (Join-Path $WgDir 'build.info') -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json
-        $script:WgNewStyle = ($info.service_name -eq 'WSGuard') -and ($info.style -eq 'dynamic-path')
-        if ($script:WgNewStyle) {
-            Write-Host "  [INFO] wsguard.exe 为新版（服务名 WSGuard / 动态路径，built $($info.built)）"
-        }
-    } catch { }
-    if (-not $script:WgNewStyle) {
-        Write-Host '  [WARN] wsguard.exe 似乎是旧版（无 build.info 或版本不匹配），建议用 wsguard\src\build.ps1 -Deploy 重打包部署'
-    }
-    Check 'wsguard.exe 为新版（WSGuard / 动态路径）' { $script:WgNewStyle -eq $true }
-
     # XAML 解析
     Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
     $win = $null
@@ -863,12 +1477,20 @@ function Invoke-SelfTest {
         $script:win = [Windows.Markup.XamlReader]::Parse($xaml)
         $script:win -is [System.Windows.Window]
     }
-    foreach ($n in @('lblRoot','txtLog','tabs','cmbGpu','lblGpuInfo',
-                     'chkConf','chkFirewall','chkRdpWrap','chkGpuAccel','chkWsguard','chkGamepad',
-                     'lblStep1','lblStep2','lblStep3','grpStep1','grpStep2','grpStep3',
-                     'pwdRdp','btnVerifyPw','lblPwState','lblCredState','chkAutoLogon',
-                     'chkGameMgr','chkReset','btnBack','btnNext','btnInstall',
-                     'chkUFirewall','chkUGamepad','chkURdpWrap','chkUGpuAccel','chkUWsguard','chkUGameMgr','btnUninstall')) {
+    foreach ($n in @('lblRoot','txtLog','cmbGpu','lblGpuInfo',
+                     'chkConf','chkFirewall','chkRdpWrap','chkWsguard',
+                     'chkGpuAccel','chkGamepad','chkGameMgr','chkReset',
+                     'lblUser','pwdRdp','btnVerifyPw','lblPwState','lblCredState','chkAutoLogon',
+                     'txtWidth','txtHeight','btnBack','btnNext','btnInstall',
+                     'lblStep1','lblStep2','lblStep3','grpStep1','grpStep2','grpStep3','txtStep2Title',
+                     'rootFrame','btnGoSetup',
+                     'lblHeadTitle','btnMin','btnClose','lblSideRoot',
+                     'pgW','pgS','pgR','pgF','pgU','ttW','ttS','ttR','ttF','ttU',
+                     'lblWelcomeUser','lblWelcomeGpu','lblWelcomeWg','lblWelcomeCred',
+                     'lblPhaseTitle','lblCurrent','lblStepCount','pgBar','sheen','sheenTt','stepsHost',
+                     'lblFinishIcon','lblFinishTitle','lblFinishNote','resHost','btnViewLog','btnFinishOk',
+                     'chkUFirewall','chkUGamepad','chkURdpWrap','chkUGpuAccel','chkUWsguard','chkUGameMgr',
+                     'btnUninstallBack','btnUninstallStart')) {
         Check "控件 $n" { $script:win.FindName($n) -ne $null }
     }
 
@@ -928,7 +1550,9 @@ public static class PwCheck {
         ($TsGpuAccelValues -contains 'bAVC444Mode') -and
         ($TsGpuAccelValues -contains 'AVCHardwareEncodePreferred') -and
         ((Get-Command Install-GpuAcceleration -ErrorAction SilentlyContinue) -ne $null) -and
-        ((Get-Command Uninstall-GpuAcceleration -ErrorAction SilentlyContinue) -ne $null)
+        ((Get-Command Uninstall-GpuAcceleration -ErrorAction SilentlyContinue) -ne $null) -and
+        ((Get-Command Invoke-InstallRun -ErrorAction SilentlyContinue) -ne $null) -and
+        ((Get-Command Invoke-UninstallRun -ErrorAction SilentlyContinue) -ne $null)
     }
 
     # conf 模板渲染（写入 .temp 预览，不动真实文件）
@@ -996,16 +1620,313 @@ Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
 $window = [Windows.Markup.XamlReader]::Parse($xaml)
 $script:Window = $window
 
+# 无边框：自绘标题栏（拖拽区 + 命中穿透控制）
+$chrome = New-Object System.Windows.Shell.WindowChrome
+$chrome.CaptionHeight = 34
+$chrome.GlassFrameThickness = 0
+$chrome.CornerRadius = [System.Windows.CornerRadius]::new(0)
+$chrome.UseAeroCaptionButtons = $false
+$chrome.ResizeBorderThickness = [System.Windows.Thickness]::new(0)
+[System.Windows.Shell.WindowChrome]::SetWindowChrome($window, $chrome)
+foreach ($b in @($window.FindName('btnMin'), $window.FindName('btnClose'))) {
+    if ($b) { [System.Windows.Shell.WindowChrome]::SetIsHitTestVisibleInChrome($b, $true) }
+}
+
+# ---- 圆角 + 亚克力背景（DWM 原生合成；Win11 自动圆角，Win10 退化直角）----
+$DwmCode = @'
+using System;
+using System.Runtime.InteropServices;
+public static class DwmUi {
+    [StructLayout(LayoutKind.Sequential)]
+    public struct AccentPolicy { public int AccentState; public int AccentFlags; public uint GradientColor; public int AnimationId; }
+    [StructLayout(LayoutKind.Sequential)]
+    public struct WcaData { public int Attribute; public IntPtr Data; public int SizeOfData; }
+    [DllImport("dwmapi.dll")] public static extern int DwmSetWindowAttribute(IntPtr h, int a, ref int v, int s);
+    [DllImport("user32.dll")] public static extern bool SetWindowCompositionAttribute(IntPtr h, ref WcaData d);
+    public static string Apply(IntPtr hwnd) {
+        string mode = "none";
+        // DWMWA_WINDOW_CORNER_PREFERENCE = 2 (round)：Win11 圆角； Win10 返回非零忽略
+        try { int pref = 2; if (DwmSetWindowAttribute(hwnd, 33, ref pref, 4) == 0) { mode = "round"; } } catch { }
+        // ACCENT_ENABLE_ACRYLICBLURBEHIND：Win10 1803+ 亚克力背景，潜色调为深蓝 #B40F172A
+        try {
+            AccentPolicy ap; ap.AccentState = 4; ap.AccentFlags = 2; ap.GradientColor = 0xB42A170F; ap.AnimationId = 0;
+            int size = Marshal.SizeOf(typeof(AccentPolicy));
+            IntPtr p = Marshal.AllocHGlobal(size);
+            Marshal.StructureToPtr(ap, p, false);
+            WcaData d; d.Attribute = 19; d.Data = p; d.SizeOfData = size;
+            bool ok = SetWindowCompositionAttribute(hwnd, ref d);
+            Marshal.FreeHGlobal(p);
+            if (ok) { mode = mode + "+acrylic"; }
+        } catch { }
+        return mode;
+    }
+}
+'@
+if (-not ('DwmUi' -as [type])) { Add-Type -TypeDefinition $DwmCode }
+$window.Add_SourceInitialized({
+    $h = (New-Object System.Windows.Interop.WindowInteropHelper $window).Handle
+    if ($h -ne [IntPtr]::Zero) {
+        $glassMode = [DwmUi]::Apply($h)
+        Write-Log "界面合成: $glassMode（亚克力 + 圆角）"
+    }
+})
+# 根容器圆角裁剪（Border.Clip 会连同子元素一起裁出圆角）
+$window.Add_Loaded({
+    $w = $ui['rootFrame'].ActualWidth
+    $hgt = $ui['rootFrame'].ActualHeight
+    if ($w -gt 0 -and $hgt -gt 0) {
+        $geo = [System.Windows.Media.RectangleGeometry]::new(
+            [System.Windows.Rect]::new(0, 0, $w, $hgt), 10, 10)
+        $ui['rootFrame'].Clip = $geo
+    }
+})
+
+# ---- 控件收集中转 ----
 $ui = @{}
-foreach ($n in @('lblRoot','txtLog','tabs','cmbGpu','lblGpuInfo',
-                 'chkConf','chkFirewall','chkRdpWrap','chkGpuAccel','chkWsguard','chkGamepad',
-                 'lblStep1','lblStep2','lblStep3','grpStep1','grpStep2','grpStep3',
-                 'pwdRdp','btnVerifyPw','lblPwState','lblCredState','chkAutoLogon',
-                 'chkGameMgr','chkReset','btnBack','btnNext','btnInstall',
-                 'chkUFirewall','chkUGamepad','chkURdpWrap','chkUGpuAccel','chkUWsguard','chkUGameMgr','btnUninstall')) {
+foreach ($n in @('lblRoot','txtLog','cmbGpu','lblGpuInfo',
+                 'chkConf','chkFirewall','chkRdpWrap','chkWsguard',
+                 'chkGpuAccel','chkGamepad','chkGameMgr','chkReset',
+                 'lblUser','pwdRdp','btnVerifyPw','lblPwState','lblCredState','chkAutoLogon',
+                 'txtWidth','txtHeight','btnBack','btnNext','btnInstall',
+                 'lblStep1','lblStep2','lblStep3','grpStep1','grpStep2','grpStep3','txtStep2Title',
+                 'rootFrame','btnGoSetup',
+                 'lblHeadTitle','btnMin','btnClose','lblSideRoot',
+                 'pgW','pgS','pgR','pgF','pgU','ttW','ttS','ttR','ttF','ttU',
+                 'lblWelcomeUser','lblWelcomeGpu','lblWelcomeWg','lblWelcomeCred',
+                 'lblPhaseTitle','lblCurrent','lblStepCount','pgBar','sheen','sheenTt','sheenClip','stepsHost',
+                 'lblFinishIcon','lblFinishTitle','lblFinishNote','resHost','btnViewLog','btnFinishOk',
+                 'chkUFirewall','chkUGamepad','chkURdpWrap','chkUGpuAccel','chkUWsguard','chkUGameMgr',
+                 'btnUninstallBack','btnUninstallStart')) {
     $ui[$n] = $window.FindName($n)
 }
 $script:LogBox = $ui['txtLog']
+
+# ---- 共享状态（后台 Runspace 与 UI 线程通信）----
+$S = [hashtable]::Synchronized(@{})
+$S.ScriptsDir    = $PSScriptRoot
+$S.Root          = $Root
+$S.TaskName      = $TaskName
+$S.RunValueName  = $RunValueName
+$S.SvcName       = $SvcName
+$S.SvcDispName   = $SvcDispName
+$S.LegacySvc     = $LegacySvc
+$S.LegacyTask    = $LegacyTask
+$S.GmSvcName     = $GmSvcName
+$S.RdpWrapDir    = $RdpWrapDir
+$S.LinksDir      = $LinksDir
+$S.ConfPath      = $ConfPath
+$S.StatePath     = $StatePath
+$S.LogPath       = $LogPath
+$S.LogBakPath    = $LogBakPath
+$S.TsPolicyKey   = $TsPolicyKey
+$S.TsGpuAccelValues = $TsGpuAccelValues
+$S.RdpWrapExe    = $RdpWrapExe
+$S.GmExe         = $GmExe
+$S.WgDir         = $WgDir
+$S.WgExe         = $WgExe
+$S.WgCredPath    = $WgCredPath
+$S.WgCfgPath     = $WgCfgPath
+$S.LogQueue      = [System.Collections.Queue]::Synchronized((New-Object System.Collections.Queue))
+$S.Prog          = [hashtable]::Synchronized(@{
+    Steps = [hashtable]::Synchronized(@{}); StepIndex = 0; StepTotal = 0
+    Current = ''; Done = $false; Results = @()
+})
+
+# ---- 渲染能力检测（Tier < 2 时禁用动画，降级为直切）----
+$script:AnimsEnabled = (([System.Windows.Media.RenderCapability]::Tier) -shr 16) -ge 2
+
+# ---- 页面切换（含淡入 + 上滑动效，合成线程友好）----
+$script:PgMap = @{ w = 'pgW'; s = 'pgS'; r = 'pgR'; f = 'pgF'; u = 'pgU' }
+$script:TtMap = @{ w = 'ttW'; s = 'ttS'; r = 'ttR'; f = 'ttF'; u = 'ttU' }
+$script:HeadMap = @{ w = 'Welcome · 总览'; s = '安装配置'; r = '执行中'; f = '执行结果'; u = '卸载/反注册' }
+$script:NavOrder   = @(@{Id='w';Num='01';Label='Welcome · 总览'}, @{Id='s';Num='02';Label='安装配置'},
+                       @{Id='r';Num='03';Label='执行'}, @{Id='f';Num='04';Label='结果'})
+$script:ModeOrder  = @(@{Id='Install';Glyph='▶';Label='安装'}, @{Id='Uninstall';Glyph='↺';Label='卸载'})
+$script:NavBorders = @{}
+$script:ModeBorders = @{}
+
+function Build-NavRow {
+    param([string]$Num, [string]$Glyph, [string]$Label, [bool]$IsMode)
+    $bd = New-Object System.Windows.Controls.Border
+    $bd.CornerRadius = [System.Windows.CornerRadius]::new(6)
+    $bd.Padding = [System.Windows.Thickness]::new(10, 7, 10, 7)
+    $bd.Margin = [System.Windows.Thickness]::new(0, 0, 0, 2)
+    $bd.Background = [System.Windows.Media.Brushes]::Transparent
+    $sp = New-Object System.Windows.Controls.StackPanel
+    $sp.Orientation = 'Horizontal'
+    $t1 = New-Object System.Windows.Controls.TextBlock
+    if ($IsMode) {
+        $t1.Text = $Glyph
+        $t1.FontSize = 11
+        $t1.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#475569')
+    } else {
+        $t1.Text = $Num
+        $t1.FontSize = 11
+        $t1.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#475569')
+    }
+    $t1.VerticalAlignment = 'Center'
+    $t2 = New-Object System.Windows.Controls.TextBlock
+    $t2.Text = $Label
+    $t2.FontSize = 12
+    $t2.Margin = [System.Windows.Thickness]::new(10, 0, 0, 0)
+    $t2.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#94A3B8')
+    $t2.VerticalAlignment = 'Center'
+    [void]$sp.Children.Add($t1)
+    [void]$sp.Children.Add($t2)
+    $bd.Child = $sp
+    $navHost = $window.FindName('navHost')
+    [void]$navHost.Children.Add($bd)
+    return @{ Bd = $bd; Tb = $t2 }
+}
+
+foreach ($item in $script:NavOrder) {
+    $script:NavBorders[$item.Id] = Build-NavRow -Num $item.Num -Label $item.Label -IsMode $false
+}
+$sep = New-Object System.Windows.Shapes.Rectangle
+$sep.Height = 1
+$sep.Margin = [System.Windows.Thickness]::new(10, 8, 10, 8)
+$sep.Fill = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#1E293B')
+[void]($window.FindName('navHost')).Children.Add($sep)
+foreach ($item in $script:ModeOrder) {
+    $script:ModeBorders[$item.Id] = Build-NavRow -Glyph $item.Glyph -Label $item.Label -IsMode $true
+}
+
+# 侧边栏模式行可点击：安装 → 欢迎页；卸载 → 卸载页（Tag 传参避免闭包陷阱）
+function Wire-RowClick {
+    param($Bd, [string]$Tag)
+    $Bd.Tag = $Tag
+    $Bd.Cursor = 'Hand'
+    $Bd.Add_MouseLeftButtonDown({
+        param($s, $e)
+        if (-not $script:Running) { Show-Page ([string]$s.Tag) }
+    })
+}
+Wire-RowClick $script:ModeBorders['Install'].Bd 'w'
+Wire-RowClick $script:ModeBorders['Uninstall'].Bd 'u'
+
+function Set-NavHighlight {
+    param([string]$PageId)
+    foreach ($id in $script:NavOrder.Id) {
+        $target = ($id -eq $PageId)
+        $row = $script:NavBorders[$id]
+        $row.Bd.Background = [System.Windows.Media.BrushConverter]::new().ConvertFromString($(if ($target) { '#16213B' } else { 'Transparent' }))
+        $row.Tb.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString($(if ($target) { '#E2E8F0' } else { '#94A3B8' }))
+    }
+    $installActive = ($PageId -ne 'u')
+    foreach ($m in $script:ModeOrder) {
+        $target = if ($m.Id -eq 'Uninstall') { -not $installActive } else { $installActive }
+        $row = $script:ModeBorders[$m.Id]
+        $row.Bd.Background = [System.Windows.Media.BrushConverter]::new().ConvertFromString($(if ($target) { '#16213B' } else { 'Transparent' }))
+    }
+}
+
+function Show-Page {
+    param([string]$Id)
+    foreach ($nid in $script:PgMap.Keys) {
+        $ui[$script:PgMap[$nid]].Visibility = $(if ($nid -eq $Id) { 'Visible' } else { 'Collapsed' })
+    }
+    $ui['lblHeadTitle'].Text = $script:HeadMap[$Id]
+    Set-NavHighlight -PageId $Id
+    if (-not $script:AnimsEnabled) { return }
+    # 淡入 + 上移入场（Opacity / TranslateTransform 不引发布局重算）
+    $pg = $ui[$script:PgMap[$Id]]
+    $tt = $ui[$script:TtMap[$Id]]
+    $sb = New-Object System.Windows.Media.Animation.Storyboard
+    $a1 = New-Object System.Windows.Media.Animation.DoubleAnimation
+    $a1.From = 0; $a1.To = 1
+    $a1.Duration = [TimeSpan]::FromMilliseconds(220)
+    $e1 = New-Object System.Windows.Media.Animation.CubicEase
+    $e1.EasingMode = 'EaseOut'
+    $a1.EasingFunction = $e1
+    [void][System.Windows.Media.Animation.Storyboard]::SetTarget($a1, $pg)
+    [void][System.Windows.Media.Animation.Storyboard]::SetTargetProperty($a1, 'Opacity')
+    $a2 = New-object System.Windows.Media.Animation.DoubleAnimation
+    $a2.From = 14; $a2.To = 0
+    $a2.Duration = [TimeSpan]::FromMilliseconds(220)
+    $a2.EasingFunction = $e1
+    [void][System.Windows.Media.Animation.Storyboard]::SetTarget($a2, $tt)
+    [void][System.Windows.Media.Animation.Storyboard]::SetTargetProperty($a2, 'Y')
+    [void]$sb.Children.Add($a1)
+    [void]$sb.Children.Add($a2)
+    $sb.Begin($pg, $true)
+}
+
+Show-Page w
+$ui['lblSideRoot'].Text = $Root
+$ui['lblSideRoot'].ToolTip = $Root
+
+# ---- 窗口按钮 ----
+$window.FindName('btnMin').Add_Click({ $window.WindowState = 'Minimized' })
+$window.FindName('btnClose').Add_Click({ $window.Close() })
+$window.Add_Closing({
+    param($s, $e)
+    if ($script:Running) {
+        $e.Cancel = $true
+        [void][System.Windows.MessageBox]::Show($window,
+            '任务正在后台运行中，完成后才能关闭窗口。', '请稍候',
+            [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
+    }
+})
+
+# ---- 导航按钮 ----
+$script:Running = $false
+$ui['btnGoSetup'].Add_Click({ if (-not $script:Running) { Show-Page s; Set-WizardStep 1 } })
+$ui['btnUninstallBack'].Add_Click({ if (-not $script:Running) { Show-Page w } })
+$ui['btnFinishOk'].Add_Click({ $window.Close() })
+$ui['btnViewLog'].Add_Click({ Show-Page r })
+
+# ---- 三步向导 ----
+$script:WizardStep = 1
+function Set-WizardStep {
+    param([int]$Step)
+    $script:WizardStep = $Step
+    $ui['grpStep1'].Visibility = $(if ($Step -eq 1) { 'Visible' } else { 'Collapsed' })
+    $ui['grpStep2'].Visibility = $(if ($Step -eq 2) { 'Visible' } else { 'Collapsed' })
+    $ui['grpStep3'].Visibility = $(if ($Step -eq 3) { 'Visible' } else { 'Collapsed' })
+    $conv = [System.Windows.Media.BrushConverter]::new()
+    $ui['lblStep1'].Foreground = $conv.ConvertFromString($(if ($Step -eq 1) { '#3B82F6' } else { '#64748B' }))
+    $ui['lblStep2'].Foreground = $conv.ConvertFromString($(if ($Step -eq 2) { '#3B82F6' } else { '#64748B' }))
+    $ui['lblStep3'].Foreground = $conv.ConvertFromString($(if ($Step -eq 3) { '#3B82F6' } else { '#64748B' }))
+    $ui['btnBack'].Visibility  = $(if ($Step -eq 1) { 'Collapsed' } else { 'Visible' })
+    $ui['btnNext'].Visibility  = $(if ($Step -eq 3) { 'Collapsed' } else { 'Visible' })
+    $ui['btnInstall'].Visibility = $(if ($Step -eq 3) { 'Visible' } else { 'Collapsed' })
+    # 第 2 步标题带上当前串流用户名
+    if ($Step -eq 2 -and $script:CurUser) {
+        $ui['txtStep2Title'].Text = '第 2 步 · 用户「' + $script:CurUser + '」的登录密码'
+    }
+}
+$ui['btnNext'].Add_Click({
+    if ($script:Running) { return }
+    if ($script:WizardStep -eq 1) {
+        if ($ui['cmbGpu'].SelectedIndex -lt 0) {
+            [void][System.Windows.MessageBox]::Show($window, '请选择渲染显卡。', '提示',
+                [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
+            return
+        }
+    }
+    if ($script:WizardStep -eq 2) {
+        $pw = $ui['pwdRdp'].Password
+        if ([string]::IsNullOrEmpty($pw)) {
+            # 留空允许继续，但必须弹窗提示后果
+            if (Test-Path $WgCredPath) {
+                [void][System.Windows.MessageBox]::Show($window,
+                    '密码已留空：将沿用已保存的 rdp.cred（串流登录密码）。', '留空密码',
+                    [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
+            } else {
+                [void][System.Windows.MessageBox]::Show($window,
+                    '密码已留空且此前未保存过凭据：请回上一步输入密码并验证后再继续。', '留空密码',
+                    [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
+            }
+        } elseif (-not $script:PwVerified -or $pw -ne $script:PwVerifiedFor) {
+            [void][System.Windows.MessageBox]::Show($window,
+                '密码未经过验证或验证未通过，请点「验证」后继续。', '密码验证失败',
+                [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Warning)
+            return
+        }
+    }
+    Set-WizardStep ($script:WizardStep + 1)
+})
+$ui['btnBack'].Add_Click({ if (-not $script:Running) { Set-WizardStep ($script:WizardStep - 1) } })
 
 # ---- 初始化界面状态 ----
 $ui['lblRoot'].Text = $Root
@@ -1013,10 +1934,10 @@ $ui['lblRoot'].Text = $Root
 # 当前登录用户（提权后 WindowsIdentity 仍是原用户；回退链：完整身份 -> USERNAME -> COMPUTERNAME）
 $script:CurUser = $env:USERNAME
 try {
-    # WindowsIdentity.Name 本身就是 DOMAIN\user 完整格式，直接取末段；UserDomainName 是主机名，不参与拼接
     $script:CurUser = ([Security.Principal.WindowsIdentity]::GetCurrent().Name -split '\\')[-1]
 } catch { }
 $ui['lblUser'].Text = $script:CurUser
+$ui['lblWelcomeUser'].Text = $script:CurUser
 
 $gpus = Get-PhysicalGpus
 $script:GpuNames = @($gpus | ForEach-Object { $_.Name })
@@ -1026,10 +1947,13 @@ foreach ($g in $gpus) {
 }
 if ($script:GpuNames.Count -eq 1) {
     $ui['lblGpuInfo'].Text = '已自动选中检测到的显卡。'
+    $ui['lblWelcomeGpu'].Text = [string]$script:GpuNames[0]
 } elseif ($script:GpuNames.Count -gt 1) {
     $ui['lblGpuInfo'].Text = '检测到多块显卡，请选择用于串流渲染的那块。'
+    $ui['lblWelcomeGpu'].Text = [string]$script:GpuNames[0] + ' 等 ' + $script:GpuNames.Count + ' 块'
 } else {
     $ui['lblGpuInfo'].Text = '未检测到可用显卡，请确认显卡驱动已安装后重新运行本工具。'
+    $ui['lblWelcomeGpu'].Text = '（未检测到）'
 }
 # 预选当前 conf 里已有的 adapter_name
 $curAd = $null
@@ -1051,27 +1975,25 @@ try {
 } catch { }
 if (-not $curAd -and $script:GpuNames.Count -ge 1) { $ui['cmbGpu'].SelectedIndex = 0 }
 
-# rdp.cred 状态（密码输入在向导第 2 步）
+# rdp.cred 状态
 if (Test-Path $WgCredPath) {
     $ui['lblCredState'].Text = '已保存过密码，留空则继续用原来的'
+    $ui['lblWelcomeCred'].Text = '已有（留空沿用）'
 } else {
     $ui['lblCredState'].Text = '请输入登录密码并点「验证」'
+    $ui['lblWelcomeCred'].Text = '无（安装时需输入）'
 }
 $script:PwVerified = $false
 
-# wsguard 版本检查：读 build.info；旧版 exe 不兼容新服务名，禁用安装按钮并提示
-$wgNewStyle = $false
-try {
-    $info = Get-Content (Join-Path $WgDir 'build.info') -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json
-    $wgNewStyle = ($info.service_name -eq 'WSGuard') -and ($info.style -eq 'dynamic-path')
-} catch { }
-if (-not $wgNewStyle) {
-    $ui['btnInstall'].IsEnabled = $false
-    $ui['lblGpuInfo'].Text = 'wsguard.exe 是旧版本，需先用 wsguard\src\build.ps1 -Deploy 重新打包后才能安装。'
-    $ui['lblGpuInfo'].Foreground = [System.Windows.Media.Brushes]::Red
-}
+# wsguard 现在只有单一版本：显示固定状态，不做新/旧版判断
+$ui['lblWelcomeWg'].Text = '就绪（服务名 WSGuard / 动态路径）'
 
-# ---- 密码验证按钮 ----
+# 密码验证状态：验证通过对应具体密码；密码再改动即失效
+$PwVerifiedFor = ''
+$ui['pwdRdp'].Add_TextChanged({
+    $script:PwVerified = $false
+    $script:PwVerifiedFor = ''
+})
 $ui['btnVerifyPw'].Add_Click({
     $pw = $ui['pwdRdp'].Password
     if ([string]::IsNullOrEmpty($pw)) {
@@ -1084,73 +2006,140 @@ $ui['btnVerifyPw'].Add_Click({
     $ui['lblPwState'].Foreground = [System.Windows.Media.Brushes]::Gray
     if (Test-UserPassword -User $script:CurUser -Password $pw) {
         $ui['lblPwState'].Text = '密码正确'
-        $ui['lblPwState'].Foreground = [System.Windows.Media.Brushes]::Green
+        $ui['lblPwState'].Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#22C55E')
         $script:PwVerified = $true
+        $script:PwVerifiedFor = $pw
         Write-Log "密码验证通过（用户：$($script:CurUser)）"
     } else {
         $ui['lblPwState'].Text = '密码不对，请重新输入'
-        $ui['lblPwState'].Foreground = [System.Windows.Media.Brushes]::Red
+        $ui['lblPwState'].Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#F87171')
         $script:PwVerified = $false
     }
 })
 
-# ---- 向导导航 ----
-$script:WizardStep = 1
-function Set-WizardStep {
-    param([int]$Step)
-    $script:WizardStep = $Step
-    $ui['grpStep1'].Visibility = $(if ($Step -eq 1) { 'Visible' } else { 'Collapsed' })
-    $ui['grpStep2'].Visibility = $(if ($Step -eq 2) { 'Visible' } else { 'Collapsed' })
-    $ui['grpStep3'].Visibility = $(if ($Step -eq 3) { 'Visible' } else { 'Collapsed' })
-    $blue = '#2563EB'; $gray = '#94A3B8'
-    $ui['lblStep1'].Foreground = $(if ($Step -eq 1) { [System.Windows.Media.Brushes]::DodgerBlue } else { [System.Windows.Media.Brushes]::Gray })
-    $ui['lblStep2'].Foreground = $(if ($Step -eq 2) { [System.Windows.Media.Brushes]::DodgerBlue } else { [System.Windows.Media.Brushes]::Gray })
-    $ui['lblStep3'].Foreground = $(if ($Step -eq 3) { [System.Windows.Media.Brushes]::DodgerBlue } else { [System.Windows.Media.Brushes]::Gray })
-    $ui['btnBack'].Visibility  = $(if ($Step -eq 1) { 'Collapsed' } else { 'Visible' })
-    $ui['btnNext'].Visibility  = $(if ($Step -eq 3) { 'Collapsed' } else { 'Visible' })
-    $ui['btnInstall'].Visibility = $(if ($Step -eq 3) { 'Visible' } else { 'Collapsed' })
-    # 第 2 步标题带上当前串流用户名
-    if ($Step -eq 2) {
-        $ui['grpStep2'].Header = '第 2 步 · 用户「' + $script:CurUser + '」的登录密码'
-    }}
-Set-WizardStep 1
-
-$ui['btnNext'].Add_Click({
-    # 第 1 步必选显卡
-    if ($script:WizardStep -eq 1) {
-        if ($ui['cmbGpu'].SelectedIndex -lt 0) {
-            [void][System.Windows.MessageBox]::Show($window, '请选择渲染显卡。', '提示',
-                [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
-            return
-        }
+# ---- 动画辅助 ----
+function Start-Sheen {
+    if (-not $script:AnimsEnabled) { return }
+    # 高光扫过条按进度条宽度裁剪
+    $clip = New-Object System.Windows.Media.RectangleGeometry
+    $clip.Rect = [System.Windows.Rect]::new(0, -1, 560, 14)
+    $clip.RadiusX = 6; $clip.RadiusY = 6
+    $ui['sheenClip'].Clip = $clip
+    $sb = New-Object System.Windows.Media.Animation.Storyboard
+    $a = New-Object System.Windows.Media.Animation.DoubleAnimation
+    $a.From = -100; $a.To = 640
+    $a.Duration = [TimeSpan]::FromMilliseconds(2400)
+    $a.RepeatBehavior = [System.Windows.Media.Animation.RepeatBehavior]::Forever
+    [void][System.Windows.Media.Animation.Storyboard]::SetTarget($a, $ui['sheenTt'])
+    [void][System.Windows.Media.Animation.Storyboard]::SetTargetProperty($a, 'X')
+    [void]$sb.Children.Add($a)
+    $sb.Begin($ui['sheenTt'], $true)
+    $script:SheenSb = $sb
+}
+function Stop-Sheen {
+    if ($script:SheenSb) {
+        try { $script:SheenSb.Stop($ui['sheenTt']) } catch { }
+        $script:SheenSb = $null
     }
-    Set-WizardStep ($script:WizardStep + 1)
-})
-$ui['btnBack'].Add_Click({ Set-WizardStep ($script:WizardStep - 1) })
+}
+function Pop-Glyph {
+    param($St)
+    if (-not $script:AnimsEnabled -or -not $St) { return }
+    $aX = New-Object System.Windows.Media.Animation.DoubleAnimation
+    $aX.From = 0.4; $aX.To = 1.0
+    $aX.Duration = [TimeSpan]::FromMilliseconds(130)
+    $aY = New-Object System.Windows.Media.Animation.DoubleAnimation
+    $aY.From = 0.4; $aY.To = 1.0
+    $aY.Duration = [TimeSpan]::FromMilliseconds(130)
+    $St.BeginAnimation([System.Windows.Media.ScaleTransform]::ScaleXProperty, $aX)
+    $St.BeginAnimation([System.Windows.Media.ScaleTransform]::ScaleYProperty, $aY)
+}
 
-# ---- 安装按钮 ----
+# ---- 后台执行 ----
+$script:RunPS = $null
+$script:RunRS = $null
+$script:RunHandle = $null
+$script:RunFinal = $false
+$script:RunKeys = @()
+$script:RunGlyphs = @{}
+
+function Start-RunBackground {
+    param([hashtable]$Opts)
+    $script:Phase = [string]$Opts.Mode
+    $S.LogQueue = [System.Collections.Queue]::Synchronized((New-Object System.Collections.Queue))
+    $S.Prog = [hashtable]::Synchronized(@{
+        Steps = [hashtable]::Synchronized(@{}); StepIndex = 0; StepTotal = 0
+        Current = ''; Done = $false; Results = @()
+    })
+
+    # 步骤行 UI
+    $ui['stepsHost'].Children.Clear()
+    $script:RunKeys = @($Opts.Steps)
+    $script:RunGlyphs = @{}
+    foreach ($k in $script:RunKeys) {
+        $row = New-Object System.Windows.Controls.StackPanel
+        $row.Orientation = 'Horizontal'
+        $row.Margin = [System.Windows.Thickness]::new(2, 3, 0, 3)
+        $glyph = New-Object System.Windows.Controls.TextBlock
+        $glyph.Text = '○'
+        $glyph.Width = 22
+        $glyph.FontSize = 13
+        $glyph.TextAlignment = 'Center'
+        $glyph.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#64748B')
+        $glyph.RenderTransformOrigin = [System.Windows.Point]::new(0.5, 0.5)
+        $st = New-Object System.Windows.Media.ScaleTransform
+        $glyph.RenderTransform = $st
+        $name = New-Object System.Windows.Controls.TextBlock
+        $name.Text = [string]$Opts.Labels[$k]
+        $name.FontSize = 12
+        $name.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#94A3B8')
+        [void]$row.Children.Add($glyph)
+        [void]$row.Children.Add($name)
+        [void]$ui['stepsHost'].Children.Add($row)
+        $script:RunGlyphs[$k] = @{ Glyph = $glyph; Scale = $st; Name = $name; State = 'pending' }
+    }
+
+    $ui['lblPhaseTitle'].Text = $(if ($Opts.Mode -eq 'Uninstall') { '正在反注册组件...' } else { '正在部署串流环境...' })
+    $ui['lblFinishNote'].Text = ''
+    $ui['txtLog'].Clear()
+    $ui['pgBar'].Value = 0
+    $ui['lblStepCount'].Text = ''
+    $ui['lblCurrent'].Text = ''
+
+    $script:Running = $true
+    $script:RunFinal = $false
+    $window.Cursor = [System.Windows.Input.Cursors]::Wait
+    Start-Sheen
+
+    # Runspace（STA 不需要；仅执行非 UI 的安装/卸载操作）
+    $script:RunRS = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace()
+    $script:RunRS.Open()
+    $script:RunRS.SessionStateProxy.SetVariable('S', $S)
+    $script:RunRS.SessionStateProxy.SetVariable('SLogQueue', $S.LogQueue)
+    $op = if ($Opts.Mode -eq 'Uninstall') { 'Invoke-UninstallRun' } else { 'Invoke-InstallRun' }
+    $script:RunPS = [System.Management.Automation.PowerShell]::Create()
+    $script:RunPS.Runspace = $script:RunRS
+    [void]$script:RunPS.AddScript($OpsCode)
+    [void]$script:RunPS.AddCommand($op).AddParameter('Opts', $Opts)
+    $script:RunHandle = $script:RunPS.BeginInvoke()
+}
+
+# ---- 安装启动（UI 线程校验 + 收集参数）----
 $ui['btnInstall'].Add_Click({
-    # 向导模式：必装项灰色不可选（chkConf/chkFirewall/chkRdpWrap/chkWsguard 恒勾选）；会话 GPU 加速、手柄、游戏菜单按勾选
-    $steps = @('conf', 'firewall', 'rdpwrap', 'wsguard')
-    if ($ui['chkGpuAccel'].IsChecked) { $steps += 'gpuaccel' }
-    if ($ui['chkGamepad'].IsChecked)  { $steps += 'gamepad' }
-    if ($ui['chkGameMgr'].IsChecked)  { $steps += 'gamemgr' }
-    if ($ui['chkReset'].IsChecked)    { $steps += 'reset' }
-
+    if ($script:Running) { return }
+    $adapter = $script:GpuNames[$ui['cmbGpu'].SelectedIndex]
+    if (-not $adapter) {
+        [void][System.Windows.MessageBox]::Show($window, '请先选择渲染显卡。', '提示',
+            [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
+        return
+    }
     $user = $script:CurUser
     if (-not $user) {
         [void][System.Windows.MessageBox]::Show($window, '无法获取当前用户名，请重试。', '错误',
             [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Error)
         return
     }
-    # 旧版 wsguard.exe 时安装按钮已禁用，此处再拦一道
-    if (-not $wgNewStyle) {
-        [void][System.Windows.MessageBox]::Show($window,
-            'wsguard.exe 是旧版本，请先用 wsguard\src\build.ps1 -Deploy 重新打包后再安装。', '无法安装',
-            [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Error)
-        return
-    }
-    # 密码验证（守护服务必装，验证通过才能继续）
+    # 密码：非空则验证 / 留空沿用现有 rdp.cred
     $pw = $ui['pwdRdp'].Password
     if (-not [string]::IsNullOrEmpty($pw)) {
         Write-Log "验证用户 $user 的登录密码..."
@@ -1161,10 +2150,10 @@ $ui['btnInstall'].Add_Click({
         }
         $script:PwVerified = $true
         $ui['lblPwState'].Text = '密码正确'
-        $ui['lblPwState'].Foreground = [System.Windows.Media.Brushes]::Green
+        $ui['lblPwState'].Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#22C55E')
         Write-Log 'OK: 密码验证通过'
     } elseif (-not (Test-Path $WgCredPath)) {
-        [void][System.Windows.MessageBox]::Show($window, '请先在第 2 步输入登录密码并点「验证」。', '需要密码',
+        [void][System.Windows.MessageBox]::Show($window, '请先输入登录密码并点「验证」，或已保存过密码可留空。', '需要密码',
             [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
         return
     }
@@ -1173,97 +2162,68 @@ $ui['btnInstall'].Add_Click({
             [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Error)
         return
     }
-    if ($ui['cmbGpu'].SelectedIndex -lt 0) {
-        [void][System.Windows.MessageBox]::Show($window, '请先在安装向导第 1 步选择渲染显卡。', '提示',
-            [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
-        return
-    }
     # 解绑已配对设备：二次确认
-    if ($steps -contains 'reset') {
-    $r = [System.Windows.MessageBox]::Show($window,
-        "确定解绑所有已配对设备吗？`n解绑后所有 Moonlight 客户端都需要重新配对。", '确认',
+    if ($ui['chkReset'].IsChecked) {
+        $r = [System.Windows.MessageBox]::Show($window,
+            "确定解绑所有已配对设备吗？`n解绑后所有 Moonlight 客户端都需要重新配对。", '确认',
             [System.Windows.MessageBoxButton]::YesNo, [System.Windows.MessageBoxImage]::Warning)
         if ($r -ne [System.Windows.MessageBoxResult]::Yes) {
-            $steps = @($steps | Where-Object { $_ -ne 'reset' })
+            $ui['chkReset'].IsChecked = $false
             Write-Log '用户取消：跳过状态与日志清理'
         }
     }
+    $resetOk = -not $ui['chkReset'].IsChecked
 
-    # 切到「运行日志」选项卡，执行过程实时可见
-    $ui['tabs'].SelectedIndex = 2
-    $window.Cursor = [System.Windows.Input.Cursors]::Wait
-    $results = New-Object System.Collections.ArrayList
-    try {
-        # ── 1 · Sunshine 串流服务 ──
-        Write-Log '── [1/安装] Sunshine 配置文件（默认配置）──'
-        try {
-            $adapter = $script:GpuNames[$ui['cmbGpu'].SelectedIndex]
-            Write-SunshineConf -AdapterName $adapter
-            [void]$results.Add('[OK] 默认配置')
-        } catch { Write-Log "失败: $($_.Exception.Message)"; [void]$results.Add('[失败] 默认配置') }
+    # 步骤编排（gpuaccel 与 firewall 等顺序：conf → gpuaccel → firewall → gamepad → rdpwrap → wsguard → gamemgr → reset）
+    $steps = @('conf')
+    if ($ui['chkGpuAccel'].IsChecked) { $steps += 'gpuaccel' }
+    $steps += 'firewall'
+    if ($ui['chkGamepad'].IsChecked)  { $steps += 'gamepad' }
+    $steps += 'rdpwrap'
+    $steps += 'wsguard'
+    if ($ui['chkGameMgr'].IsChecked)  { $steps += 'gamemgr' }
+    if ($ui['chkReset'].IsChecked)    { $steps += 'reset' }
 
-        if ($steps -contains 'firewall') {
-            Write-Log '── [1/安装] 防火墙放行 Sunshine ──'
-            try { Install-FirewallRule; [void]$results.Add('[OK] 防火墙放行') }
-            catch { Write-Log "失败: $($_.Exception.Message)"; [void]$results.Add('[失败] 防火墙放行') }
-        }
-        if ($steps -contains 'gamepad') {
-            Write-Log '── [1/安装] 虚拟手柄驱动（ViGEmBus）──'
-            try { Install-Gamepad; [void]$results.Add('[OK] 虚拟手柄驱动') }
-            catch { Write-Log "失败: $($_.Exception.Message)"; [void]$results.Add('[失败] 虚拟手柄驱动') }
-        }
-
-        # ── 2 · 远程桌面解锁 ──
-        Write-Log '── [2/安装] RDP Wrapper 远程桌面解锁 ──'
-        try { Install-RdpWrapper; [void]$results.Add('[OK] RDP 并发解锁') }
-        catch { Write-Log "失败: $($_.Exception.Message)"; [void]$results.Add('[失败] RDP 并发解锁') }
-
-        # ── 3 · 串流会话守护服务 ──
-        # 虚拟屏分辨率（守护服务用，先解析一次）
+    # 虚拟屏分辨率
+    $script:Vw = 0; $script:Vh = 0
+    $wTxt = '{0}' -f $ui['txtWidth'].Text; $hTxt = '{0}' -f $ui['txtHeight'].Text
+    if ($wTxt -match '^\s*(\d{3,5})\s*$') { $script:Vw = [int]$Matches[1] }
+    if ($hTxt -match '^\s*(\d{3,5})\s*$') { $script:Vh = [int]$Matches[1] }
+    if (($script:Vw -lt 320) -or ($script:Vh -lt 240) -or ($script:Vw -gt 7680) -or ($script:Vh -gt 4320)) {
         $script:Vw = 0; $script:Vh = 0
-        $wTxt = '{0}' -f $ui['txtWidth'].Text; $hTxt = '{0}' -f $ui['txtHeight'].Text
-        if ($wTxt -match '^\s*(\d{3,5})\s*$') { $script:Vw = [int]$Matches[1] }
-        if ($hTxt -match '^\s*(\d{3,5})\s*$') { $script:Vh = [int]$Matches[1] }
-        if (($script:Vw -lt 320) -or ($script:Vh -lt 240) -or ($script:Vw -gt 7680) -or ($script:Vh -gt 4320)) {
-            $script:Vw = 0; $script:Vh = 0
-            Write-Log "跳过: 虚拟屏分辨率输入无效 [$wTxt x $hTxt]，沿用现有配置"
-        } else {
-            Write-Log "虚拟屏分辨率: $($script:Vw) x $($script:Vh)"
-        }
-        Write-Log "── [3/安装] WSGuard 串流会话守护服务（用户：$user）──"
-        try {
-            Install-Wsguard -RdpUser $user -Password $ui['pwdRdp'].Password -Vw $script:Vw -Vh $script:Vh -AutoLogon ([bool]$ui['chkAutoLogon'].IsChecked)
-            [void]$results.Add('[OK] WSGuard 守护服务')
-        } catch { Write-Log "失败: $($_.Exception.Message)"; [void]$results.Add('[失败] WSGuard 守护服务') }
-        Write-Log '── [3/安装] Sunshine 开机自启（Apollo 守卫）──'
-        try { Install-ApolloGuard -User $user; [void]$results.Add('[OK] 开机自启') }
-        catch { Write-Log "失败: $($_.Exception.Message)"; [void]$results.Add('[失败] 开机自启') }
-
-        # ── 4 · 可选功能 ──
-        if ($steps -contains 'gamemgr') {
-            Write-Log '── [4/安装] GameManager 游戏菜单 ──'
-            try { Install-GameManager; [void]$results.Add('[OK] 游戏菜单') }
-            catch { Write-Log "失败: $($_.Exception.Message)"; [void]$results.Add('[失败] 游戏菜单') }
-        }
-        if ($steps -contains 'reset') {
-            Write-Log '── [4/安装] 解绑所有已配对设备 ──'
-            try { Reset-SunshineState; [void]$results.Add('[OK] 已解绑全部设备') }
-            catch { Write-Log "失败: $($_.Exception.Message)"; [void]$results.Add('[失败] 解绑设备') }
-        }
-        if (Get-Process -Name 'sunshine' -ErrorAction SilentlyContinue) {
-            Write-Log '提示: Sunshine 正在运行，需要重启 Sunshine 后新配置才生效'
-        }
-    } finally {
-        $window.Cursor = [System.Windows.Input.Cursors]::Arrow
+        Write-Log "跳过: 虚拟屏分辨率输入无效 [$wTxt x $hTxt]，沿用现有配置"
+    } else {
+        Write-Log "虚拟屏分辨率: $($script:Vw) x $($script:Vh)"
     }
-    $summary = ($results -join "`n")
-    [void][System.Windows.MessageBox]::Show($window, "安装执行完毕：`n`n$summary`n`n详细过程见「运行日志」选项卡。", '完成',
-        [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
+
+    $labels = @{
+        conf     = '写入 Sunshine 配置文件'
+        gpuaccel = '会话 GPU 加速策略'
+        firewall = '防火墙放行 Sunshine'
+        gamepad  = 'ViGEmBus 虚拟手柄驱动'
+        rdpwrap  = 'RDP Wrapper 并发解锁'
+        wsguard  = 'WSGuard 守护服务与开机自启'
+        gamemgr  = 'GameManager 游戏菜单'
+        reset    = '解绑已配对设备'
+    }
+    $opts = @{
+        Mode     = 'Install'
+        Steps    = $steps
+        Labels   = $labels
+        Adapter  = $adapter
+        User     = $user
+        Password = $pw
+        Vw       = $script:Vw
+        Vh       = $script:Vh
+        AutoLogon = [bool]$ui['chkAutoLogon'].IsChecked
+    }
+    Show-Page r
+    Start-RunBackground $opts
 })
 
-# ---- 卸载按钮 ----
-$ui['btnUninstall'].Add_Click({
-    # 与安装界面分组一一对应
+# ---- 卸载启动 ----
+$ui['btnUninstallStart'].Add_Click({
+    if ($script:Running) { return }
     $steps = @()
     if ($ui['chkUFirewall'].IsChecked) { $steps += 'firewall' }
     if ($ui['chkUGamepad'].IsChecked)  { $steps += 'gamepad' }
@@ -1281,53 +2241,138 @@ $ui['btnUninstall'].Add_Click({
         [System.Windows.MessageBoxButton]::YesNo, [System.Windows.MessageBoxImage]::Question)
     if ($r -ne [System.Windows.MessageBoxResult]::Yes) { return }
 
-    # 切到「运行日志」选项卡，执行过程实时可见
-    $ui['tabs'].SelectedIndex = 2
-    $window.Cursor = [System.Windows.Input.Cursors]::Wait
-    $results = New-Object System.Collections.ArrayList
-    try {
-        # ── 1 · Sunshine 串流服务 ──
-        if ($steps -contains 'firewall') {
-            Write-Log '── [1/卸载] 移除防火墙放行规则 ──'
-            try { Uninstall-FirewallRule; [void]$results.Add('[OK] 已移除防火墙规则') }
-            catch { Write-Log "失败: $($_.Exception.Message)"; [void]$results.Add('[失败] 防火墙放行') }
-        }
-        if ($steps -contains 'gamepad') {
-            Write-Log '── [1/卸载] 虚拟手柄驱动（ViGEmBus）──'
-            try { Uninstall-Gamepad; [void]$results.Add('[OK] 已卸载虚拟手柄驱动') }
-            catch { Write-Log "失败: $($_.Exception.Message)"; [void]$results.Add('[失败] 虚拟手柄驱动驱动') }
-        }
-
-        # ── 2 · 远程桌面解锁 ──
-        if ($steps -contains 'rdpwrap') {
-            Write-Log '── [2/卸载] RDP Wrapper ──'
-            try { Uninstall-RdpWrapper; [void]$results.Add('[OK] 已卸载 RDP 并发解锁') }
-            catch { Write-Log "失败: $($_.Exception.Message)"; [void]$results.Add('[失败] RDP 并发解锁') }
-        }
-
-        # ── 3 · 串流会话守护服务 ──
-        if ($steps -contains 'wsguard') {
-            Write-Log '── [3/卸载] 取消 Sunshine 开机自启（Apollo 守卫）──'
-            try { Uninstall-ApolloGuard; [void]$results.Add('[OK] 已取消开机自启') }
-            catch { Write-Log "失败: $($_.Exception.Message)"; [void]$results.Add('[失败] 取消自启') }
-            Write-Log '── [3/卸载] WSGuard 服务 ──'
-            try { Uninstall-Wsguard; [void]$results.Add('[OK] 已卸载守护服务') }
-            catch { Write-Log "失败: $($_.Exception.Message)"; [void]$results.Add('[失败] WSGuard 守护服务') }
-        }
-
-        # ── 4 · 可选功能 ──
-        if ($steps -contains 'gamemgr') {
-            Write-Log '── [4/卸载] GameManager ──'
-            try { Uninstall-GameManager; [void]$results.Add('[OK] 已卸载游戏菜单') }
-            catch { Write-Log "失败: $($_.Exception.Message)"; [void]$results.Add('[失败] 游戏菜单') }
-        }
-    } finally {
-        $window.Cursor = [System.Windows.Input.Cursors]::Arrow
+    $labels = @{
+        firewall = '移除防火墙放行规则'
+        gamepad  = '卸载 ViGEmBus 驱动'
+        rdpwrap  = '卸载 RDP Wrapper'
+        gpuaccel = '删除会话 GPU 加速策略'
+        wsguard  = '卸载守护服务并取消自启'
+        gamemgr  = '卸载 GameManager'
     }
-    $summary = ($results -join "`n")
-    [void][System.Windows.MessageBox]::Show($window, "卸载执行完毕：`n`n$summary`n`n详细过程见「运行日志」选项卡。", '完成',
-        [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
+    $opts = @{
+        Mode   = 'Uninstall'
+        Steps  = @($steps)
+        Labels = $labels
+    }
+    Show-Page r
+    Start-RunBackground $opts
 })
 
-Write-Log "Sunshine 部署工具就绪（根目录 $Root）"
+# ---- UI 泵：日志队列 + 进度 + 步骤状态 + 完成回跳 ----
+$timer = New-Object System.Windows.Threading.DispatcherTimer
+$timer.Interval = [TimeSpan]::FromMilliseconds(60)
+$timer.Add_Tick({
+    # 日志
+    $q = $S.LogQueue
+    if ($q) {
+        while ($q.Count -gt 0) {
+            try { $line = $q.Dequeue() } catch { break }
+            if ($script:LogBox) {
+                $script:LogBox.AppendText("$line`r`n")
+                $script:LogBox.ScrollToEnd()
+            }
+        }
+    }
+    # 进度与步骤状态
+    $p = $S.Prog
+    if ($p -and $p.StepTotal -gt 0) {
+        $idx = [int]$p.StepIndex
+        $total = [int]$p.StepTotal
+        $doneCount = [Math]::Max($idx - 1, 0)
+        $target = [double]($doneCount * 100 / $total)
+        $ui['lblStepCount'].Text = '步骤 ' + $idx + ' / ' + $total
+        $cur = [string]$p.Current
+        if ($cur -and $ui['lblCurrent'].Text -ne $cur) { $ui['lblCurrent'].Text = $cur }
+        # 步骤状态（含对勾/失败弹出动画）
+        foreach ($k in $script:RunKeys) {
+            $st = [string]$p.Steps[$k]
+            $g = $script:RunGlyphs[$k]
+            if ($g -and $g.State -ne $st) {
+                $g.State = $st
+                $conv = [System.Windows.Media.BrushConverter]::new()
+                switch ($st) {
+                    'running' {
+                        $g.Glyph.Text = '●'; $g.Glyph.Foreground = $conv.ConvertFromString('#3B82F6')
+                        $g.Name.Foreground = $conv.ConvertFromString('#E2E8F0')
+                    }
+                    'ok' {
+                        $g.Glyph.Text = '✓'; $g.Glyph.Foreground = $conv.ConvertFromString('#22C55E')
+                        Pop-Glyph $g.Scale
+                    }
+                    'fail' {
+                        $g.Glyph.Text = '✗'; $g.Glyph.Foreground = $conv.ConvertFromString('#F87171')
+                        Pop-Glyph $g.Scale
+                    }
+                }
+            }
+        }
+        # 进度条平滑动画
+        if ([Math]::Abs($ui['pgBar'].Value - $target) -gt 0.05 -and -not $p.Done) {
+            $anim = New-Object System.Windows.Media.Animation.DoubleAnimation
+            $anim.To = $target
+            $anim.Duration = [TimeSpan]::FromMilliseconds(400)
+            $ui['pgBar'].BeginAnimation([System.Windows.Controls.ProgressBar]::ValueProperty, $anim)
+        }
+    }
+    # 完成：回到结果页
+    if ($p.Done -and $script:RunHandle -and (-not $script:RunFinal)) {
+        $script:RunFinal = $true
+        try {
+            $null = $script:RunPS.EndInvoke($script:RunHandle)
+        } catch {
+            Write-Log "后台执行异常: $($_.Exception.Message)"
+        }
+        try { $script:RunPS.Dispose() } catch { }
+        try { $script:RunRS.Close() } catch { }
+        $script:RunPS = $null; $script:RunRS = $null; $script:RunHandle = $null
+        Stop-Sheen
+        $window.Cursor = [System.Windows.Input.Cursors]::Arrow
+        $script:Running = $false
+        # 全量日志队列清空
+        $q = $S.LogQueue
+        if ($q) {
+            while ($q.Count -gt 0) {
+                try { $line = $q.Dequeue() } catch { break }
+                if ($script:LogBox) { $script:LogBox.AppendText("$line`r`n"); $script:LogBox.ScrollToEnd() }
+            }
+        }
+        # 结果页填充
+        $ui['resHost'].Children.Clear()
+        $failed = 0
+        $conv = [System.Windows.Media.BrushConverter]::new()
+        foreach ($r in @($S.Prog.Results)) {
+            $row = New-Object System.Windows.Controls.StackPanel
+            $row.Orientation = 'Horizontal'
+            $row.Margin = [System.Windows.Thickness]::new(2, 3, 0, 3)
+            $glyph = New-Object System.Windows.Controls.TextBlock
+            if ($r.Ok) { $glyph.Text = '✓'; $glyph.Foreground = $conv.ConvertFromString('#22C55E') }
+            else { $glyph.Text = '✗'; $glyph.Foreground = $conv.ConvertFromString('#F87171'); $failed++ }
+            $glyph.Width = 22
+            $name = New-Object System.Windows.Controls.TextBlock
+            $name.Text = [string]$r.Label
+            $name.FontSize = 12
+            $name.Foreground = $conv.ConvertFromString('#E2E8F0')
+            [void]$row.Children.Add($glyph)
+            [void]$row.Children.Add($name)
+            [void]$ui['resHost'].Children.Add($row)
+        }
+        $ui['lblFinishIcon'].Text = $(if ($failed -eq 0) { '✓' } else { '!' })
+        $ui['lblFinishIcon'].Foreground = $conv.ConvertFromString($(if ($failed -eq 0) { '#22C55E' } else { '#F59E0B' }))
+        $ui['lblFinishTitle'].Text = $(if ($failed -eq 0) {
+            if ($script:Phase -eq 'Uninstall') { '卸载完成' } else { '部署完成' }
+        } else {
+            if ($script:Phase -eq 'Uninstall') { "卸载完成，$failed 项失败" } else { "部署完成，$failed 项失败" }
+        })
+        $ui['lblFinishNote'].Text = $(if ($failed -eq 0) {
+            '全部步骤执行成功。详细过程请点「查看完整日志」查看。'
+        } else {
+            '部分步骤未成功，请查看日志排查。失败项不影响其他已成功项。'
+        })
+        Show-Page f
+    }
+})
+$timer.Start()
+
+# ---- 就绪提示 ----
+Write-Log "Sunshine-Duo 部署工具就绪（根目录 $Root，渲染 Tier $([System.Windows.Media.RenderCapability]::Tier -shr 16)）"
 $null = $window.ShowDialog()
