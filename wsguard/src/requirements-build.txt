@@ -1,0 +1,9 @@
+# wsguard 构建工具链（pip 安装到 .wsguard-build\build-tools）
+# 用法：python -m pip install --target <Sunshine>\.wsguard-build\build-tools -r requirements-build.txt
+pyinstaller==6.22.3
+pyinstaller-hooks-contrib==2026.9
+altgraph==0.17.5
+pefile==2024.8.26
+pywin32-ctypes==0.2.3
+packaging==26.3
+setuptools==84.2.1

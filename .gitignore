@@ -1,0 +1,17 @@
+# ---- 日志 ----
+*.log
+*.log.backup
+tools/install-log.txt
+
+# ---- 密钥与凭据（本机生成，严禁入库）----
+config/credentials/
+config/sunshine_state.json
+wsguard/rdp.cred
+
+# ---- wsguard 构建现场（pip 依赖见 wsguard/src/requirements-build.txt / requirements-rdp.txt）----
+.wsguard-build/
+
+# ---- 临时文件与缓存 ----
+.temp/
+__pycache__/
+*.pyc
