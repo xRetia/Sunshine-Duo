@@ -1,6 +1,10 @@
-# Sunshine 串流环境（便携部署包）
+# Sunshine-Duo —— Sunshine 串流环境（便携部署包）
 
 开箱即用的 Sunshine 串流环境：双击 `setup.bat` 图形化一键安装 / 卸载，内置 RDP 并发解锁、串流会话守护（WSGuard）、防火墙放行、虚拟手柄驱动、游戏菜单（GameManager）等组件。所有路径由脚本位置相对推导，整个目录可任意移动。
+
+```powershell
+git clone https://github.com/xRetia/Sunshine-Duo.git
+```
 
 ## 快速开始
 
@@ -55,6 +59,7 @@ python -m pip install --target ..\..\.wsguard-build\rdp-lib      -r requirements
   - `config\credentials\`（Sunshine 配对 CA 证书与私钥）
   - `config\sunshine_state.json`（已配对客户端状态）
   - `wsguard\rdp.cred`（DPAPI 本机加密的串流用户密码）
+- **本机生成的运行配置**：`config\sunshine.conf`（含显卡型号）、`wsguard\config.json`（含本机绝对路径）、`tools\GameManager.json`（安装时按实际路径重写）
 - **构建现场**：`.wsguard-build\`（pip 依赖可随时重装，见上一节）
 - **临时文件**：`.temp\`、`__pycache__\`、`*.pyc`
 - **游戏快捷方式**：`Links\`（指向本机已安装的游戏，他人克隆后无效，自行创建）

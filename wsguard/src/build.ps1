@@ -2,7 +2,7 @@
 # 用法（在管理员/普通 PowerShell 均可，仅打包不部署）：
 #   powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1
 #   powershell ... -File .\build.ps1 -Deploy   # 打包后自动部署到 ..\（wsguard 主目录）
-param([switch]$Deploy)
+param([switch]$Deploy, [string]$Python)
 
 $ErrorActionPreference = 'Stop'
 
@@ -10,37 +10,21 @@ $ErrorActionPreference = 'Stop'
 $SrcDir   = $PSScriptRoot                       # src 正本目录
 $WgDir    = Split-Path -Parent $SrcDir          # wsguard 主目录（部署目标）
 $BuildRoot = Join-Path (Split-Path -Parent $WgDir) '.wsguard-build'   # Sunshine 根目录\.wsguard-build
-$Python   = 'C:\Users\dfc643\.local\share\TeleAgent\runtimes\python\python.exe'
-if (-not (Test-Path $Python)) { $Python = 'python' }   # 其他机器：回退 PATH 上的 python（需 3.12 x64）
+if (-not $Python) { $Python = 'python' }   # 默认取 PATH 上的 python（需 3.12 x64），可用 -Python 指定完整路径
 
 # 构建依赖库（PyInstaller 与 aardwolf 运行库），不随仓库分发：
 #   1) .wsguard-build 已就绪 → 直接用；
-#   2) 本机备份目录存在 → 复制（离线快）；
-#   3) 都没有 → pip 安装（依赖清单见 src\requirements-build.txt / requirements-rdp.txt）
-$FallbackTools = 'C:\Users\dfc643\.local\share\TeleAgent\TeleAgent的工作空间\.temp\build-tools'
-$FallbackLib   = 'C:\Users\dfc643\.local\share\TeleAgent\TeleAgent的工作空间\.temp\rdp-lib'
+#   2) 缺失 → pip 安装（依赖清单见 src\requirements-build.txt / requirements-rdp.txt）
 New-Item -ItemType Directory -Path $BuildRoot -Force | Out-Null
 if (-not (Test-Path (Join-Path $BuildRoot 'build-tools\PyInstaller'))) {
-    if (Test-Path (Join-Path $FallbackTools 'PyInstaller')) {
-        robocopy $FallbackTools (Join-Path $BuildRoot 'build-tools') /E /NFL /NDL /NJH /NJS | Out-Null
-        if ($LASTEXITCODE -ge 8) { throw '复制 build-tools 失败' }
-        Write-Host 'build-tools 已复制到构建现场'
-    } else {
-        Write-Host 'build-tools 缺失，pip 安装构建依赖（requirements-build.txt）...'
-        & $Python -m pip install --target (Join-Path $BuildRoot 'build-tools') -r (Join-Path $SrcDir 'requirements-build.txt')
-        if ($LASTEXITCODE -ne 0) { throw "pip 安装构建依赖失败（exit=$LASTEXITCODE）" }
-    }
+    Write-Host 'build-tools 缺失，pip 安装构建依赖（requirements-build.txt）...'
+    & $Python -m pip install --target (Join-Path $BuildRoot 'build-tools') -r (Join-Path $SrcDir 'requirements-build.txt')
+    if ($LASTEXITCODE -ne 0) { throw "pip 安装构建依赖失败（exit=$LASTEXITCODE）" }
 }
 if (-not (Test-Path (Join-Path $BuildRoot 'rdp-lib\aardwolf'))) {
-    if (Test-Path (Join-Path $FallbackLib 'aardwolf')) {
-        robocopy $FallbackLib (Join-Path $BuildRoot 'rdp-lib') /E /NFL /NDL /NJH /NJS | Out-Null
-        if ($LASTEXITCODE -ge 8) { throw '复制 rdp-lib 失败' }
-        Write-Host 'rdp-lib 已复制到构建现场'
-    } else {
-        Write-Host 'rdp-lib 缺失，pip 安装运行库（requirements-rdp.txt）...'
-        & $Python -m pip install --target (Join-Path $BuildRoot 'rdp-lib') -r (Join-Path $SrcDir 'requirements-rdp.txt')
-        if ($LASTEXITCODE -ne 0) { throw "pip 安装运行库失败（exit=$LASTEXITCODE）" }
-    }
+    Write-Host 'rdp-lib 缺失，pip 安装运行库（requirements-rdp.txt）...'
+    & $Python -m pip install --target (Join-Path $BuildRoot 'rdp-lib') -r (Join-Path $SrcDir 'requirements-rdp.txt')
+    if ($LASTEXITCODE -ne 0) { throw "pip 安装运行库失败（exit=$LASTEXITCODE）" }
 }
 $BuildTools = Join-Path $BuildRoot 'build-tools'
 $RdpLib     = Join-Path $BuildRoot 'rdp-lib'
