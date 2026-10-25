@@ -1,6 +1,6 @@
 # 第三方组件许可声明（THIRD-PARTY-NOTICES）
 
-本仓库自有代码（`scripts\`、`wsguard\src\`、`gv_hook.dll`、`tools\GameManager.exe` 等）以 **GPL-3.0** 授权，全文见根目录 [LICENSE](LICENSE)。
+本仓库自有代码（`scripts\`、`wsguard\`、`tools\GameManager.exe` 等）以 **GPL-3.0** 授权，全文见根目录 [LICENSE](LICENSE)。
 
 本仓库捆绑/调用的第三方组件各自保留其原始许可证，汇总如下。许可证全文存放于 [licenses\](licenses) 目录或组件自身目录，均为上游官方原文。
 
