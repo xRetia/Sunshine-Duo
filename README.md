@@ -77,16 +77,16 @@ python -m pip install --target ..\..\.wsguard-build\rdp-lib      -r requirements
 
 仓库内捆绑的第三方组件各自保留原始许可证：
 
-| 组件 | 许可证 |
-| --- | --- |
-| Apollo（sunshine.exe 及附属工具） | GPL-3.0 |
-| RDP Wrapper | Apache-2.0 |
-| GameManager（作者本人的开源项目） | GPL-3.0 |
-| ViGEmBus 驱动 | BSD-3-Clause |
-| SudoVDA 虚拟显示驱动 | MIT |
-| nefcon | MIT |
-| zlib | zlib License |
-| wsguard 的 Python 依赖（aardwolf 等） | MIT / BSD / Apache-2.0 / MPL-2.0 / PSF 等 |
+| 组件 | 项目地址 | 许可证 |
+| --- | --- | --- |
+| Apollo（sunshine.exe 及附属工具） | https://github.com/ClassicOldSong/Apollo | GPL-3.0 |
+| RDP Wrapper | https://github.com/stascorp/rdpwrap | Apache-2.0 |
+| GameManager | https://github.com/xRetia/game-manager | GPL-3.0 |
+| ViGEmBus 驱动 | https://github.com/nefarius/ViGEmBus | BSD-3-Clause |
+| SudoVDA 虚拟显示驱动 | https://github.com/SudoMaker/SudoVDA | MIT |
+| nefcon | https://github.com/nefarius/nefcon | MIT |
+| zlib | https://zlib.net | zlib License |
+| wsguard 的 Python 依赖（aardwolf 等） | https://pypi.org（清单见 wsguard\src\requirements-rdp.txt） | MIT / BSD / Apache-2.0 / MPL-2.0 / PSF 等 |
 
 完整清单、版本号与许可证全文见 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) 与 [licenses\](licenses) 目录。
 
