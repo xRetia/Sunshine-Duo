@@ -1,77 +1,112 @@
-# Sunshine-Duo
+<div align="center">
 
-Duo = **一台电脑，双会话并行**。Console 会话与游戏串流会话完全隔离、互不干扰：
+<img src="assets/banner.png" alt="Sunshine-Duo" width="880">
 
-| | Console 会话 | 游戏会话（串流） |
+**一台电脑，当两台用 —— 打游戏的打游戏，办公的办公，互不打扰。**
+
+<br/>
+
+<a href="https://github.com/xRetia/Sunshine-Duo/archive/refs/heads/main.zip">
+  <img src="https://img.shields.io/badge/⬇_下载最新版-ZIP_绿色免安装-22c55e?style=for-the-badge" alt="下载最新版">
+</a>&nbsp;
+<a href="https://ghfast.top/https://github.com/xRetia/Sunshine-Duo/archive/refs/heads/main.zip">
+  <img src="https://img.shields.io/badge/🇨🇳_国内镜像下载-ghfast.top-f59e0b?style=for-the-badge" alt="国内镜像下载">
+</a>
+
+<br/>
+
+<sub>备用镜像：<a href="https://gh-proxy.com/https://github.com/xRetia/Sunshine-Duo/archive/refs/heads/main.zip">gh-proxy.com</a>　·　下载后解压到任意目录，双击 <code>setup.bat</code> 即装</sub>
+
+<br/>
+
+<a href="https://github.com/xRetia/Sunshine-Duo/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-GPL--3.0-blue?style=flat-square" alt="License"></a>&nbsp;
+<img src="https://img.shields.io/badge/平台-Windows_10_/_11-0078D6?style=flat-square&logo=windows" alt="Windows">&nbsp;
+<img src="https://img.shields.io/badge/客户端-Moonlight_全平台-7289DA?style=flat-square" alt="Moonlight">
+
+</div>
+
+---
+
+## 🎮 一台电脑，当两台用
+
+普通串流：你一开始打游戏，家里用电脑的人就被“挤下线”。
+**Sunshine-Duo**：两个会话同时在线，各玩各的。
+
+| | 🖥️ Console 会话 | 🕹️ 游戏会话 |
 | --- | --- | --- |
-| 使用者 | 本机用户 / UU 远程 | Moonlight 客户端 |
-| 显示 | 物理显示器 | 虚拟屏（分辨率自选） |
-| 输入 | 本机键鼠 | 串流手柄（虚拟 Xbox 360） |
+| 谁在用 | 本机键鼠 / UU 远程 | Moonlight 客户端（手机/平板/电视/PC） |
+| 看哪块屏 | 物理显示器 | 独立虚拟屏（分辨率自己定） |
+| 输入设备 | 本机键鼠 | 串流手柄，虚拟成 Xbox 360 手柄 |
+| 互相干扰 | ❌ 完全隔离 | ❌ 完全隔离 |
 
-```powershell
-git clone https://github.com/xRetia/Sunshine-Duo.git
-```
+**典型场景**：你在书房写文档查资料，家人在客厅用电视连着手柄打《原神》——同一台电脑、同一个系统，两边同时进行，谁也踢不掉谁。
 
-## Duo 的特点
+## ✨ 亮点
 
-- **双会话完全隔离**：家人在客厅用 Moonlight 串流打游戏的同时，你可以继续在本机键鼠办公——键盘、鼠标、手柄、显示、音频各归各的会话，互不抢焦点、互不干扰。
-- **与网易 UU 远程（GameViewer）兼容**：设置与 UU 远程协同——UU 远程串流 console 会话负责日常远控和办公，Sunshine-Duo 串流游戏会话负责游戏；两边可同时连接同一台机器，各管各的会话，不冲突。
-- **手柄即插即用**：串流端手柄虚拟为 Xbox 360 手柄（ViGEmBus），主机级体验，支持多手柄，且不影响本机键鼠。
-- **游戏菜单**：GameManager 直接启动需要管理员权限的游戏，串流端打开即玩，无需先在本机登录。
-
-## 内置组件
-
-- **RDP 并发解锁**（RdpWrapper）：允许同一电脑同时登录主用户和串流用户——双会话的技术前提
-- **串流会话守护服务**（WSGuard）：断开串流后自动保活虚拟屏（下次连接即开即用）、开机自启并自动拉起 Sunshine
-- **虚拟显示驱动**（SudoVDA）：游戏会话使用独立虚拟屏，分辨率任意指定
-- **一键安装/卸载**：双击 `setup.bat` 图形界面安装；所有路径由脚本位置相对推导，整个目录可任意移动
-
-## 快速开始
-
-1. 双击 `setup.bat`（自动请求 UAC 管理员权限）。
-2. 按界面 4 组选项确认（1/2/3 组必装，第 4 组可选）：
-   - **1 · Sunshine 串流服务**：写入默认配置（显卡 / 手柄 / UPnP）+ 渲染显卡选择 + 防火墙放行（可选）+ 虚拟手柄驱动 ViGEmBus（可选）
-   - **2 · 远程桌面解锁**：RdpWrapper，允许同一电脑可同时登录主用户和串流用户
-   - **3 · 串流会话守护服务**：串流用户与密码（LogonUser 验证）、开机自动登录、虚拟屏分辨率、WSGuard 服务
-   - **4 · 可选功能**：游戏菜单（快捷方式放 `Links\` 目录）、解绑所有已配对设备
-3. 点「开始安装」，执行过程实时见「运行日志」选项卡。
-
-卸载：同一界面切到「卸载」选项卡，执行反向反注册（不删除程序文件、配置与凭据）。
-
-## 目录结构
-
-| 目录 / 文件 | 说明 |
+| 亮点 | 说明 |
 | --- | --- |
-| `setup.bat` | 一键安装入口（实际逻辑在 `scripts\sunshine-setup.ps1`） |
-| `sunshine.exe` / `zlib1.dll` | Sunshine 本体（Apollo） |
-| `config\` | Sunshine 配置 |
-| `scripts\` | 安装 / 卸载 / 防火墙 / 手柄驱动等脚本 |
-| `tools\` | rdpWrapper、GameManager 等工具 |
-| `wsguard\` | 串流会话守护服务（`wsguard.exe` + `_internal\` 运行库；源码在 `wsguard\src\`） |
-| `drivers\` | 虚拟显示驱动（sudovda） |
-| `assets\` | Sunshine 资源文件 |
-| `Links\` | 游戏快捷方式目录（把你自己的游戏快捷方式放进去） |
-| `LICENSE` / `licenses\` / `THIRD-PARTY-NOTICES.md` | 许可证：自有代码 GPL-3.0，第三方组件许可声明 |
+| 👥 **双会话隔离** | 键鼠、手柄、画面、声音各归各的会话，不打架、不抢焦点 |
+| 🤝 **与网易 UU 远程兼容** | UU 远程管 console 会话做日常远控，Sunshine-Duo 管游戏会话；两边可同时连一台机器，互不冲突 |
+| 🎮 **手柄即插即用** | 串流手柄虚拟成 Xbox 360 手柄——兼容性最好的一档，支持多手柄，还不影响本机键鼠 |
+| 🔐 **能启动要管理员权限的游戏** | 自带游戏菜单（GameManager），串流端直接开游戏，不用先跑回电脑前点 UAC |
+| 🌙 **断流不掉屏** | 断开串流后虚拟屏自动保活，下次连接即开即用，不用重新拉起 |
+| 🧰 **一键安装卸载** | 图形界面，全中文；整个目录可任意移动，卸载不删配置和已配对设备 |
 
-## 重新构建 wsguard（可选）
+## 🚀 三步开玩
 
-需要 **Python 3.12（x64）与 pip**。构建依赖不随仓库分发，首次构建时自动 pip 安装到 `.wsguard-build\`：
+1. **下载解压**——点上面的下载按钮，解压到任意目录（D 盘 E 盘都行，放游戏盘旁边也可以）
+2. **双击 `setup.bat`**——会自动申请管理员权限；界面里的选项都有中文说明，看一眼默认值，输入一次 Windows 登录密码，点「开始安装」
+3. **手机/电视装 [Moonlight](https://moonlight-stream.org)**——同一 WiFi 下自动发现主机，输 4 位配对码，开玩 🎉
+
+> 💡 **第一次用**：安装完建议先用 Moonlight 串流进去确认一切正常，再把游戏快捷方式放进 `Links\` 文件夹，之后从游戏菜单一键启动。
+
+## 📱 手机党看这里：配个手柄，掌机体验直接拉满
+
+手机触屏玩 PC 游戏，虚拟摇杆总差点意思。**蓝牙手柄 + 手机支架 = 一台随时可开的"掌机"**：
+
+- ✅ **兼容性好**：主机把手柄虚拟成 Xbox 360 手柄，游戏直接识别，不用折腾映射
+- ✅ **推荐手柄**：Xbox 无线手柄、飞智黑武士、北通系列、8BitDo……只要是蓝牙手柄基本都行
+- ✅ **姿势随意**：躺床上、靠沙发、蹲马桶，手机往支架上一夹，比端着电脑舒服多了
+- ✅ **网络小技巧**：手机连 5GHz WiFi；追求极限低延迟可以用 USB 数据线共享网络给手机，接近有线体验
+
+## 📁 里面有什么
+
+| 目录 / 文件 | 是干嘛的 |
+| --- | --- |
+| `setup.bat` | 一键安装入口（双击它） |
+| `sunshine.exe` | Sunshine 本体（Apollo） |
+| `tools\` | RDP 解锁、游戏菜单等工具 |
+| `wsguard\` | 串流会话守护服务（保活虚拟屏、自动拉起） |
+| `drivers\` | 虚拟显示驱动 |
+| `Links\` | 🎮 放你的游戏快捷方式，串流端一键启动 |
+| `assets\` | 资源图片 |
+
+<details>
+<summary><b>🔧 进阶：重新打包 wsguard</b>（一般用不着）</summary>
+
+需要 **Python 3.12（x64）与 pip**。构建依赖不随仓库分发，首次构建自动 pip 安装到 `.wsguard-build\`：
 
 ```powershell
 cd wsguard\src
 powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -Deploy
 ```
 
-也可手动准备构建环境（两种方式效果相同）：
+依赖清单：`wsguard\src\requirements-build.txt`（PyInstaller 工具链）、`requirements-rdp.txt`（aardwolf RDP 运行库）。
+
+</details>
+
+<details>
+<summary><b>✅ 自检</b>（不想装的时候可以先跑这个看看环境）</summary>
 
 ```powershell
-python -m pip install --target ..\..\.wsguard-build\build-tools -r requirements-build.txt
-python -m pip install --target ..\..\.wsguard-build\rdp-lib      -r requirements-rdp.txt
+powershell -NoProfile -ExecutionPolicy Bypass -STA -File scripts\sunshine-setup.ps1 -SelfTest
 ```
 
-依赖清单见 `wsguard\src\requirements-build.txt`（PyInstaller 工具链）与 `wsguard\src\requirements-rdp.txt`（aardwolf RDP 运行库及其依赖树）。
+不做任何系统变更，只验证路径、显卡识别、界面、加解密是否正常。
 
-## 许可证
+</details>
+
+## ⚖️ 开源许可
 
 本仓库自有代码（安装脚本、wsguard、GameManager 等）以 **GPL-3.0** 授权，全文见 [LICENSE](LICENSE)。
 
@@ -89,11 +124,3 @@ python -m pip install --target ..\..\.wsguard-build\rdp-lib      -r requirements
 | wsguard 的 Python 依赖（aardwolf 等） | https://pypi.org（清单见 wsguard\src\requirements-rdp.txt） | MIT / BSD / Apache-2.0 / MPL-2.0 / PSF 等 |
 
 完整清单、版本号与许可证全文见 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) 与 [licenses\](licenses) 目录。
-
-## 自检
-
-不做任何系统变更，验证路径、显卡枚举、界面 XAML、DPAPI 加解密等：
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -STA -File scripts\sunshine-setup.ps1 -SelfTest
-```
