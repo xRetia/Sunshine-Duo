@@ -19,3 +19,8 @@ __pycache__/
 # ---- 游戏快捷方式（指向本机游戏，别人机器无效；目录本身靠 README.md 占位入库）----
 Links/*
 !Links/README.md
+
+# ---- 本机生成的运行配置（安装时按本机路径/硬件重写，不入库）----
+config/sunshine.conf
+wsguard/config.json
+tools/GameManager.json
