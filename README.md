@@ -18,6 +18,19 @@
 
 <br/>
 
+<a href="https://cdn.jsdelivr.net/gh/xRetia/Sunshine-Duo@main/assets/sunshine-duo-video.html" title="浏览器直接播放，无需任何插件">
+  <img src="https://img.shields.io/badge/▶_观看项目视频-6分22秒_浏览器直接播放-FF8A3D?style=for-the-badge" alt="观看项目视频">
+</a>&nbsp;
+<a href="https://fastly.jsdelivr.net/gh/xRetia/Sunshine-Duo@main/assets/sunshine-duo-video.html">
+  <img src="https://img.shields.io/badge/🇨🇳_视频国内镜像-fastly.jsdelivr.net-f59e0b?style=for-the-badge" alt="视频国内镜像">
+</a>
+
+<br/>
+
+<sub>视频为纯浏览器实时渲染（Canvas 画面 + 合成音乐 + 中文配音），无需插件；离线观看：下载 ZIP 后双击 <code>assets\sunshine-duo-video.html</code> 即可</sub>
+
+<br/>
+
 <sub>备用镜像：<a href="https://ghfast.top/https://github.com/xRetia/Sunshine-Duo/archive/refs/heads/main.zip">ghfast.top</a>　·　iOS / 电视 / PC 端请用官方 <a href="https://moonlight-stream.org">Moonlight</a>，功能完全兼容</sub>
 
 <br/>
@@ -94,7 +107,7 @@
 | `wsguard\` | 串流会话守护服务（保活虚拟屏、自动拉起） |
 | `drivers\` | 虚拟显示驱动 |
 | `Links\` | 🎮 放你的游戏快捷方式，串流端一键启动 |
-| `assets\` | 资源图片 |
+| `assets\` | 资源图片与项目介绍视频（`sunshine-duo-video.html`） |
 
 <details>
 <summary><b>🔧 进阶：重新打包 wsguard</b>（一般用不着）</summary>

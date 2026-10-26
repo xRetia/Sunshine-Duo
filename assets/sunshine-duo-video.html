@@ -1,0 +1,1181 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sunshine-Duo · 一机两用</title>
+<style>
+  :root{--acc:#2f7cc4;--acc2:#e8833a;--fg:#243447;--mut:#61758c;--line:#d5e2ef}
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;overflow:hidden;color:var(--fg);
+    font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif;
+    background:linear-gradient(180deg,#f3f7fc,#e7eef7);
+    display:flex;flex-direction:column}
+  #main{flex:1;display:flex;align-items:center;justify-content:center;min-height:0;padding:14px 18px 6px}
+  #stageWrap{position:relative;border-radius:14px;overflow:hidden;background:#fdfefe;
+    box-shadow:0 10px 34px rgba(45,90,140,.14),0 0 0 1px var(--line)}
+  canvas#stage{position:absolute;inset:0;width:100%;height:100%}
+
+  #poster{position:absolute;inset:0;display:flex;flex-direction:column;gap:22px;align-items:center;
+    justify-content:center;cursor:pointer;z-index:6;background:rgba(244,248,252,.88);
+    backdrop-filter:blur(12px);text-align:center}
+  #poster.hide{display:none}
+  #poster .bigplay{width:88px;height:88px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+    background:var(--acc);color:#fff;box-shadow:0 10px 30px rgba(47,124,196,.4);transition:transform .18s}
+  #poster .bigplay svg{margin-left:6px}
+  #poster:hover .bigplay{transform:scale(1.07)}
+  #poster h1{margin:0;font-size:21px;font-weight:600;letter-spacing:1px;color:#243447}
+
+  #endcard{position:absolute;inset:0;display:none;align-items:center;justify-content:center;z-index:5;
+    background:rgba(240,246,252,.55);backdrop-filter:blur(3px)}
+  #endcard.show{display:flex}
+  #replay{width:72px;height:72px;border-radius:50%;border:none;cursor:pointer;color:#fff;
+    background:rgba(47,124,196,.94);display:flex;align-items:center;justify-content:center;
+    box-shadow:0 8px 26px rgba(47,124,196,.4);transition:transform .15s}
+  #replay:hover{transform:scale(1.08)}
+
+  #subtitle{position:absolute;left:0;right:0;bottom:7.5%;z-index:4;display:flex;justify-content:center;
+    pointer-events:none;padding:0 6%}
+  #subtitle .box{background:rgba(30,44,62,.78);border:1px solid rgba(255,255,255,.14);border-radius:10px;
+    padding:10px 20px;font-size:clamp(14px,1.6vw,22px);line-height:1.55;color:#f4f8fd;text-align:center;
+    max-width:92%;opacity:0;transition:opacity .25s}
+  #subtitle.on .box{opacity:1}
+
+  #bar{flex:0 0 58px;height:58px;display:flex;align-items:center;gap:13px;padding:0 20px;
+    background:rgba(255,255,255,.92);border-top:1px solid var(--line);backdrop-filter:blur(6px)}
+  #bPlay{width:38px;height:38px;border-radius:50%;border:none;cursor:pointer;flex:0 0 38px;
+    display:flex;align-items:center;justify-content:center;color:#fff;background:var(--acc)}
+  #bPlay:hover{background:#286cab}
+  #bPlay svg{margin-left:1px}
+  #bPlay.paused svg{margin-left:0}
+  #rail{flex:1;height:8px;border-radius:5px;background:#dbe6f2;position:relative;cursor:pointer}
+  #fill{position:absolute;left:0;top:0;bottom:0;border-radius:5px;width:0;
+    background:linear-gradient(90deg,#6fa8dc,#2f7cc4)}
+  #knob{position:absolute;top:50%;width:16px;height:16px;border-radius:50%;background:#fff;
+    border:3px solid var(--acc);transform:translate(-50%,-50%);display:none;
+    box-shadow:0 1px 4px rgba(40,80,120,.3)}
+  #ticks{position:absolute;inset:0;pointer-events:none}
+  .tick{position:absolute;top:0;bottom:0;width:2px;background:#b6c9dd}
+  #tip{position:absolute;bottom:20px;transform:translateX(-50%);display:none;white-space:nowrap;
+    background:#243447;color:#eaf2fb;border-radius:8px;padding:5px 11px;font-size:12.5px;
+    z-index:3;pointer-events:none}
+  #tip b{color:#ffd9a8;font-weight:600}
+  #time{color:var(--mut);font-variant-numeric:tabular-nums;font-size:13px;min-width:100px;text-align:center}
+  #bMute{width:34px;height:34px;border-radius:50%;border:1px solid #c9d9ea;background:transparent;
+    color:#5b83ad;cursor:pointer;flex:0 0 34px;display:flex;align-items:center;justify-content:center}
+  #bMute:hover{background:#eef4fa}
+  #bMute.off{color:#a4b6c9}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:110px;height:6px;border-radius:4px;
+    background:#dbe6f2;outline:none}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;height:15px;border-radius:50%;
+    background:#fff;border:3px solid var(--acc);cursor:pointer}
+</style>
+</head>
+<body>
+<div id="main">
+  <div id="stageWrap">
+    <canvas id="stage" width="1600" height="900"></canvas>
+    <div id="subtitle"><div class="box"></div></div>
+    <div id="poster">
+      <div class="bigplay"><svg viewBox="0 0 24 24" width="36" height="36"><path d="M8 5.2v13.6L19 12z" fill="currentColor"/></svg></div>
+      <h1>Sunshine-Duo · 一机两用</h1>
+    </div>
+    <div id="endcard"><button id="replay" title="重新播放"></button></div>
+  </div>
+</div>
+<div id="bar">
+  <button id="bPlay" title="播放/暂停（空格）"></button>
+  <div id="rail"><div id="fill"></div><div id="ticks"></div><div id="knob"></div><div id="tip"></div></div>
+  <div id="time">00:00 / 06:22</div>
+  <button id="bMute" title="静音（M）"></button>
+  <input id="vol" type="range" min="0" max="100" value="65" title="音量">
+</div>
+
+<script>
+'use strict';
+/* ============================================================================
+   Sunshine-Duo 项目讲解视频（实时渲染 · 浅色版）
+   画面：Canvas 2D 逐帧绘制 | 音乐：Web Audio API 程序化合成
+   配音：speechSynthesis(zh-CN) | 分镜脚本 = 每章 subs 数组（字幕/配音共用）
+============================================================================ */
+const W=1600,H=900,TAU=Math.PI*2;
+const cv=document.getElementById('stage'),cx=cv.getContext('2d');
+/* 主题色 */
+const CB='#5b83ad',CO='#e0913f',CG='#3aa876',CR='#d95f5f',INK='#2c3e55',MUT='#61758c';
+
+/* ---------------- 基础工具 ---------------- */
+function rr(c,x,y,w,h,r){r=Math.max(0,Math.min(r,w/2,h/2));c.beginPath();c.moveTo(x+r,y);
+  c.arcTo(x+w,y,x+w,y+h,r);c.arcTo(x+w,y+h,x,y+h,r);c.arcTo(x,y+h,x,y,r);c.arcTo(x,y,x+w,y,r);c.closePath();}
+function txt(c,s,x,y,size,o){o=o||{};c.save();
+  c.globalAlpha*=o.a==null?1:o.a;c.fillStyle=o.col||INK;
+  c.font=(o.it?'italic ':'')+(o.w||400)+' '+size+'px '+(o.f||'"Segoe UI","Microsoft YaHei",sans-serif');
+  c.textAlign=o.al||'left';c.textBaseline=o.bl||'alphabetic';
+  if(s.indexOf('\n')>=0){const ls=o.ls||size*1.4;s.split('\n').forEach((L,i)=>c.fillText(L,x,y+i*ls));}
+  else c.fillText(s,x,y);c.restore();}
+function clamp(v,a,b){return v<a?a:v>b?b:v;}
+function lerp(a,b,p){return a+(b-a)*p;}
+function ease(x){return x<0?0:x>1?1:(x<.5?2*x*x:1-Math.pow(-2*x+2,2)/2);}
+function outP(p){p=clamp(p,0,1);return 1-Math.pow(1-p,3);}
+function fade(tl,a,fi,c,fo){const i=clamp((tl-a)/Math.max(.001,fi),0,1),
+  o=1-clamp((tl-c)/Math.max(.001,fo),0,1);return clamp(i*o,0,1);}
+function fmt(t){t=Math.max(0,t);const m=Math.floor(t/60),s=Math.floor(t%60);
+  return (m<10?'0':'')+m+':'+(s<10?'0':'')+s;}
+
+/* ---------------- 浅色组件 ---------------- */
+function bgBase(c,t){
+  const g=c.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'#f8fbfe');g.addColorStop(1,'#e7eef7');
+  c.fillStyle=g;c.fillRect(0,0,W,H);
+  let g2=c.createRadialGradient(W*.18,-90,40,W*.18,-90,660);
+  g2.addColorStop(0,'rgba(120,175,225,.15)');g2.addColorStop(1,'rgba(120,175,225,0)');
+  c.fillStyle=g2;c.fillRect(0,0,W*.72,430);
+  g2=c.createRadialGradient(W*.9,H+70,60,W*.9,H+70,580);
+  g2.addColorStop(0,'rgba(255,175,105,.12)');g2.addColorStop(1,'rgba(255,175,105,0)');
+  c.fillStyle=g2;c.fillRect(W*.45,H-450,W*.55,450);}
+function card(c,x,y,w,h,o){o=o||{};c.save();
+  if(o.a!=null)c.globalAlpha*=o.a;
+  rr(c,x,y,w,h,o.r||14);
+  c.fillStyle=o.f1||'rgba(255,255,255,.95)';c.fill();
+  c.strokeStyle=o.st||'#cfdeee';c.lineWidth=1.5;c.stroke();c.restore();}
+function pill(c,cxm,y,label,size,o){o=o||{};
+  c.save();c.font=(o.w||600)+' '+size+'px "Segoe UI","Microsoft YaHei",sans-serif';
+  const tw=c.measureText(label).width,pad=o.pad||size*.62,w2=tw+pad*2,h=size+pad;
+  c.restore();
+  c.save();if(o.a!=null)c.globalAlpha*=o.a;
+  rr(c,cxm-w2/2,y,w2,h,h/2);
+  c.fillStyle=o.col||'rgba(255,255,255,.95)';c.fill();
+  c.strokeStyle=o.bd||'#c4d6ea';c.lineWidth=1.3;c.stroke();c.restore();
+  txt(c,label,cxm,y+h*.56,size,{al:'center',bl:'middle',w:o.w||600,col:o.tch||'#33475e',a:o.a});
+  return w2;}
+function badge(c,n,name,tl){
+  const a=fade(tl,.25,.45,9999,1);if(a<=0)return;
+  c.save();c.globalAlpha*=a;
+  rr(c,56,44,344,48,24);c.fillStyle='rgba(255,255,255,.92)';c.fill();
+  c.strokeStyle='#c4d6ea';c.lineWidth=1.5;c.stroke();
+  txt(c,'第'+n+'章',86,76,19,{col:'#2f7cc4',w:700});
+  txt(c,name,170,76,19,{col:'#33475e'});
+  c.restore();}
+function wm(c){txt(c,'Sunshine-Duo · GPL-3.0 开源',W-40,78,14,{al:'right',col:'rgba(100,125,155,.55)'});}
+function docLines(c,x,y,w,n,t,a){
+  c.save();c.globalAlpha*=a==null?1:a;
+  for(let i=0;i<n;i++){const ab=.3+.4*(.5+.5*Math.sin(t*1.4+i*1.3));
+    c.fillStyle='rgba(110,160,215,'+ab.toFixed(2)+')';
+    rr(c,x,y+i*24,w*(.55+.3*((i*7)%4)/3),7,3);c.fill();}
+  c.restore();}
+function dashed(c,x1,y1,x2,y2,tl,col,w){c.save();c.strokeStyle=col||'rgba(90,140,200,.55)';
+  c.lineWidth=w||2.5;c.setLineDash([12,10]);c.lineDashOffset=-tl*46;
+  c.beginPath();c.moveTo(x1,y1);c.lineTo(x2,y2);c.stroke();c.restore();}
+function flow(c,x1,y1,x2,y2,tl,rate,offs,col){
+  const dx=x2-x1,dy=y2-y1;
+  offs.forEach(o=>{const p=((tl*rate+o)%1+1)%1;
+    c.fillStyle=(col||'rgba(90,155,220,')+(1-p*.6).toFixed(2)+')';
+    c.beginPath();c.arc(x1+dx*p,y1+dy*p,4,0,TAU);c.fill();});}
+function ring(c,x,y,r,a,col,w){c.save();c.globalAlpha*=a==null?1:a;c.strokeStyle=col||'#e0913f';
+  c.lineWidth=w||3;c.beginPath();c.arc(x,y,r,0,TAU);c.stroke();c.restore();}
+function pulseRing(c,x,y,r0,a0,tl,rate,ph,col,grow){
+  const k=(tl*rate+ph)%1;c.save();c.globalAlpha*=(1-k)*a0;
+  c.strokeStyle=col||'#5a9bd8';c.lineWidth=3;
+  c.beginPath();c.arc(x,y,r0+k*(grow||70),0,TAU);c.stroke();c.restore();}
+function barMeter(c,x,y,w,h,p,col){c.save();rr(c,x,y,w,h,h/2);c.fillStyle='#e4ecf4';c.fill();
+  c.strokeStyle='#c4d6ea';c.lineWidth=1.2;c.stroke();
+  if(p>0){rr(c,x+2,y+2,Math.max(0,(w-4)*clamp(p,0,1)),h-4,(h-4)/2);c.fillStyle=col||'#2f7cc4';c.fill();}
+  c.restore();}
+function check(c,x,y,s,a,col){c.save();c.globalAlpha*=a==null?1:a;
+  rr(c,x,y,s,s,s*.25);c.fillStyle=col||'#3aa876';c.fill();
+  c.strokeStyle='#f2fbf6';c.lineWidth=s*.14;c.lineCap='round';
+  c.beginPath();c.moveTo(x+s*.26,y+s*.52);c.lineTo(x+s*.44,y+s*.7);c.lineTo(x+s*.74,y+s*.3);c.stroke();c.restore();}
+function arrowHead(c,x,y,ang,s,col){c.save();c.translate(x,y);c.rotate(ang);
+  c.fillStyle=col||'#e0a13f';c.beginPath();c.moveTo(0,0);c.lineTo(-s,-s*.55);c.lineTo(-s,s*.55);
+  c.closePath();c.fill();c.restore();}
+
+/* ---------------- 矢量图标库（线条风格，替代 emoji） ---------------- */
+const IC={
+  monitor(c,s,col){c.fillStyle='rgba(255,255,255,.92)';
+    rr(c,-s,-s*.72,2*s,1.44*s,s*.14);c.fill();c.stroke();
+    c.beginPath();c.moveTo(0,s*.72);c.lineTo(0,s*.92);
+    c.moveTo(-s*.5,s*.92);c.lineTo(s*.5,s*.92);c.stroke();},
+  phone(c,s,col){c.fillStyle='rgba(255,255,255,.92)';
+    rr(c,-s*.42,-s,s*.84,2*s,s*.16);c.fill();c.stroke();
+    c.beginPath();c.moveTo(-s*.1,s*.7);c.lineTo(s*.1,s*.7);c.stroke();},
+  pad(c,s,col){c.fillStyle='rgba(255,255,255,.92)';
+    rr(c,-s,-s*.42,2*s,s*.84,s*.34);c.fill();c.stroke();
+    const k=s*.13;c.fillStyle=col;
+    rr(c,-s*.62-k*1.5,-k*.55,k*3,k*1.1,k*.3);c.fill();
+    rr(c,-s*.62-k*.55,-k*1.5,k*1.1,k*3,k*.3);c.fill();
+    const bx=s*.5,br=s*.1;
+    [[0,-s*.2],[0,s*.2],[-s*.2,0],[s*.2,0]].forEach(p=>{
+      c.beginPath();c.arc(bx+p[0],p[1],br,0,TAU);c.fill();});},
+  shield(c,s,col){c.fillStyle='rgba(255,255,255,.92)';
+    c.beginPath();c.moveTo(0,-s);c.lineTo(s*.82,-s*.62);c.lineTo(s*.82,s*.1);
+    c.quadraticCurveTo(s*.82,s*.6,0,s);c.quadraticCurveTo(-s*.82,s*.6,-s*.82,s*.1);
+    c.lineTo(-s*.82,-s*.62);c.closePath();c.fill();c.stroke();
+    c.beginPath();c.moveTo(-s*.3,0);c.lineTo(-s*.05,s*.28);c.lineTo(s*.34,-s*.24);c.stroke();},
+  gear(c,s,col){const r=s*.52;c.beginPath();c.arc(0,0,r,0,TAU);c.stroke();
+    for(let i=0;i<8;i++){const an=i*TAU/8;
+      c.beginPath();c.moveTo(Math.cos(an)*r,Math.sin(an)*r);
+      c.lineTo(Math.cos(an)*s*.92,Math.sin(an)*s*.92);c.stroke();}
+    c.beginPath();c.arc(0,0,s*.18,0,TAU);c.stroke();},
+  key(c,s,col){c.beginPath();c.arc(-s*.42,0,s*.3,0,TAU);c.stroke();
+    c.beginPath();c.moveTo(-s*.12,0);c.lineTo(s,0);
+    c.moveTo(s*.62,0);c.lineTo(s*.62,s*.3);
+    c.moveTo(s*.85,0);c.lineTo(s*.85,s*.38);c.stroke();},
+  scale(c,s,col){c.beginPath();c.moveTo(0,-s*.8);c.lineTo(0,s*.6);
+    c.moveTo(-s*.55,s*.75);c.lineTo(s*.55,s*.75);c.stroke();
+    c.beginPath();c.moveTo(-s*.8,-s*.35);c.lineTo(s*.8,-s*.35);c.stroke();
+    [-1,1].forEach(d=>{c.beginPath();c.moveTo(d*s*.8,-s*.35);
+      c.lineTo(d*s*.55,s*.18);c.lineTo(d*s*1.05,s*.18);c.closePath();c.stroke();});},
+  folder(c,s,col){c.fillStyle='rgba(255,255,255,.92)';
+    rr(c,-s*.5,-s*.8,s*.85,s*.36,s*.07);c.fill();c.stroke();
+    rr(c,-s,-s*.52,2*s,1.32*s,s*.13);c.fill();c.stroke();},
+  lock(c,s,col){c.beginPath();c.arc(0,-s*.28,s*.34,Math.PI,0);c.stroke();
+    c.fillStyle='rgba(255,255,255,.92)';
+    rr(c,-s*.55,-s*.28,1.1*s,s*.98,s*.14);c.fill();c.stroke();
+    c.fillStyle=col;c.beginPath();c.arc(0,s*.12,s*.1,0,TAU);c.fill();},
+  warn(c,s,col){c.fillStyle='rgba(255,255,255,.94)';
+    c.beginPath();c.moveTo(0,-s);c.lineTo(s*.95,s*.72);c.lineTo(-s*.95,s*.72);c.closePath();c.fill();c.stroke();
+    c.beginPath();c.moveTo(0,-s*.3);c.lineTo(0,s*.2);c.stroke();
+    c.fillStyle=col;c.beginPath();c.arc(0,s*.46,s*.08,0,TAU);c.fill();},
+  x(c,s,col){c.beginPath();c.arc(0,0,s*.85,0,TAU);c.stroke();
+    c.beginPath();c.moveTo(-s*.34,-s*.34);c.lineTo(s*.34,s*.34);
+    c.moveTo(s*.34,-s*.34);c.lineTo(-s*.34,s*.34);c.stroke();},
+  ok(c,s,col){c.beginPath();c.arc(0,0,s*.85,0,TAU);c.stroke();
+    c.beginPath();c.moveTo(-s*.36,s*.02);c.lineTo(-s*.08,s*.3);c.lineTo(s*.4,-s*.26);c.stroke();},
+  bt(c,s,col){/* 标准蓝牙 ᛒ 形状 */
+    c.beginPath();
+    c.moveTo(0,-s);c.lineTo(s*.55,-s*.42);c.lineTo(0,0);
+    c.lineTo(s*.55,s*.42);c.lineTo(0,s);
+    c.moveTo(0,-s);c.lineTo(-s*.55,-s*.42);c.lineTo(0,0);
+    c.lineTo(-s*.55,s*.42);c.lineTo(0,s);
+    c.moveTo(0,-s);c.lineTo(0,s);
+    c.stroke();},
+  bolt(c,s,col){c.fillStyle=col;
+    c.beginPath();c.moveTo(s*.18,-s);c.lineTo(-s*.5,s*.12);c.lineTo(-s*.06,s*.12);
+    c.lineTo(-s*.22,s);c.lineTo(s*.5,-s*.18);c.lineTo(s*.04,-s*.18);c.closePath();c.fill();},
+  box(c,s,col){c.fillStyle='rgba(255,255,255,.92)';
+    c.beginPath();c.moveTo(0,-s);c.lineTo(s*.9,-s*.5);c.lineTo(0,0);c.lineTo(-s*.9,-s*.5);c.closePath();c.fill();c.stroke();
+    c.beginPath();c.moveTo(-s*.9,-s*.5);c.lineTo(-s*.9,s*.5);c.lineTo(0,s);c.lineTo(0,0);c.closePath();c.fill();c.stroke();
+    c.beginPath();c.moveTo(s*.9,-s*.5);c.lineTo(s*.9,s*.5);c.lineTo(0,s);c.stroke();},
+  img(c,s,col){c.fillStyle='rgba(255,255,255,.92)';
+    rr(c,-s,-s*.72,2*s,1.44*s,s*.12);c.fill();c.stroke();
+    c.beginPath();c.moveTo(-s*.65,s*.4);c.lineTo(-s*.2,-s*.1);c.lineTo(s*.15,s*.25);
+    c.lineTo(s*.4,-s*.05);c.lineTo(s*.68,s*.4);c.stroke();
+    c.beginPath();c.arc(-s*.35,-s*.32,s*.13,0,TAU);c.stroke();},
+  sig(c,s,col){c.fillStyle=col;
+    const xs=[-s*.66,-s*.12,s*.42],hs=[s*.4,s*.75,s*1.1];
+    xs.forEach((x,i)=>{rr(c,x,s*.55-hs[i],s*.26,hs[i],s*.08);c.fill();});},
+  wifi(c,s,col){for(let i=1;i<=2;i++){c.beginPath();
+      c.arc(0,s*.45,s*.55*i,-Math.PI*.78,-Math.PI*.22);c.stroke();}
+    c.fillStyle=col;c.beginPath();c.arc(0,s*.5,s*.1,0,TAU);c.fill();},
+  eye(c,s,col){c.beginPath();c.moveTo(-s,0);
+    c.quadraticCurveTo(0,-s*.95,s,0);c.quadraticCurveTo(0,s*.95,-s,0);c.closePath();c.stroke();
+    c.fillStyle=col;c.beginPath();c.arc(0,0,s*.3,0,TAU);c.fill();
+    c.fillStyle='#fff';c.beginPath();c.arc(s*.08,-s*.08,s*.09,0,TAU);c.fill();},
+  user(c,s,col){c.beginPath();c.arc(0,-s*.38,s*.3,0,TAU);c.stroke();
+    c.beginPath();c.arc(0,s*.75,s*.62,Math.PI*1.15,Math.PI*1.85);c.stroke();},
+  crown(c,s,col){c.fillStyle='rgba(255,238,205,.95)';
+    c.beginPath();c.moveTo(-s,s*.35);c.lineTo(-s,-s*.25);c.lineTo(-s*.45,s*.05);
+    c.lineTo(0,-s*.55);c.lineTo(s*.45,s*.05);c.lineTo(s,-s*.25);c.lineTo(s,s*.35);
+    c.closePath();c.fill();c.stroke();},
+  bed(c,s,col){c.beginPath();c.moveTo(-s,s*.55);c.lineTo(-s,-s*.45);c.stroke();
+    rr(c,-s*.85,-s*.02,1.85*s,s*.34,s*.08);c.fillStyle='rgba(255,255,255,.92)';c.fill();c.stroke();
+    rr(c,-s*.7,s*.06,s*.34,s*.16,s*.07);c.stroke();
+    c.beginPath();c.arc(s*.28,-s*.22,s*.15,0,TAU);c.stroke();
+    c.beginPath();c.moveTo(s*.05,-s*.02);c.lineTo(s*.55,-s*.02);c.stroke();},
+  sofa(c,s,col){rr(c,-s,-s*.42,2*s,s*.85,s*.16);c.fillStyle='rgba(255,255,255,.92)';c.fill();c.stroke();
+    c.beginPath();c.moveTo(-s*.62,-s*.42);c.lineTo(-s*.62,s*.15);
+    c.moveTo(s*.62,-s*.42);c.lineTo(s*.62,s*.15);
+    c.moveTo(-s*.62,-s*.05);c.lineTo(s*.62,-s*.05);c.stroke();},
+  kb(c,s,col){rr(c,-s,-s*.42,2*s,s*.84,s*.12);c.fillStyle='rgba(255,255,255,.92)';c.fill();c.stroke();
+    for(let r2=0;r2<2;r2++)for(let i=0;i<5;i++){
+      rr(c,-s*.72+i*s*.34,-s*.22+r2*s*.3,s*.2,s*.12,s*.03);c.stroke();}
+    rr(c,-s*.45,s*.16,s*.9,s*.13,s*.05);c.stroke();},
+  term(c,s,col){rr(c,-s,-s*.72,2*s,1.44*s,s*.12);c.fillStyle='rgba(255,255,255,.92)';c.fill();c.stroke();
+    c.beginPath();c.moveTo(-s*.5,-s*.28);c.lineTo(-s*.2,-s*.05);c.lineTo(-s*.5,s*.18);c.stroke();
+    c.beginPath();c.moveTo(-s*.05,s*.18);c.lineTo(s*.45,s*.18);c.stroke();},
+  link(c,s,col){c.beginPath();c.arc(-s*.38,0,s*.45,0,TAU);c.stroke();
+    c.beginPath();c.arc(s*.38,0,s*.45,0,TAU);c.stroke();},
+  snow(c,s,col){for(let i=0;i<6;i++){const an=i*TAU/6;
+    c.beginPath();c.moveTo(0,0);c.lineTo(Math.cos(an)*s,Math.sin(an)*s);c.stroke();
+    const mx=Math.cos(an)*s*.6,my=Math.sin(an)*s*.6;
+    c.beginPath();c.moveTo(mx,my);c.lineTo(mx+Math.cos(an+.7)*s*.22,my+Math.sin(an+.7)*s*.22);
+    c.moveTo(mx,my);c.lineTo(mx+Math.cos(an-.7)*s*.22,my+Math.sin(an-.7)*s*.22);c.stroke();}},
+  play(c,s,col){c.fillStyle=col;
+    c.beginPath();c.moveTo(-s*.35,-s*.62);c.lineTo(s*.55,0);c.lineTo(-s*.35,s*.62);c.closePath();c.fill();},
+  usb(c,s,col){rr(c,-s,-s*.38,2*s,s*.76,s*.1);c.fillStyle='rgba(255,255,255,.92)';c.fill();c.stroke();
+    rr(c,-s*.5,-s*.1,s*.75,s*.2,s*.05);c.fillStyle=col;c.fill();},
+  doc(c,s,col){rr(c,-s*.68,-s,1.36*s,2*s,s*.12);c.fillStyle='rgba(255,255,255,.92)';c.fill();c.stroke();
+    for(let i=0;i<3;i++){c.beginPath();c.moveTo(-s*.4,-s*.4+i*s*.42);
+      c.lineTo(s*.4,-s*.4+i*s*.42);c.stroke();}},
+  crescent(c,s,col){c.fillStyle=col;
+    c.beginPath();c.arc(0,0,s*.8,Math.PI*.42,Math.PI*1.58);
+    c.arc(s*.28,-s*.04,s*.62,Math.PI*1.52,Math.PI*.48,true);c.closePath();c.fill();},
+  chip(c,s,col){const r=s*.6;
+    rr(c,-r,-r*.66,r*2,r*1.32,s*.1);c.fillStyle='rgba(255,255,255,.92)';c.fill();c.stroke();
+    rr(c,-r*.45,-r*.3,r*.9,r*.6,s*.05);c.stroke();
+    for(let i=0;i<5;i++){const x=-r*.68+i*r*.34;
+      c.beginPath();c.moveTo(x,-r*.66);c.lineTo(x,-r*.9);
+      c.moveTo(x,r*.66);c.lineTo(x,r*.9);c.stroke();}}
+};
+function icon(c,name,x,y,s,col,a){c.save();c.translate(x,y);
+  if(a!=null)c.globalAlpha*=a;
+  c.strokeStyle=col;c.lineWidth=Math.max(1.4,s*.15);c.lineCap='round';c.lineJoin='round';
+  (IC[name]||IC.monitor)(c,s,col);c.restore();}
+
+/* ---------------- 场景通用素材 ---------------- */
+function sunLogo(c,x,y,r,t,a){
+  c.save();c.translate(x,y);c.globalAlpha*=a==null?1:a;
+  c.strokeStyle='rgba(240,150,70,.8)';c.lineWidth=Math.max(2,r*.06);c.lineCap='round';
+  for(let i=0;i<12;i++){const an=t*.45+i*TAU/12,R=r*1.34+r*.2*Math.sin(t*2+i);
+    c.beginPath();c.moveTo(Math.cos(an)*r*1.14,Math.sin(an)*r*1.14);
+    c.lineTo(Math.cos(an)*R,Math.sin(an)*R);c.stroke();}
+  const g=c.createRadialGradient(0,0,r*.2,0,0,r*2.1);
+  g.addColorStop(0,'rgba(255,180,100,.26)');g.addColorStop(1,'rgba(255,180,100,0)');
+  c.fillStyle=g;c.beginPath();c.arc(0,0,r*2.1,0,TAU);c.fill();
+  const g2=c.createLinearGradient(0,-r,0,r);g2.addColorStop(0,'#ffd9a8');g2.addColorStop(1,'#f0913f');
+  c.fillStyle=g2;c.beginPath();c.arc(0,0,r,0,TAU);c.fill();
+  c.strokeStyle='rgba(255,255,255,.85)';c.lineWidth=2;c.stroke();c.restore();}
+function moonLogo(c,x,y,r,a){
+  c.save();c.globalAlpha*=a==null?1:a;c.translate(x,y);c.rotate(-.35);
+  c.beginPath();
+  c.arc(0,0,r,Math.PI*.42,Math.PI*1.58);
+  c.arc(r*.34,-r*.08,r*.8,Math.PI*1.52,Math.PI*.48,true);
+  c.closePath();c.fillStyle='#8fb4de';c.fill();c.restore();}
+function monitor(c,x,y,w,h,o){o=o||{};c.save();
+  if(o.a!=null)c.globalAlpha*=o.a;
+  if(o.sway)c.translate(Math.sin(o.sway*26)*6,0);/* 修复：传入真实时间做晃动 */
+  rr(c,x-12,y-12,w+24,h+24,14);c.fillStyle='#dfe9f4';c.fill();
+  c.strokeStyle='#b9cde2';c.lineWidth=1.5;c.stroke();
+  rr(c,x,y,w,h,7);c.fillStyle=o.scr||'#f2f7fc';c.fill();
+  if(o.veil){c.fillStyle='rgba(30,45,65,'+o.veil.toFixed(2)+')';rr(c,x,y,w,h,7);c.fill();}
+  if(o.draw)o.draw(c,x,y,w,h);
+  if(o.stand!==false){c.fillStyle='#c3d4e6';
+    c.fillRect(x+w/2-7,y+h+12,14,16);
+    rr(c,x+w/2-w*.17,y+h+28,w*.34,9,4);c.fill();}
+  c.restore();}
+/* 手机内的精致小游戏画面（夜色横版闯关：星空/远山/草地/角色/金币/小怪/HUD） */
+function sceneGame(c,gx,gy,gw,gh,t){
+  c.save();rr(c,gx,gy,gw,gh,4);c.clip();
+  const hor=gy+gh*.72;
+  const g=c.createLinearGradient(0,gy,0,hor);
+  g.addColorStop(0,'#182746');g.addColorStop(1,'#43305e');
+  c.fillStyle=g;c.fillRect(gx,gy,gw,hor-gy);
+  for(let i=0;i<9;i++){const sx=gx+((i*53)%97)/97*gw,sy=gy+((i*29)%55)/100*(hor-gy)*.75;
+    const a=.35+.45*(.5+.5*Math.sin(t*2+i*1.7));
+    c.fillStyle='rgba(255,255,255,'+(a*.8).toFixed(2)+')';
+    c.beginPath();c.arc(sx,sy,Math.max(.8,gh*.008),0,TAU);c.fill();}
+  c.fillStyle='#f2e3ae';c.beginPath();c.arc(gx+gw*.8,gy+gh*.14,gh*.05,0,TAU);c.fill();
+  c.fillStyle='#cbb98a';c.beginPath();c.arc(gx+gw*.82,gy+gh*.128,gh*.012,0,TAU);c.fill();
+  c.fillStyle='#22304f';c.beginPath();c.moveTo(gx,hor);
+  for(let i=0;i<=6;i++)c.lineTo(gx+gw*i/6,hor-gh*(.15+.07*Math.sin(i*2.3+1)));
+  c.lineTo(gx+gw,hor);c.closePath();c.fill();
+  c.fillStyle='#2d3f66';c.beginPath();c.moveTo(gx,hor);
+  for(let i=0;i<=6;i++)c.lineTo(gx+gw*i/6,hor-gh*(.07+.045*Math.cos(i*1.6+2)));
+  c.lineTo(gx+gw,hor);c.closePath();c.fill();
+  c.fillStyle='#2f6e4f';c.fillRect(gx,hor,gw,gh-(hor-gy));
+  c.fillStyle='#3d8a63';c.fillRect(gx,hor,gw,2.5);
+  c.strokeStyle='#3d8a63';c.lineWidth=1.6;c.lineCap='round';
+  for(let i=0;i<7;i++){const bx=gx+((i*71)%93)/93*gw;
+    c.beginPath();c.moveTo(bx,hor+4);c.lineTo(bx-3,hor-4);
+    c.moveTo(bx,hor+4);c.lineTo(bx+3,hor-3);c.stroke();}
+  const cxx=gx+gw*.6,cyc=hor-gh*.22,sc=Math.max(.22,Math.abs(Math.sin(t*3)));
+  c.fillStyle='#ffd166';c.beginPath();c.ellipse(cxx,cyc,gh*.035*sc,gh*.035,0,0,TAU);c.fill();
+  c.strokeStyle='#c9971f';c.lineWidth=1.4;c.stroke();
+  const ex=gx+gw*.8+Math.sin(t*1.6)*gw*.07,ey=hor-gh*.055;
+  c.fillStyle='#c94f4f';rr(c,ex-gh*.05,ey-gh*.1,gh*.1,gh*.085,3);c.fill();
+  c.fillStyle='#fff';c.fillRect(ex-gh*.028,ey-gh*.077,gh*.016,gh*.016);
+  c.fillRect(ex+gh*.012,ey-gh*.077,gh*.016,gh*.016);
+  c.fillStyle='#802f2f';rr(c,ex-gh*.028,ey-gh*.012,gh*.056,gh*.018,2);c.fill();
+  const px=gx+gw*.28,py=hor,ph=gh*.17,f=Math.floor(t*4)%2;
+  c.strokeStyle='#c25a35';c.lineWidth=Math.max(2,ph*.09);c.lineCap='round';
+  c.beginPath();
+  if(f){c.moveTo(px-ph*.09,py-ph*.24);c.lineTo(px-ph*.17,py);
+        c.moveTo(px+ph*.09,py-ph*.24);c.lineTo(px+ph*.17,py);}
+  else{c.moveTo(px-ph*.09,py-ph*.24);c.lineTo(px-ph*.02,py);
+       c.moveTo(px+ph*.09,py-ph*.24);c.lineTo(px+ph*.02,py);}
+  c.stroke();
+  c.fillStyle='#e8734a';rr(c,px-ph*.18,py-ph*.56,ph*.36,ph*.36,ph*.1);c.fill();
+  c.strokeStyle='#c25a35';c.beginPath();
+  c.moveTo(px-ph*.18,py-ph*.5);c.lineTo(px-ph*.33,py-ph*.34);
+  c.moveTo(px+ph*.18,py-ph*.5);c.lineTo(px+ph*.33,py-ph*.36);c.stroke();
+  c.fillStyle='#ffd166';c.beginPath();c.arc(px,py-ph*.76,ph*.26,0,TAU);c.fill();
+  c.fillStyle='#2c3e55';c.beginPath();c.arc(px+ph*.11,py-ph*.77,ph*.04,0,TAU);c.fill();
+  const hw=gw*.34;
+  c.fillStyle='rgba(10,18,32,.55)';rr(c,gx+5,gy+5,hw,gh*.1,4);c.fill();
+  for(let i=0;i<3;i++){c.fillStyle=i<2?'#e05656':'#57708c';
+    rr(c,gx+8+i*(hw-8)/3,gy+8,Math.max(2,(hw-13)/3*.94),gh*.05,2);c.fill();}
+  c.fillStyle='rgba(10,18,32,.55)';rr(c,gx+gw-hw-5,gy+5,hw,gh*.1,4);c.fill();
+  c.fillStyle='#ffd166';c.beginPath();c.arc(gx+gw-hw+gh*.065,gy+5+gh*.05,gh*.028,0,TAU);c.fill();
+  c.strokeStyle='#c9971f';c.lineWidth=1.2;c.stroke();
+  txt(c,'×12',gx+gw-9,gy+5+gh*.067,Math.max(8,gh*.05),{al:'right',col:'#fff',w:700});
+  c.restore();}
+function phone(c,x,y,h,o){o=o||{};c.save();
+  if(o.a!=null)c.globalAlpha*=o.a;const w=h*.48;
+  rr(c,x,y,w,h,h*.085);c.fillStyle='#dfe9f4';c.fill();
+  c.strokeStyle='#b9cde2';c.lineWidth=1.5;c.stroke();
+  rr(c,x+7,y+7,w-14,h-14,h*.07);c.fillStyle=o.scr||'#22344e';c.fill();
+  if(o.game)sceneGame(c,x+7,y+7,w-14,h-14,o.t||0);
+  if(o.ttl){c.fillStyle='rgba(10,18,32,.55)';rr(c,x+7,y+h-29,w-14,22,4);c.fill();
+    txt(c,o.ttl,x+w/2,y+h-18,11,{al:'center',bl:'middle',col:'#cfe0f0'});}
+  c.restore();}
+function gamepad(c,x,y,s,o){o=o||{};c.save();c.translate(x,y);if(o.rot)c.rotate(o.rot);
+  c.globalAlpha*=o.a==null?1:o.a;
+  rr(c,-s,-s*.42,2*s,s*.84,s*.34);c.fillStyle=o.col||'#fff';c.fill();
+  c.strokeStyle=o.bd||'#a9c0d8';c.lineWidth=Math.max(1.5,s*.03);c.stroke();
+  const k=s*.13;c.fillStyle=o.pad||'#8fb4de';
+  rr(c,-s*.62-k*1.5,-k*.55,k*3,k*1.1,k*.3);c.fill();
+  rr(c,-s*.62-k*.55,-k*1.5,k*1.1,k*3,k*.3);c.fill();
+  const bx=s*.5,br=s*.1;
+  [[0,-s*.2],[0,s*.2],[-s*.2,0],[s*.2,0]].forEach(p=>{
+    c.beginPath();c.arc(bx+p[0],p[1],br,0,TAU);c.fill();});
+  c.fillStyle='#c3d4e6';rr(c,-s*.08,-s*.05,s*.16,s*.1,s*.03);c.fill();
+  c.restore();}
+function uacDialog(c,x,y,a){c.save();c.globalAlpha*=a;
+  rr(c,x,y,350,190,12);c.fillStyle='#ffffff';c.fill();
+  c.strokeStyle='#9db6cf';c.lineWidth=1.5;c.stroke();
+  c.fillStyle='#eef2f7';rr(c,x+1,y+1,348,42,11);c.fill();
+  txt(c,'用户账户控制',x+20,y+28,16,{w:600,col:'#33475e'});
+  icon(c,'shield',x+36,y+98,22,'#2f7cc4');
+  txt(c,'要允许此应用对你的\n设备进行更改吗？',x+70,y+90,15,{col:'#33475e'});
+  const bx=x+104,by=y+128;
+  rr(c,bx,by,110,34,7);c.fillStyle='#2f7cc4';c.fill();
+  txt(c,'是',bx+55,by+23,15,{al:'center',w:700,col:'#fff'});
+  rr(c,bx+126,by,110,34,7);c.fillStyle='#eef2f7';c.fill();
+  c.strokeStyle='#9db6cf';c.lineWidth=1.2;c.stroke();
+  txt(c,'否',bx+181,by+23,15,{al:'center',col:'#33475e'});
+  c.restore();}
+
+/* ============================ 分镜脚本 ============================ */
+const SCENES=[{n:'01',name:'片头 · 一机两用',dur:20,
+ subs:[[0,4.2,'一台电脑，能不能当两台用？'],
+       [4.2,9.2,'前台照常办公，后台接着打游戏——工作与娱乐，谁也不耽误谁'],
+       [9.2,14.2,'这就是 Sunshine-Duo——基于 Apollo 的开源串流方案'],
+       [14.2,20,'用一条视频，把这个项目从头到尾讲清楚']],
+ draw(c,tt,tl){
+   /* 太阳升起；大标题出现时太阳缩小上移让位（修复重叠） */
+   const r1=ease(clamp(tl/6,0,1));
+   const up=tl>9.1?ease(clamp((tl-9.1)/1.2,0,1)):0;
+   const sy=lerp(lerp(560,300,r1),205,up),sr=lerp(lerp(46,64,r1),36,up);
+   sunLogo(c,800,sy,sr,tt,1);
+   moonLogo(c,864,196+8*Math.sin(tt*1.3),15,clamp((tl-9.2)/1,0,1));
+   const k1=fade(tl,.5,.9,3.6,.8);
+   txt(c,'一台电脑，能不能当两台用？',800,640,42,{al:'center',w:800,a:k1,col:INK});
+   const pA=fade(tl,3.9,1,8.9,.9);
+   if(pA>0){
+     card(c,285,380,380,180,{a:pA});
+     icon(c,'monitor',355,445,36,CB,pA);
+     pill(c,475,498,'前台办公',17,{a:pA,col:'rgba(234,243,251,.95)',bd:'#9fc4e4',tch:'#2f6ea8'});
+     card(c,935,380,380,180,{a:pA});
+     icon(c,'phone',1012,445,34,CB,pA);
+     icon(c,'pad',1128,452,40,CB,pA);
+     pill(c,1135,498,'后台游戏',17,{a:pA,col:'rgba(255,241,229,.95)',bd:'#f0c49a',tch:'#b05e1d'});
+   }
+   const ta=fade(tl,9.1,.9,999,1);
+   if(ta>0){
+     txt(c,'Sunshine-Duo',800,452,86,{al:'center',w:800,a:ta,col:INK});
+     txt(c,'一台电脑 · 当两台用',800,512,28,{al:'center',a:ta,col:MUT});
+     const tb=fade(tl,14.1,.8,999,1);
+     if(tb>0){
+       pill(c,420,575,'双会话隔离',17,{a:tb,col:'rgba(255,241,229,.95)',bd:'#f0c49a',tch:'#b05e1d'});
+       pill(c,665,575,'虚拟屏+硬编码',17,{a:tb,col:'rgba(255,241,229,.95)',bd:'#f0c49a',tch:'#b05e1d'});
+       pill(c,940,575,'静默提权开游戏',17,{a:tb,col:'rgba(255,241,229,.95)',bd:'#f0c49a',tch:'#b05e1d'});
+       pill(c,1195,575,'断流不掉屏',17,{a:tb,col:'rgba(255,241,229,.95)',bd:'#f0c49a',tch:'#b05e1d'});
+     }
+   }
+   badge(c,'01','片头 · 一机两用',tl);
+ }},
+{n:'02',name:'痛点 · 摸鱼的窘境',dur:30,
+ subs:[[0,5,'摸鱼党的窘境，从一台双面电脑开始'],
+       [5,11,'普通串流一连接，本机会话立刻锁屏——办公画面直接消失'],
+       [11,17,'游戏要管理员权限？UAC 弹窗出现在串流画面里，却怎么都点不到'],
+       [17,23,'网络一抖掉线重连，游戏直接被关——摸鱼五分钟，重开半小时'],
+       [23,30,'能不能：办公照常，游戏挂另一个会话，手机随手接着玩？']],
+ draw(c,tt,tl){
+    const shake=tl>5.2&&tl<7?tt:0;
+    /* 修复：q 面板出现时背景整体淡出（原版互相遮挡显得错乱），布局整体下移居中 */
+    const qD=fade(tl,23.2,.7,999,1),bg=1-qD*.88;
+    monitor(c,300,200,430,230,{a:bg,sway:shake,scr:tl>5.2?'#e8edf3':'#f2f7fc',
+      veil:tl>5.2?.45:0,draw:(cc,x,y,w,h)=>{
+        if(tl<5.2)docLines(cc,x+22,y+22,w*.8,6,tt,1);
+        else icon(cc,'lock',x+w/2,y+h/2,32,'#7c92a8');}});
+    pill(c,515,505,'这是你的办公电脑',18,{a:bg});
+    if(bg>.03){c.save();c.globalAlpha*=bg;
+      dashed(c,760,330,1010,330,tl);
+      c.restore();}
+    icon(c,'wifi',1022,318,22,'#5a9bd8',bg*.9);
+    phone(c,1130,170,380,{a:bg,game:true,ttl:'串流客户端',t:tt});
+    if(tl>=17.2){c.save();c.globalAlpha*=bg;
+      rr(c,1137,177,166,366,8);c.fillStyle='rgba(28,40,58,.55)';c.fill();
+      icon(c,'warn',1220,320,28,'#ffd9a8');
+      txt(c,'已断线',1220,405,22,{al:'center',w:700,col:'#ffb3b3'});
+      txt(c,'游戏进程被终止',1220,437,14,{al:'center',col:'#f2c4c4'});
+      c.restore();}
+    const r1=fade(tl,5.2,.5,10.6,.5);
+    if(r1>0)pill(c,960,600,'本机被强制锁屏',19,{a:r1,col:'rgba(253,236,236,.95)',bd:'#e8a3a3',tch:'#b04141'});
+    const r2=fade(tl,11.2,.5,16.6,.5);
+    if(r2>0){/* UAC 弹窗出现在串流画面（手机屏幕）里，却点不到 */
+      uacDialog(c,1046,250,r2);
+      c.save();c.globalAlpha*=r2;c.translate(1205,372);
+      c.fillStyle='#33475e';
+      c.beginPath();c.moveTo(0,0);c.lineTo(0,17);c.lineTo(4.6,12.6);c.lineTo(7.6,19);
+      c.lineTo(10.6,17.4);c.lineTo(7.7,11.2);c.lineTo(12.6,10.6);c.closePath();c.fill();
+      c.restore();
+      ring(c,1205,396,24,.9*r2,CR,3);
+      c.save();c.globalAlpha*=r2;c.strokeStyle=CR;c.lineWidth=3;
+      c.beginPath();c.moveTo(1189,380);c.lineTo(1221,412);c.stroke();c.restore();
+      txt(c,'点不到',1282,402,14,{a:r2,col:CR,w:700});
+      pill(c,1221,490,'串流里无法交互 UAC',18,{a:r2,col:'rgba(253,236,236,.95)',bd:'#e8a3a3',tch:'#b04141'});}
+    const r3=fade(tl,17.2,.5,22.6,.5);
+    if(r3>0)pill(c,1240,590,'掉线=直接闪退',18,{a:r3,col:'rgba(253,236,236,.95)',bd:'#e8a3a3',tch:'#b04141'});
+    const q=fade(tl,23.2,.7,999,1);
+    if(q>0){c.save();c.globalAlpha*=q*.3;c.fillStyle='#2a3c52';c.fillRect(0,0,W,H);c.restore();
+      card(c,470,330,660,240,{a:q,st:'#f0b48a'});
+      txt(c,'需要的是：',800,418,32,{al:'center',a:q,col:MUT});
+      txt(c,'两个会话同时在线，各玩各的',800,482,44,{al:'center',a:q,w:800,col:INK});
+      icon(c,'ok',610,541,15,CG,q);pill(c,700,526,'办公不掉线',19,{a:q,col:'rgba(233,247,239,.95)',bd:'#9fd4b5',tch:'#2e7d54'});
+      icon(c,'ok',924,541,15,CG,q);pill(c,1018,526,'游戏随时玩',19,{a:q,col:'rgba(233,247,239,.95)',bd:'#9fd4b5',tch:'#2e7d54'});}
+    badge(c,'02','痛点 · 摸鱼的窘境',tl);
+  }},
+{n:'03',name:'方案 · 双会话隔离',dur:50,
+ subs:[[0,6,'Sunshine-Duo 的思路：把一台电脑拆成两个「房间」'],
+       [6,12,'Console 会话：物理显示器加本机键鼠——办公稳定在线，前台毫无异样'],
+       [12,19,'游戏会话：Moonlight 客户端连入，独享一块虚拟屏——手机加手柄就是掌机'],
+       [19,25,'画面、输入、声音各归各会话——不打架、不抢焦点、互不踢线'],
+        [25,32,'虚拟屏由 RDP 虚拟显卡创建，再调用真实 GPU 渲染——游戏就跑在这块屏上'],
+       [32,38,'Apollo 抓屏加显卡硬编码（NVENC / AMF / QSV），低延迟推到手机'],
+       [38,44,'同一台电脑、同一套 Windows——内部却是两条平行世界'],
+       [44,50,'办公的你，和摸鱼的你——同时在线']],
+ draw(c,tt,tl){
+   /* 中央主机 */
+   card(c,610,320,380,270,{r:18});
+   txt(c,'同一台 Windows 主机',800,356,22,{al:'center',w:700,col:INK});
+   const rowA=fade(tl,5,.8,999,1);
+   if(rowA>0){c.save();c.globalAlpha*=rowA;
+     rr(c,640,372,320,40,10);c.fillStyle='#eaf3fb';c.fill();
+     c.strokeStyle='#9fc4e4';c.lineWidth=1.4;c.stroke();
+     txt(c,'会话 A · Console（办公）',800,398,15,{al:'center',w:600,col:'#2f6ea8'});
+     c.restore();}
+   const rowB=fade(tl,12,.8,999,1);
+   if(rowB>0){c.save();c.globalAlpha*=rowB;
+     rr(c,640,424,320,40,10);c.fillStyle='#fdf1e7';c.fill();
+     c.strokeStyle='#f0c49a';c.lineWidth=1.4;c.stroke();
+     txt(c,'会话 B · Game（摸鱼中）',800,450,15,{al:'center',w:600,col:'#b05e1d'});
+     c.restore();}
+    const vd=fade(tl,25,.8,999,1);
+    if(vd>0){c.save();c.globalAlpha*=vd;
+      c.setLineDash([7,5]);c.strokeStyle='#e0913f';c.lineWidth=2;
+      rr(c,640,488,110,70,6);c.stroke();c.setLineDash([]);
+      icon(c,'monitor',695,517,19,'#e0913f');
+      txt(c,'虚拟屏',695,576,11,{al:'center',col:MUT});
+      pill(c,880,552,'RDP 虚拟显卡 · 真实 GPU 渲染',14,{col:'rgba(255,241,229,.95)',bd:'#f0c49a',tch:'#b05e1d'});
+      c.restore();}
+   /* 左车道：Console */
+   monitor(c,130,340,290,160,{draw:(cc,x,y,w,h)=>docLines(cc,x+20,y+18,w*.75,4,tt,1)});
+   c.save();rr(c,155,545,240,26,6);c.fillStyle='#e6eef7';c.fill();
+   c.strokeStyle='#c4d6ea';c.lineWidth=1.2;c.stroke();
+   for(let i=0;i<9;i++){c.fillStyle='#f8fbfe';rr(c,164+i*25,551,17,14,3);c.fill();
+     c.strokeStyle='#d5e2ef';c.lineWidth=1;c.stroke();}
+   c.restore();
+   pill(c,275,610,'本机键鼠 · Console',16,{a:1,col:'rgba(234,243,251,.95)',bd:'#9fc4e4',tch:'#2f6ea8'});
+   dashed(c,450,430,600,430,tl);flow(c,450,430,600,430,tt,.5,[.2,.55]);
+   /* 右车道：Game */
+   phone(c,1180,290,300,{game:true,ttl:'串流画面',t:tt});
+   gamepad(c,1415,545,62,{});
+   icon(c,'wifi',1148,262,22,'#e0913f',.9);
+   pill(c,1300,640,'Moonlight · 手机接入',16,{col:'rgba(255,241,229,.95)',bd:'#f0c49a',tch:'#b05e1d'});
+   dashed(c,990,420,1160,420,tl,'rgba(224,145,63,.6)');flow(c,990,420,1160,420,tt,.5,[.35,.7],'rgba(240,150,80,');
+   /* 隔离墙：避开数据流线（分两段画），lock 置顶 */
+   const wl=fade(tl,19,.7,999,.85);
+   if(wl>0){c.save();c.globalAlpha*=wl;
+     for(const xw of[565,1055]){
+       c.setLineDash([9,8]);c.strokeStyle='rgba(224,145,63,.7)';c.lineWidth=2.5;
+       c.beginPath();c.moveTo(xw,240);c.lineTo(xw,405);c.stroke();
+       c.beginPath();c.moveTo(xw,455);c.lineTo(xw,660);c.stroke();c.setLineDash([]);
+       icon(c,'lock',xw,226,13,'#e0913f');}
+     pill(c,565,252,'会话隔离',13,{});pill(c,1055,252,'各管各的',13,{});
+     c.restore();}
+   /* 硬编码流水线（修复：虚线与粒子严格对齐在节点间隙） */
+   const pl=fade(tl,32,.7,999,1);
+   if(pl>0){
+     const nodes=[['monitor','抓屏','虚拟屏画面'],['bolt','硬编码','NVENC·AMF·QSV'],
+                  ['sig','低延迟传输','WiFi · H.265'],['phone','手机渲染','Moonlight 解码']];
+     nodes.forEach((n,i)=>{const xN=170+i*380;
+       card(c,xN-80,690,160,64,{r:12,a:pl});
+       icon(c,n[0],xN-52,722,19,CB,pl);
+       txt(c,n[1],xN-26,716,15,{w:700,a:pl,col:INK});
+       txt(c,n[2],xN-26,738,11.5,{a:pl,col:MUT});
+       if(i<3){dashed(c,xN+80,722,xN+300,722,tt,'rgba(224,145,63,.6)',2);
+         flow(c,xN+80,722,xN+300,722,tt,.6,[.2,.6],'rgba(240,150,80,');}});}
+   /* 同时在线（大字移到顶部，不再与墙/锁重叠） */
+   const fin=fade(tl,44,.8,999,1);
+   if(fin>0){pulseRing(c,800,455,110,.4*fin,tt,.8,0);
+     txt(c,'办公的你 · 摸鱼的你 —— 同时在线',800,150,40,{al:'center',w:800,a:fin,col:INK});}
+   badge(c,'03','方案 · 双会话隔离',tl);
+ }},
+{n:'04',name:'全家桶 · 各司其职',dur:70,
+ subs:[[0,6,'这套体验靠一个「全家桶」，每个零件各管一件事'],
+       [6,13,'核心是 sunshine.exe——基于 Apollo 的串流主机，抓屏加硬编码一把梭'],
+        [13,19,'RDP 虚拟显卡：RDP 会话创建虚拟屏，画面交给真实 GPU 渲染'],
+       [19,25,'RDP Wrapper：解锁 Windows 的并发 RDP——双会话的地基'],
+       [25,31,'ViGEmBus：驱动层虚拟手柄总线——串流手柄变成 Xbox 360 手柄'],
+       [31,37,'GameManager 加 Links 目录：游戏菜单，串流端一键开游戏'],
+       [37,44,'要管理员权限的游戏照样开——普通窗口静默启动，全程不弹 UAC'],
+       [44,50,'毕竟串流会话里没法和 UAC 窗口交互——GameManager 正好绕开这个死角'],
+       [50,56,'它还内置 Steam 大屏模式入口——客厅主机体验一步到位'],
+        [56,63,'wsguard：Game Windows Session Guard——守护 RDP 会话与 sunshine 核心，下一章详讲'],
+       [63,70,'setup.bat 图形化一键安装、全开源 GPL-3.0——整目录可搬，许可清清楚楚']],
+ draw(c,tt,tl){
+   /* 七卡环绕布局（修复原版卡片互相重叠） */
+   const CXY=[[800,180],[1159,277],[1247,498],[999,674],[601,674],[353,498],[441,277]];
+    const CD=[
+      ['chip','RDP 虚拟显卡','RDP 会话创建虚拟屏\n真实 GPU 渲染'],
+     ['key','RDP Wrapper','解锁并发 RDP\n双会话的地基'],
+     ['pad','ViGEmBus','虚拟手柄总线\n→ Xbox 360 手柄'],
+     ['play','GameManager','游戏菜单 · 静默提权\n全程不弹 UAC'],
+      ['shield','wsguard','守护 RDP 会话\n与 sunshine 核心'],
+     ['gear','setup.bat','图形化一键安装\n整目录可搬'],
+     ['scale','开源许可','GPL-3.0 · 全家桶\n成分全部公开']];
+   const hub={x:800,y:440};
+   /* 修复：高亮节奏与字幕进度对齐（原版 Steam 段错标成 wsguard） */
+   const hi=tl<6?-1:tl<13?99:tl<19?0:tl<25?1:tl<31?2:tl<56?3:tl<63?4:tl<67?5:6;
+   CD.forEach((cd,i)=>{const P=CXY[i],hot=(hi===i)||hi===99||hi===6;
+     dashed(c,hub.x,hub.y,P[0],P[1],tt,
+       hot?'rgba(224,145,63,.65)':'rgba(120,155,195,.35)',hot?3:1.8);});
+   c.save();c.beginPath();c.arc(hub.x,hub.y,110,0,TAU);
+   c.fillStyle='rgba(255,255,255,.96)';c.fill();
+   c.strokeStyle=(hi===99||hi===6)?'#e0913f':'#9fc4e4';c.lineWidth=3;c.stroke();c.restore();
+   if(hi===99||hi===6)pulseRing(c,hub.x,hub.y,114,.5,tt,.9,0);
+   sunLogo(c,hub.x,398,26,tt,1);
+   txt(c,'Apollo 核心',hub.x,452,22,{al:'center',w:700,col:INK});
+   txt(c,'sunshine.exe',hub.x,478,13,{al:'center',col:MUT});
+   txt(c,'抓屏 + 硬编码',hub.x,497,12,{al:'center',col:MUT});
+     CD.forEach((cd,i)=>{const P=CXY[i],hot=(hi===i)||hi===6;
+       card(c,P[0]-115,P[1]-48,230,96,
+         {st:hot?'#f0a05e':undefined,f1:hot?'rgba(255,243,232,.97)':'rgba(255,255,255,.94)'});
+       icon(c,cd[0],P[0]-92,P[1]-19,17,hot?CO:CB);
+       txt(c,cd[1],P[0]-64,P[1]-12,17,{w:700,col:hot?'#b05e1d':INK});
+       txt(c,cd[2],P[0]-92,P[1]+14,12.5,{col:MUT});});
+   const sp=fade(tl,50,.6,56.2,.5);
+    if(sp>0)pill(c,1225,676,'Steam 大屏模式入口',14,{a:sp,col:'rgba(234,243,251,.95)',bd:'#9fc4e4',tch:'#2f6ea8'});
+   badge(c,'04','全家桶 · 各司其职',tl);
+ }},
+{n:'05',name:'三步安装 · 向导配对',dur:56,
+ subs:[[0,7,'安装只要三步——第一步：双击 setup.bat'],
+       [7,14,'装服务、装驱动、开防火墙都要管理员权限——UAC 记得点「是」'],
+       [14,21,'杀软报毒别慌：装服务、驱动的动作容易被误报，把目录加入信任区即可'],
+       [21,28,'第二步：向导三连——选串流显卡、输开机密码、勾选可选功能'],
+       [28,35,'第三步：手机装 Moonlight——安卓推荐「阿西西月光」，iOS 与电视用官方版'],
+       [35,41,'同一 WiFi 自动发现主机，网页里的 4 位配对码一输就连上'],
+       [41,48,'装好先试串流，再把游戏快捷方式扔进 Links 文件夹'],
+       [48,56,'不放心？跑 SelfTest 自检脚本——不动系统，只验证环境']],
+ draw(c,tt,tl){
+   /* 步骤卡 ① */
+    const a1=fade(tl,0,.6,999,1);
+    if(a1>0){card(c,120,140,470,180,{a:a1});
+      icon(c,'gear',168,197,17,CB,a1);
+      txt(c,'① 双击 setup.bat',196,206,25,{w:800,a:a1,col:'#b05e1d'});
+      pill(c,250,238,'向导图形界面',14,{a:a1});pill(c,438,238,'全中文',14,{a:a1});
+       const u=fade(tl,7,.6,14,.6);
+       if(u>0)pill(c,355,270,'UAC 弹窗 → 点「是」',15,{a:u,col:'rgba(234,243,251,.95)',bd:'#9fc4e4',tch:'#2f6ea8'});}
+   /* 杀软面板 */
+    const a2=fade(tl,14,.6,999,1);
+    if(a2>0){card(c,640,140,330,180,{a:a2});
+      icon(c,'shield',672,185,20,CO,a2);
+      txt(c,'杀毒软件报毒？',700,192,20,{w:700,a:a2,col:INK});
+      txt(c,'装服务 / 驱动的动作\n容易被误报',700,232,14,{a:a2,col:MUT});
+      pill(c,805,278,'目录加入信任区 → 放行',14,{a:a2,col:'rgba(233,247,239,.95)',bd:'#9fd4b5',tch:'#2e7d54'});}
+   /* 步骤卡 ② */
+    const a3=fade(tl,21,.6,999,1);
+    if(a3>0){card(c,120,340,470,180,{a:a3});
+      txt(c,'② 向导三连',150,392,24,{w:800,a:a3,col:'#b05e1d'});
+       const rows=[['串流显卡','[ 自动检测 ]'],['开机密码','●●●●●●'],['可选功能','按需勾选']];
+       rows.forEach((rw,i)=>{const ra=fade(tl,22+i*1.3,.5,999,1);
+         if(ra>0){txt(c,rw[0],170,434+i*30,15,{a:ra,col:'#33475e'});
+           txt(c,rw[1],420,434+i*30,15,{a:ra,col:'#5b83ad'});
+           check(c,505,421+i*30,14,ra);}});
+    }
+   /* 步骤卡 ③ */
+    const a4=fade(tl,28,.6,999,1);
+    if(a4>0){card(c,120,540,470,180,{a:a4});
+      txt(c,'③ 手机装 Moonlight',150,594,24,{w:800,a:a4,col:'#b05e1d'});
+      icon(c,'phone',195,658,30,CB,a4);
+      pill(c,382,634,'安卓 · 阿西西月光（汉化增强）',13,{a:a4});
+      pill(c,382,668,'iOS / 电视 / PC · 官方 Moonlight',13,{a:a4});}
+   /* 配对面板（修复：移除装饰手机，不再压住配对码首位） */
+   const a5=fade(tl,35,.6,999,1);
+   if(a5>0){card(c,1000,140,520,370,{a:a5});
+     pill(c,1260,178,'同一 WiFi · 自动发现主机',16,{a:a5});
+     const dg='4721';
+     for(let i=0;i<4;i++){const p=outP((tl-35.2-i*.22)/.5);
+        if(p<=0)continue;c.save();c.translate(1149+i*74,268);
+       c.scale(1,.2+.8*p);
+       rr(c,-26,-54,52,58,9);c.fillStyle='rgba(255,255,255,.97)';c.fill();
+       c.strokeStyle='rgba(224,145,63,.8)';c.lineWidth=2;c.stroke();
+       txt(c,dg[i],0,-16,34,{al:'center',w:800,col:'#b05e1d'});c.restore();}
+      icon(c,'wifi',1260,335,20,'#5a9bd8',a5*.9);
+      pulseRing(c,1260,335,16,.5*a5,tl,1,0,undefined,28);
+      pill(c,1260,462,'网页里输入 4 位 PIN 即配对',15,{a:a5});}
+   /* Links 面板 */
+    const a6=fade(tl,41,.6,999,1);
+    if(a6>0){card(c,640,340,330,180,{a:a6});
+      icon(c,'folder',748,386,20,CB,a6);
+      txt(c,'Links 目录',774,393,20,{w:700,a:a6,col:INK});
+      txt(c,'把游戏快捷方式 .lnk 放进来\n串流端游戏菜单直接列出',805,438,14,{al:'center',a:a6,col:MUT});
+      for(let i=0;i<3;i++){const p=outP((tl-41.8-i*.3)/.4);if(p<=0)continue;
+        c.save();c.globalAlpha*=p;c.translate(768+i*36,490);c.scale(.4+.6*p,.4+.6*p);
+       rr(c,-9,-11,18,22,3);c.fillStyle='#fff';c.fill();
+       c.strokeStyle=CB;c.lineWidth=1.5;c.stroke();c.restore();}}
+   /* SelfTest 终端 */
+   const a7=fade(tl,48,.6,999,1);
+   if(a7>0){card(c,640,540,880,180,{a:a7,f1:'rgba(20,29,43,.97)',st:'#31435c'});
+     const F='"Consolas,monospace"';
+     const l1='PS> powershell -File scripts\\sunshine-setup.ps1 -SelfTest';
+     txt(c,l1.slice(0,Math.floor(clamp((tl-48.3)*46,0,l1.length))),675,597,17,{f:F,a:a7,col:'#9fe0a8'});
+     const l2='[OK] 路径检查   [OK] 显卡识别   [OK] 界面加载   [OK] 证书加解密';
+     const p2=clamp((tl-49.8)*38,0,l2.length);
+     txt(c,l2.slice(0,Math.floor(p2)),675,627,16,{f:F,a:a7,col:'#8fc8e8'});
+      if(p2>=l2.length)pill(c,1080,672,'— 未做任何系统变更 · 自检通过 —',15,{a:a7,col:'rgba(233,247,239,.95)',bd:'#9fd4b5',tch:'#2e7d54'});}
+   badge(c,'05','三步安装 · 向导配对',tl);
+ }},
+{n:'06',name:'掌机形态 · 摸鱼术',dur:40,
+ subs:[[0,6,'手机触屏玩 PC 游戏太难受——蓝牙手柄加支架，秒变真掌机'],
+       [6,13,'主机把手柄虚拟成 Xbox 360 手柄——兼容性最好的一档，游戏直接认'],
+       [13,19,'支持多手柄同时在线，本机键鼠完全不受影响'],
+       [19,26,'Xbox、飞智、北通、8BitDo……蓝牙手柄基本都能直接用'],
+       [26,33,'网络小技巧：手机连 5GHz WiFi；极限追求就 USB 共享网络，接近有线'],
+       [33,40,'躺床上、瘫沙发、午后小憩……随手拿起接着玩——这才叫合理摸鱼']],
+  draw(c,tt,tl){
+    const hd=fade(tl,.4,.7,5.6,.7);
+    if(hd>0)txt(c,'手机 + 手柄 = 真掌机',800,132,40,{al:'center',w:800,a:hd,col:INK});
+    /* 主体：手机 → 蓝牙 → 手柄 纵向流（蓝牙图标在连接线中点） */
+    phone(c,700,160,370,{game:true,ttl:'AUTO RPG · 自动战斗',t:tt});
+    const lk=fade(tl,1,.7,999,1);
+    dashed(c,786,545,786,578,tt,'rgba(90,140,200,.55)',2);
+    icon(c,'bt',786,560,15,'#5a9bd8',lk);
+    const jp=Math.sin(tt*2)*.04;
+    gamepad(c,786,645,92,{rot:jp,pad:'#8fb4de'});
+    pill(c,786,718,'蓝牙连接',14,{a:lk});
+    /* 识别面板（与下方条目/品牌墙统一宽度 360，左对齐排版） */
+    const t1=fade(tl,6,.6,999,1);
+    if(t1>0){card(c,1120,250,360,110,{a:t1,st:'#9fd4b5'});
+      icon(c,'pad',1156,290,18,CG,t1);
+      c.strokeStyle='#8fb4de';c.lineWidth=2.5;c.lineCap='round';
+      c.beginPath();c.moveTo(1184,290);c.lineTo(1210,290);c.stroke();
+      arrowHead(c,1218,290,0,9,'#e0a13f');
+      icon(c,'ok',1240,290,13,CG,t1);
+      txt(c,'Xbox 360 手柄',1266,297,19,{a:t1,w:700,col:'#2e7d54'});
+      txt(c,'驱动层虚拟 —— 游戏直接识别',1156,334,14,{a:t1,col:MUT});}
+    /* 功能条目：统一行样式 */
+    const t2=fade(tl,13,.6,999,1);
+    if(t2>0){rr(c,1120,400,360,44,22);c.fillStyle='rgba(255,255,255,.94)';c.fill();
+      c.strokeStyle='#cfdeee';c.lineWidth=1.3;c.stroke();
+      icon(c,'kb',1156,422,13,CB,t2);
+      txt(c,'本机键鼠 · 零影响',1180,428,15,{a:t2,col:'#33475e'});
+      check(c,1448,415,14,t2);}
+    const t3=fade(tl,15.5,.5,999,1);
+    if(t3>0){rr(c,1120,456,360,44,22);c.fillStyle='rgba(255,255,255,.94)';c.fill();
+      c.strokeStyle='#cfdeee';c.lineWidth=1.3;c.stroke();
+      icon(c,'pad',1152,478,10,CB,t3);icon(c,'pad',1174,478,10,CB,t3);
+      txt(c,'多手柄同时在线',1200,484,15,{a:t3,col:'#33475e'});
+      check(c,1448,471,14,t3);}
+   /* 品牌墙 */
+   const brands=[['Xbox','#e8eefc','#1a1a1a'],['飞智','#ffd9b8','#5a1622'],
+                 ['北通','#cfe0ff','#1c2b52'],['8BitDo','#fff3dd','#4a3b22']];
+   brands.forEach((b,i)=>{const ba=fade(tl,19.4+i*.7,.5,999,1);
+     if(ba>0){const yb=505+i*44;
+       rr(c,1120,yb,360,36,18);c.fillStyle='rgba(255,255,255,.94)';c.fill();
+       c.strokeStyle='#cfdeee';c.lineWidth=1.3;c.stroke();
+       gamepad(c,1152,yb+18,13,{a:ba,col:b[2],pad:b[1],bd:b[2]});
+       txt(c,b[0],1178,yb+24,16,{a:ba,w:600,col:'#33475e'});
+        check(c,1448,yb+11,14,ba);}});
+   /* 网络面板 */
+   const nt=fade(tl,26,.6,33,.6);
+   if(nt>0){card(c,150,560,360,150,{a:nt});
+     icon(c,'wifi',205,612,17,'#5a9bd8',nt);
+     txt(c,'5GHz WiFi 优先',232,619,17,{a:nt,w:600,col:INK});
+     icon(c,'usb',205,662,14,CB,nt);
+     txt(c,'USB 共享网络 → 延迟≈有线',232,669,15,{a:nt,col:'#33475e'});}
+    /* 姿势文案（去掉表意不明的小图标） */
+    const ps=fade(tl,33,.7,999,1);
+    if(ps>0)pill(c,1300,730,'躺床 · 瘫沙发 · 随手拿起接着玩',15,{a:ps,col:'rgba(255,241,229,.95)',bd:'#f0c49a',tch:'#b05e1d'});
+   badge(c,'06','掌机形态 · 摸鱼术',tl);
+ }},
+{n:'07',name:'wsguard · 核心守护',dur:70,
+ subs:[[0,6,'最核心的一章：wsguard——Game Windows Session Guard'],
+       [6,12,'它守护两个对象：RDP 会话，和 sunshine.exe 核心进程'],
+       [12,19,'先看没有它会怎样：客户端一断开，Windows 冻结会话——虚拟屏画面卡死'],
+       [19,26,'它内置 aardwolf 无头 RDP 客户端，主动连向 127.0.0.2，持续回 ACK 帧'],
+       [26,33,'显示管线永远不停车；等你真连接进来，它立刻让路——单会话，后到者胜'],
+       [33,40,'sunshine.exe 一旦挂掉，它立刻拉起——核心进程从不缺席'],
+       [40,47,'再配合 SetThreadExecutionState——系统不会擅自休眠、黑屏'],
+       [47,54,'配置热加载、日志轮转、失败自愈——后台安静运行，只留一份 watch.log'],
+       [54,61,'效果就是 README 那句：断流不掉屏——下次连接即开即用'],
+       [61,70,'RDP 会话与 sunshine 核心，整晚有人守着——这就是 Game Windows Session Guard']],
+  draw(c,tt,tl){
+    /* 标题 */
+    const hd=fade(tl,.2,.6,999,1);
+    if(hd>0)pill(c,800,102,'wsguard · Game Windows Session Guard',17,{a:hd,col:'rgba(255,241,229,.95)',bd:'#f0c49a',tch:'#b05e1d'});
+    /* 顶部三卡等宽等高、主视觉同一水平线 */
+    const wg=fade(tl,.3,.7,999,1);
+    if(wg>0){card(c,660,150,280,210,{a:wg});
+      icon(c,'shield',742,222,26,CO,wg);
+      txt(c,'wsguard',776,229,24,{w:700,a:wg,col:INK});
+      txt(c,'核心守护进程',776,257,13,{a:wg,col:MUT});
+      txt(c,'守护 RDP 会话 · sunshine 核心',800,330,12.5,{al:'center',a:wg,col:MUT});
+      pulseRing(c,810,248,88,.3*wg,tt,.55,0);}
+    const pr=fade(tl,12,.7,999,.85);
+    if(pr>0){
+      card(c,110,150,400,210,{a:pr});
+      monitor(c,200,195,220,105,{a:pr,veil:.5,stand:false,
+        draw:(cc,x,y,w,h)=>{icon(cc,'snow',x+w/2,y+h/2,26,'#9fb6cc',pr);}});
+      txt(c,'没有它：会话冻结 → 虚拟屏卡死',310,332,15,{al:'center',a:pr,w:600,col:CR});
+      txt(c,'下次连接：黑屏一片 · 输入失灵',310,354,13,{al:'center',a:pr,col:CR});
+      card(c,1090,150,400,210,{a:pr});
+      phone(c,1259,190,120,{a:pr*.9,scr:'#1d2c44'});
+      icon(c,'x',1325,205,15,CR,pr);
+      txt(c,'客户端一断开',1290,332,15,{al:'center',a:pr,w:600,col:CR});
+      txt(c,'会话立即冻结',1290,354,15,{al:'center',a:pr,col:CR});}
+    /* 守护双对象：两卡行结构逐行对齐 */
+    const ob=fade(tl,6,.8,999,1);
+    if(ob>0){
+      dashed(c,770,360,450,430,tt,'rgba(120,155,195,.6)',2);
+      flow(c,770,360,450,430,tt,.5,[.2,.6]);
+      dashed(c,850,360,1150,430,tt,'rgba(240,150,80,.6)',2);
+      flow(c,850,360,1150,430,tt,.5,[.35,.7],'rgba(240,150,80,');
+      /* 左：守护对象 1 —— RDP 会话 */
+      card(c,250,430,400,190,{a:ob});
+      icon(c,'monitor',322,482,22,CB,ob);
+      txt(c,'RDP 会话',352,489,19,{w:700,a:ob,col:INK});
+      txt(c,'aardwolf 无头 RDP 客户端 → 127.0.0.2',280,524,13,{a:ob,col:MUT});
+      const ack=fade(tl,19,.4,999,1);
+      if(ack>0){const kp=(tt*.8)%1.6;
+        icon(c,'ok',340,556,10,CG,ack*(1-kp/1.6));
+        pill(c,452,550,'持续回 ACK · 显示管线不停车',13,{a:ack*(1-kp/1.6),col:'rgba(233,247,239,.95)',bd:'#9fd4b5',tch:'#2e7d54'});}
+      const yld=fade(tl,26,.5,999,1);
+      if(yld>0)pill(c,450,584,'单会话 · 后到者胜',13,{a:yld,col:'rgba(255,241,229,.95)',bd:'#f0c49a',tch:'#b05e1d'});
+      /* 右：守护对象 2 —— sunshine.exe */
+      card(c,950,430,400,190,{a:ob});
+      sunLogo(c,1022,482,18,tt,ob);
+      txt(c,'sunshine.exe 核心',1052,489,19,{w:700,a:ob,col:INK});
+      txt(c,'串流主机 · 抓屏 + 硬编码',980,524,13,{a:ob,col:MUT});
+      const rs=fade(tl,33,.5,999,1);
+      if(rs>0){const kp2=(tt*.7)%2,ra2=kp2<1?1:(2-kp2);
+        icon(c,'bolt',1080,556,13,CO,rs*ra2);
+        pill(c,1185,550,'挂了 → 立刻拉起',13,{a:rs*ra2,col:'rgba(255,241,229,.95)',bd:'#f0c49a',tch:'#b05e1d'});}
+      const rs2=fade(tl,36,.5,999,1);
+      if(rs2>0)pill(c,1185,584,'核心进程从不缺席',13,{a:rs2,col:'rgba(234,243,251,.95)',bd:'#9fc4e4',tch:'#2f6ea8'});}
+   /* 线程执行状态保活 */
+   const stCode=fade(tl,40,.6,999,1);
+   if(stCode>0){card(c,110,650,530,112,{a:stCode,f1:'rgba(20,29,43,.97)',st:'#31435c'});
+     const F='"Consolas,monospace"';
+     const l1='SetThreadExecutionState(ES_SYSTEM_REQUIRED';
+     const l2='            | ES_DISPLAY_REQUIRED);';
+     const on=.5+.5*Math.sin(tt*3);
+     c.save();c.globalAlpha*=stCode*(.35+.65*on);c.fillStyle='#3ddc84';
+     c.beginPath();c.arc(132,687,5,0,TAU);c.fill();c.restore();
+     txt(c,l1.slice(0,Math.floor(clamp((tl-40.3)*40,0,l1.length))),146,693,15,{f:F,a:stCode,col:'#9fe0a8'});
+     if(tl>41.5)txt(c,l2.slice(0,Math.floor(clamp((tl-41.6)*40,0,l2.length))),146,717,15,{f:F,a:stCode,col:'#9fe0a8'});
+     txt(c,'系统不休眠 · 不黑屏',146,745,11.5,{f:F,a:stCode,col:'#6f92b8'});}
+   /* 日志面板 */
+   const lg=fade(tl,47,.6,999,1);
+   if(lg>0){card(c,660,650,530,112,{a:lg,f1:'rgba(20,29,43,.97)',st:'#31435c'});
+     const F='"Consolas,monospace"';
+     const cyc=['watch.log  [INFO] RDP keepalive OK · 127.0.0.2',
+                'watch.log  [INFO] sunshine.exe alive → keep',
+                'watch.log  [WARN] log rotated → watch-1026.log',
+                'watch.log  [INFO] config.json ⟳ hot reload'];
+     icon(c,'doc',695,690,13,'#6f92b8',lg);
+     txt(c,cyc[Math.floor(tt/2)%4],716,688,12.5,{f:F,a:lg,col:'#8fb0d0'});
+     txt(c,'只留一份 watch.log · 及时轮转 · 失败自愈',716,716,12.5,{f:F,a:lg,col:'#6f92b8'});}
+   /* 大印章 */
+   const stp=fade(tl,54,.5,61.5,.7);
+    if(stp>0){c.save();c.translate(800,512);c.rotate(-.05);c.globalAlpha*=stp;
+      rr(c,-140,-30,280,60,16);c.strokeStyle='#3aa876';c.lineWidth=4;c.stroke();
+      rr(c,-136,-26,272,52,12);c.fillStyle='rgba(233,247,239,.9)';c.fill();
+      txt(c,'断流不掉屏',0,10,28,{al:'center',w:800,col:'#2e7d54'});c.restore();}
+   /* 收尾 */
+   const eye=fade(tl,61,.7,999,1);
+   if(eye>0){pulseRing(c,800,512,26,.45*eye,tt,.7,0);
+     icon(c,'eye',800,512,22,CB,eye);
+     pill(c,800,566,'整晚值守 · 静默运行',15,{a:eye,col:'rgba(255,241,229,.95)',bd:'#f0c49a',tch:'#b05e1d'});}
+   badge(c,'07','wsguard · 核心守护',tl);
+ }},
+{n:'08',name:'总结 · 全家福',dur:46,
+ subs:[[0,7,'回顾：一台电脑，两个会话——前台办公与后台游戏，同时在线'],
+       [7,14,'虚拟屏加硬编码加虚拟手柄——手机秒变 PC 掌机'],
+       [14,21,'GameManager 静默提权开游戏，wsguard 断流不掉屏——全天候待命'],
+       [21,28,'和网易 UU 远程也能共存——各管一个会话，外出办公两不误'],
+       [28,35,'全开源 GPL-3.0：Apollo、RDP Wrapper、ViGEmBus……每行代码都可审'],
+       [35,42,'GitHub 搜 Sunshine-Duo——绿色免安装，也有国内镜像'],
+       [42,46,'合理摸鱼，劳逸结合——祝你玩得开心！']],
+ draw(c,tt,tl){
+   const R=[[150,160,'monitor','两个会话同时在线\n前台办公 · 后台游戏',0],
+            [560,160,'bolt','虚拟屏 + 硬编码 + 虚拟手柄\n= 手机秒变 PC 掌机',7],
+            [970,160,'shield','静默提权开游戏\n断流不掉屏 · 全天候待命',14],
+            [150,380,'link','兼容网易 UU 远程\n各管一个会话 · 互不冲突',21],
+            [560,380,'scale','GPL-3.0 全开源\nApollo · RDP Wrapper · ViGEmBus',28],
+            [970,380,'box','github.com/xRetia/Sunshine-Duo\n绿色免安装 · 含国内镜像',35]];
+   R.forEach(r=>{const a=fade(tl,r[4]+.1,.7,41.5,.8);
+     if(a<=0)return;
+     card(c,r[0],r[1],380,180,{a:a});
+     icon(c,r[2],r[0]+56,r[1]+66,26,CB,a);
+     txt(c,r[3],r[0]+100,r[1]+58,16,{a:a,col:'#33475e'});});
+   /* 谢幕 */
+   const fin=fade(tl,42,.8,999,1);
+   if(fin>0){c.save();c.globalAlpha*=fin*.45;c.fillStyle='#31435c';c.fillRect(0,0,W,H);c.restore();
+     sunLogo(c,760,296,52,tt,fin);
+     moonLogo(c,908,248,18,fin);
+     txt(c,'一台电脑，当两台用',800,470,48,{al:'center',w:800,a:fin,col:'#ffffff'});
+     txt(c,'合理摸鱼 · 劳逸结合',800,530,26,{al:'center',a:fin,col:'#c9d9ea'});
+     for(let i=0;i<40;i++){const px=(i*97)%W,py=H-((tt*140+i*83)%(H+80))+40;
+       const cf=['#7fb2e5','#f2a35e','#7fd0a8','#e8aab8'][i%4];
+       c.globalAlpha*=fin*.8;c.fillStyle=cf;
+       c.beginPath();c.arc(px,py,3+(i%3),0,TAU);c.fill();c.globalAlpha=1;}}
+   badge(c,'08','总结 · 全家福',tl);
+ }},
+/*SCENES-END*/];
+
+/* 全局字幕表（SUBS 由引擎在载入分镜后构建） */
+const SUBS=[];
+/* ---------------- 引擎：时序 / 音频 / 配音 / 播放器 ---------------- */
+let TOTAL=0;for(const sc of SCENES)TOTAL+=sc.dur;
+(function(){let acc=0;for(const sc of SCENES){sc.t0=acc;
+  for(const s of sc.subs)SUBS.push({t0:acc+s[0],t1:acc+s[1],text:s[2]});
+  acc+=sc.dur;}})();
+const st={t:0,playing:false,started:false,over:false,cc:true,voice:true,muted:false,vol:.65};
+function locate(t){let lo=0;for(let i=0;i<SCENES.length;i++){const sc=SCENES[i];
+  if(t<lo+sc.dur)return{sc:sc,tl:t-lo,idx:i};lo+=sc.dur;}
+  const last=SCENES[SCENES.length-1];return{sc:last,tl:last.dur-.001,idx:SCENES.length-1};}
+
+/* ---------------- 音频引擎（Web Audio） ---------------- */
+const AU={ctx:null,master:null,duckG:null,busG:null,noi:null,
+  timer:null,step:0,nextT:0,bpm:92,
+  CH:[[57,60,64,67],[53,57,60,64],[55,59,62,67],[48,52,55,59]],
+  mf(m){return 440*Math.pow(2,(m-69)/12);},
+  ensure(){if(this.ctx)return;const AC=window.AudioContext||window.webkitAudioContext;
+    this.ctx=new AC();
+    this.duckG=this.ctx.createGain();this.duckG.gain.value=1;
+    this.master=this.ctx.createGain();this.master.gain.value=st.muted?0:st.vol;
+    this.busG=this.ctx.createGain();this.busG.gain.value=.9;
+    this.busG.connect(this.duckG);this.duckG.connect(this.master);
+    this.master.connect(this.ctx.destination);
+    const len=2*this.ctx.sampleRate,buf=this.ctx.createBuffer(1,len,this.ctx.sampleRate),
+      d=buf.getChannelData(0);for(let i=0;i<len;i++)d[i]=Math.random()*2-1;this.noi=buf;},
+  resume(){if(this.ctx&&this.ctx.state==='suspended')this.ctx.resume();},
+  setVol(v){st.vol=v;if(this.master&&!st.muted)
+    this.master.gain.setTargetAtTime(v,this.ctx.currentTime,.05);},
+  setMute(m){st.muted=m;if(this.master)
+    this.master.gain.setTargetAtTime(m?0:st.vol,this.ctx.currentTime,.05);},
+  duck(t,sec){if(this.duckG)this.duckG.gain.setTargetAtTime(t,this.ctx.currentTime,sec||.3);},
+  start(){this.ensure();this.resume();this.step=0;this.nextT=this.ctx.currentTime+.08;
+    if(!this.timer)this.timer=setInterval(()=>this.tick(),90);},
+  stop(){/* 保留 timer；由 playing 门控 */},
+  tick(){if(!st.playing)return;const ahead=this.ctx.currentTime+.45;
+    while(this.nextT<ahead){this.sched(this.step,this.nextT);this.nextT+=60/this.bpm/2;this.step++;}},
+  sched(s,t){const bar=Math.floor(s/8)%4,sb=s%8,ch=this.CH[bar];
+    if(sb===0){this.pad(ch,t);this.bass(this.mf(ch[0]-24),t);}
+    if(sb===0||sb===4)this.kick(t);
+    if(sb%2===1)this.hat(t);
+    if(sb===2||sb===6)this.snare(t);
+    this.arp(ch,sb,t);
+    if(bar===3&&sb===6)this.bell(t);},
+  pad(ch,t){const dur=60/this.bpm/2*8*.98,lp=this.ctx.createBiquadFilter();
+    lp.type='lowpass';lp.frequency.value=820;lp.connect(this.busG);
+    for(const m of ch){const f=this.mf(m);
+      for(const det of[-6,6]){const o=this.ctx.createOscillator(),g=this.ctx.createGain();
+        o.type='sawtooth';o.frequency.value=f;o.detune.value=det;
+        g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(.02,t+1.1);
+        g.gain.setValueAtTime(.02,t+dur-.8);g.gain.linearRampToValueAtTime(0,t+dur);
+        o.connect(g);g.connect(lp);o.start(t);o.stop(t+dur+.05);}}},
+  bass(f,t){const o=this.ctx.createOscillator(),g=this.ctx.createGain();
+    o.type='sine';o.frequency.value=f;
+    g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(.15,t+.08);
+    g.gain.setValueAtTime(.15,t+1.6);g.gain.linearRampToValueAtTime(0,t+2.3);
+    o.connect(g);g.connect(this.busG);o.start(t);o.stop(t+2.4);},
+  kick(t){const o=this.ctx.createOscillator(),g=this.ctx.createGain();
+    o.type='sine';o.frequency.setValueAtTime(150,t);
+    o.frequency.exponentialRampToValueAtTime(42,t+.12);
+    g.gain.setValueAtTime(.5,t);g.gain.exponentialRampToValueAtTime(.001,t+.17);
+    o.connect(g);g.connect(this.busG);o.start(t);o.stop(t+.2);},
+  hat(t){const s=this.ctx.createBufferSource(),f=this.ctx.createBiquadFilter(),g=this.ctx.createGain();
+    s.buffer=this.noi;f.type='highpass';f.frequency.value=6800;
+    g.gain.setValueAtTime(.045,t);g.gain.exponentialRampToValueAtTime(.001,t+.05);
+    s.connect(f);f.connect(g);g.connect(this.busG);s.start(t);s.stop(t+.08);},
+  snare(t){const s=this.ctx.createBufferSource(),f=this.ctx.createBiquadFilter(),g=this.ctx.createGain();
+    s.buffer=this.noi;f.type='bandpass';f.frequency.value=1900;f.Q.value=.9;
+    g.gain.setValueAtTime(.05,t);g.gain.exponentialRampToValueAtTime(.001,t+.13);
+    s.connect(f);f.connect(g);g.connect(this.busG);s.start(t);s.stop(t+.15);},
+  arp(ch,sb,t){const pat=[0,1,2,3,2,3,1,2],m=ch[pat[sb]]+12,f=this.mf(m);
+    const o=this.ctx.createOscillator(),g=this.ctx.createGain();
+    o.type='triangle';o.frequency.value=f;
+    g.gain.setValueAtTime(.085,t);g.gain.exponentialRampToValueAtTime(.001,t+.16);
+    o.connect(g);g.connect(this.busG);o.start(t);o.stop(t+.2);},
+  bell(t){const ms=[69,72,76,74,79],m=ms[Math.floor(Math.random()*ms.length)];
+    const o=this.ctx.createOscillator(),g=this.ctx.createGain();
+    o.type='sine';o.frequency.value=this.mf(m);
+    g.gain.setValueAtTime(.05,t);g.gain.exponentialRampToValueAtTime(.001,t+.9);
+    o.connect(g);g.connect(this.busG);o.start(t);o.stop(t+1);},
+  whoosh(){if(!this.ctx)return;const t=this.ctx.currentTime+.02,
+    s=this.ctx.createBufferSource(),f=this.ctx.createBiquadFilter(),g=this.ctx.createGain();
+    s.buffer=this.noi;f.type='bandpass';f.Q.value=1.1;
+    f.frequency.setValueAtTime(320,t);f.frequency.exponentialRampToValueAtTime(2400,t+.5);
+    g.gain.setValueAtTime(.001,t);g.gain.exponentialRampToValueAtTime(.12,t+.28);
+    g.gain.exponentialRampToValueAtTime(.001,t+.6);
+    s.connect(f);f.connect(g);g.connect(this.duckG);s.start(t);s.stop(t+.65);}
+};
+
+/* ---------------- 配音（speechSynthesis） ---------------- */
+const Narr={idx:0,voice:null,
+  pick(){if(!('speechSynthesis' in window))return;const vs=speechSynthesis.getVoices();
+    this.voice=vs.find(v=>/zh[-_]CN/i.test(v.lang))||vs.find(v=>/^zh/i.test(v.lang))||null;},
+  say(text){if(!('speechSynthesis' in window))return;
+    const u=new SpeechSynthesisUtterance(text);
+    if(this.voice){u.voice=this.voice;u.lang=this.voice.lang;}else u.lang='zh-CN';
+    u.rate=1.06;u.pitch=1;u.volume=1;
+    u.onstart=()=>AU.duck(.38,.25);
+    u.onend=()=>AU.duck(1,.6);
+    speechSynthesis.speak(u);},
+  check(t){if(!st.playing||!st.voice||!('speechSynthesis' in window))return;
+    const s=SUBS[this.idx];if(!s)return;
+    if(t>=s.t0&&t<s.t1&&!speechSynthesis.speaking&&!speechSynthesis.pending){
+      this.say(s.text);this.idx++;}},
+  resync(){if('speechSynthesis' in window)speechSynthesis.cancel();
+    AU.duck(1,.15);
+    let i=SUBS.findIndex(s=>s.t0>st.t);
+    if(i<0)this.idx=SUBS.length;else if(i>0&&st.t<SUBS[i-1].t1)this.idx=i-1;else this.idx=i;},
+  stop(){if('speechSynthesis' in window)speechSynthesis.cancel();AU.duck(1,.2);}
+};
+if('speechSynthesis' in window){Narr.pick();
+  speechSynthesis.onvoiceschanged=function(){Narr.pick();};}
+
+/* ---------------- 控制条 SVG ---------------- */
+const SVG_PLAY='<svg viewBox="0 0 24 24" width="20" height="20"><path d="M8 5.2v13.6L19 12z" fill="currentColor"/></svg>';
+const SVG_PAUSE='<svg viewBox="0 0 24 24" width="20" height="20"><path d="M7.5 5.5h3.4v13H7.5zM13.1 5.5h3.4v13h-3.4z" fill="currentColor"/></svg>';
+const SVG_VOL='<svg viewBox="0 0 24 24" width="19" height="19"><path d="M4 9.2v5.6h3.6L13 19V5L7.6 9.2H4z" fill="currentColor"/><path d="M15.8 9a4.4 4.4 0 0 1 0 6" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><path d="M18 6.8a7.6 7.6 0 0 1 0 10.4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>';
+const SVG_MUTE='<svg viewBox="0 0 24 24" width="19" height="19"><path d="M4 9.2v5.6h3.6L13 19V5L7.6 9.2H4z" fill="currentColor"/><path d="M16 9.5l5 5M21 9.5l-5 5" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>';
+const SVG_REPLAY='<svg viewBox="0 0 24 24" width="28" height="28"><path d="M12 5a7 7 0 1 1-6.3 4" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><path d="M5 3.5v5.8h5.8" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+/* ---------------- UI 引用 ---------------- */
+const D=id=>document.getElementById(id);
+const eWrap=D('stageWrap'),eSub=D('subtitle'),eSubBox=eSub.querySelector('.box'),
+  ePlay=D('bPlay'),eMuteBtn=D('bMute'),eTime=D('time'),eFill=D('fill'),eKnob=D('knob'),
+  eRail=D('rail'),eTicks=D('ticks'),eTip=D('tip'),ePoster=D('poster'),eEnd=D('endcard');
+ePlay.innerHTML=SVG_PLAY;eMuteBtn.innerHTML=SVG_VOL;D('replay').innerHTML=SVG_REPLAY;
+
+/* 进度条章节刻度 */
+SCENES.forEach((sc,i)=>{if(i===0)return;const tk=document.createElement('div');
+  tk.className='tick';tk.style.left=(sc.t0/TOTAL*100)+'%';eTicks.appendChild(tk);});
+
+/* ---------------- 播放控制 ---------------- */
+function doPlay(){
+  if(st.over)doSeek(0);
+  if(!st.started){st.started=true;ePoster.classList.add('hide');}
+  AU.ensure();AU.resume();AU.start();AU.whoosh();
+  st.playing=true;ePlay.innerHTML=SVG_PAUSE;ePlay.classList.remove('paused');
+  eEnd.classList.remove('show');
+}
+function doPause(){if(!st.playing)return;
+  st.playing=false;ePlay.innerHTML=SVG_PLAY;ePlay.classList.add('paused');Narr.stop();}
+function doSeek(sec){st.t=clamp(sec,0,TOTAL-.001);st.over=false;
+  eEnd.classList.remove('show');Narr.resync();}
+function togglePlay(){st.playing?doPause():doPlay();}
+
+/* ---------------- 主循环 ---------------- */
+let lastTs=0,curSub=-2;
+function updUI(){const p=st.t/TOTAL;
+  eFill.style.width=(p*100)+'%';
+  eKnob.style.left=(p*100)+'%';eKnob.style.display=st.started?'block':'none';
+  const L=locate(st.t);
+  eTime.textContent=fmt(st.t)+' / '+fmt(TOTAL);
+  /* 字幕 */
+  let txt2=null;const s=SUBS.find(q=>st.t>=q.t0&&st.t<q.t1);
+  if(s)txt2=s.text;
+  if(txt2!==curSub){if(txt2){eSubBox.textContent=txt2;eSub.classList.add('on');}
+    else eSub.classList.remove('on');
+    curSub=txt2;}
+}
+function render(t){
+  const L=locate(t);
+  bgBase(cx,t);
+  L.sc.draw(cx,t,L.tl);
+  /* 章节切换过渡 */
+  const remain=L.sc.dur-L.tl;
+  let black=0;
+  if(L.tl<.35)black=Math.max(black,(0.35-L.tl)/.35*.9);
+  if(remain<.45)black=Math.max(black,(0.45-remain)/.45);
+  if(black>0){cx.globalAlpha=clamp(black,0,.95);cx.fillStyle='#16233a';
+    cx.fillRect(0,0,W,H);cx.globalAlpha=1;}
+  wm(cx);
+}
+function raf(ts){
+  requestAnimationFrame(raf);
+  if(!lastTs)lastTs=ts;let dt=(ts-lastTs)/1000;lastTs=ts;
+  if(dt>.25)dt=.25;
+  if(st.playing){st.t+=dt;
+    if(st.t>=TOTAL){st.t=TOTAL-.001;doPause();st.over=true;eEnd.classList.add('show');}
+  }
+  render(st.t);
+  Narr.check(st.t);
+  updUI();
+}
+requestAnimationFrame(raf);
+
+/* ---------------- 交互 ---------------- */
+eWrap.addEventListener('click',()=>{
+  if(!st.started)doPlay();
+  else if(st.over){doSeek(0);doPlay();}
+  else togglePlay();});
+eMuteBtn.addEventListener('click',()=>{AU.ensure();AU.setMute(!st.muted);
+  eMuteBtn.innerHTML=st.muted?SVG_MUTE:SVG_VOL;
+  eMuteBtn.classList.toggle('off',st.muted);});
+D('vol').addEventListener('input',e=>{AU.ensure();
+  st.muted=false;eMuteBtn.innerHTML=SVG_VOL;eMuteBtn.classList.remove('off');
+  AU.setVol(e.target.value/100);});
+
+/* 进度条拖动与悬停提示 */
+let dragging=false;
+function railPct(e){const r=eRail.getBoundingClientRect();
+  return clamp((e.clientX-r.left)/r.width,0,1);}
+eRail.addEventListener('pointerdown',e=>{dragging=true;
+  eRail.setPointerCapture(e.pointerId);
+  doSeek(railPct(e)*TOTAL);});
+eRail.addEventListener('pointermove',e=>{
+  const p=railPct(e),t=p*TOTAL,L=locate(t);
+  eTip.style.display='block';
+  eTip.style.left=(p*100)+'%';
+  eTip.innerHTML='<b>'+fmt(t)+'</b> · 第 '+L.sc.n+'章 '+L.sc.name;
+  if(dragging)doSeek(t);});
+eRail.addEventListener('pointerleave',()=>{eTip.style.display='none';});
+eRail.addEventListener('pointerup',e=>{dragging=false;
+  doSeek(railPct(e)*TOTAL);});
+
+/* 键盘 */
+window.addEventListener('keydown',e=>{
+  if(e.code==='Space'){e.preventDefault();if(st.started)togglePlay();else doPlay();}
+  else if(e.code==='ArrowRight'){doSeek(st.t+5);}
+  else if(e.code==='ArrowLeft'){doSeek(st.t-5);}
+  else if(e.code==='KeyM'){AU.ensure();AU.setMute(!st.muted);
+    eMuteBtn.innerHTML=st.muted?SVG_MUTE:SVG_VOL;
+    eMuteBtn.classList.toggle('off',st.muted);}
+  else if(e.code==='KeyC'){st.cc=!st.cc;
+    eSub.style.display=st.cc?'flex':'none';}
+});
+
+/* 画面自适应：16:9 居中 letterbox */
+function fit(){const m=D('main');
+  const aw=(m&&m.clientWidth)||window.innerWidth-36,
+        ah=(m&&m.clientHeight)||window.innerHeight-92;
+  const s=Math.max(80,Math.min(aw/16,ah/9));
+  const sw=D('stageWrap');
+  sw.style.width=(s*16)+'px';sw.style.height=(s*9)+'px';}
+window.addEventListener('resize',fit);fit();
+
+/* 调试钩子 */
+window.V={st:st,seek:doSeek,play:doPlay,pause:doPause,AU:AU};
+/* 截图模式：?t=秒 → 隐藏海报并定位到该时刻 */
+(function(){try{const q=new URLSearchParams(location.search);
+  if(q.has('t')){st.t=parseFloat(q.get('t'))||0;
+    st.started=true;ePoster.classList.add('hide');}}catch(e){}})();
+</script>
+</body>
+</html>
