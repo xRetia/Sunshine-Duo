@@ -19,7 +19,7 @@
 <br/>
 
 <a href="https://cdn.jsdelivr.net/gh/xRetia/Sunshine-Duo@main/assets/sunshine-duo-video.html" title="浏览器直接播放，无需任何插件">
-  <img src="https://img.shields.io/badge/▶_观看项目视频-6分22秒_浏览器直接播放-FF8A3D?style=for-the-badge" alt="观看项目视频">
+  <img src="https://img.shields.io/badge/▶_观看项目视频-6分01秒_浏览器直接播放-FF8A3D?style=for-the-badge" alt="观看项目视频">
 </a>&nbsp;
 <a href="https://fastly.jsdelivr.net/gh/xRetia/Sunshine-Duo@main/assets/sunshine-duo-video.html">
   <img src="https://img.shields.io/badge/🇨🇳_视频国内镜像-fastly.jsdelivr.net-f59e0b?style=for-the-badge" alt="视频国内镜像">
