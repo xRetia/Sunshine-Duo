@@ -2062,6 +2062,7 @@ $script:RunHandle = $null
 $script:RunFinal = $false
 $script:RunKeys = @()
 $script:RunGlyphs = @{}
+$script:RunLabels = @{}
 
 function Start-RunBackground {
     param([hashtable]$Opts)
@@ -2116,11 +2117,15 @@ function Start-RunBackground {
     $script:RunRS.Open()
     $script:RunRS.SessionStateProxy.SetVariable('S', $S)
     $script:RunRS.SessionStateProxy.SetVariable('SLogQueue', $S.LogQueue)
+    $script:RunLabels = $Opts.Labels
     $op = if ($Opts.Mode -eq 'Uninstall') { 'Invoke-UninstallRun' } else { 'Invoke-InstallRun' }
+    $script:RunRS.SessionStateProxy.SetVariable('__Opts', $Opts)
     $script:RunPS = [System.Management.Automation.PowerShell]::Create()
     $script:RunPS.Runspace = $script:RunRS
+    # AddStatement 必须留在两条语句之间：同一管道会先解析命令名，那时函数还没定义
     [void]$script:RunPS.AddScript($OpsCode)
-    [void]$script:RunPS.AddCommand($op).AddParameter('Opts', $Opts)
+    [void]$script:RunPS.AddStatement()
+    [void]$script:RunPS.AddScript("try { $op -Opts `$__Opts } catch { `$S.Prog.LastError = `$_.Exception.Message } finally { `$S.Prog.Done = `$true }")
     $script:RunHandle = $script:RunPS.BeginInvoke()
 }
 
@@ -2314,8 +2319,23 @@ $timer.Add_Tick({
             $ui['pgBar'].BeginAnimation([System.Windows.Controls.ProgressBar]::ValueProperty, $anim)
         }
     }
+    # 后台已结束却没置 Done：Runspace 中途异常退出，也要收尾，不能一直停在 0%
+    $aborted = $false
+    if ($script:Running -and $script:RunHandle -and (-not $p.Done) -and $script:RunHandle.IsCompleted) {
+        $aborted = $true
+        $errText = @($p.LastError) + @($script:RunPS.Streams.Error | ForEach-Object { $_.ToString() })
+        $errText = @($errText | Where-Object { $_ } | Select-Object -Unique)
+        if ($errText.Count) { foreach ($e in $errText) { Write-Log "后台异常: $e" } }
+        else { Write-Log '后台执行意外结束，未返回任何结果' }
+        foreach ($k in $script:RunKeys) {
+            if (@('ok', 'fail') -notcontains [string]$S.Prog.Steps[$k]) { $S.Prog.Steps[$k] = 'fail' }
+        }
+        $S.Prog.Results = @($script:RunKeys | ForEach-Object {
+            [PSCustomObject]@{ Key = $_; Label = [string]$script:RunLabels[$_]; Ok = ([string]$S.Prog.Steps[$_] -eq 'ok') }
+        })
+    }
     # 完成：回到结果页
-    if ($p.Done -and $script:RunHandle -and (-not $script:RunFinal)) {
+    if (($p.Done -or $aborted) -and $script:RunHandle -and (-not $script:RunFinal)) {
         $script:RunFinal = $true
         try {
             $null = $script:RunPS.EndInvoke($script:RunHandle)
@@ -2356,14 +2376,18 @@ $timer.Add_Tick({
             [void]$row.Children.Add($name)
             [void]$ui['resHost'].Children.Add($row)
         }
-        $ui['lblFinishIcon'].Text = $(if ($failed -eq 0) { '✓' } else { '!' })
-        $ui['lblFinishIcon'].Foreground = $conv.ConvertFromString($(if ($failed -eq 0) { '#22C55E' } else { '#F59E0B' }))
-        $ui['lblFinishTitle'].Text = $(if ($failed -eq 0) {
+        $ui['lblFinishIcon'].Text = $(if ($aborted) { '!' } elseif ($failed -eq 0) { '✓' } else { '!' })
+        $ui['lblFinishIcon'].Foreground = $conv.ConvertFromString($(if ($failed -eq 0 -and -not $aborted) { '#22C55E' } else { '#F59E0B' }))
+        $ui['lblFinishTitle'].Text = $(if ($aborted) {
+            if ($script:Phase -eq 'Uninstall') { '执行已中断' } else { '部署已中断' }
+        } elseif ($failed -eq 0) {
             if ($script:Phase -eq 'Uninstall') { '卸载完成' } else { '部署完成' }
         } else {
             if ($script:Phase -eq 'Uninstall') { "卸载完成，$failed 项失败" } else { "部署完成，$failed 项失败" }
         })
-        $ui['lblFinishNote'].Text = $(if ($failed -eq 0) {
+        $ui['lblFinishNote'].Text = $(if ($aborted) {
+            '后台执行异常中断，后续步骤已停止。请点「查看完整日志」查看错误详情。'
+        } elseif ($failed -eq 0) {
             '全部步骤执行成功。详细过程请点「查看完整日志」查看。'
         } else {
             '部分步骤未成功，请查看日志排查。失败项不影响其他已成功项。'
