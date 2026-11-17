@@ -50,9 +50,11 @@ $py = $py.Replace("PS_GUARD_B64 = '__PS_B64__'", "PS_GUARD_B64 = '$psB64'")
 [IO.File]::WriteAllText($workPy, $py, (New-Object Text.UTF8Encoding($true)))
 Write-Host "wsguard_final.py 已生成（PS 守护脚本注入 $($psB64.Length) 字符）"
 
-# ---- gv_hook.dll（src 不保存二进制，从部署目录取；没有则提示用 gen_hook.ps1 生成）----
-$dll = Join-Path $WgDir 'gv_hook.dll'
-if (-not (Test-Path $dll)) { throw "缺少 gv_hook.dll（$dll）；请先用 src\gen_hook.ps1 生成" }
+# ---- 按 GameViewer 版本选择的 hook（部署目录必须保留两代二进制）----
+foreach ($name in @('gv_hook.4.0.dll', 'gv_hook.4.46.dll')) {
+    $dll = Join-Path $WgDir $name
+    if (-not (Test-Path -LiteralPath $dll)) { throw "缺少 $name（$dll）；请先生成对应版本 hook" }
+}
 
 # ---- PyInstaller 打包 ----
 $env:PYTHONPATH = "$BuildTools;$RdpLib"

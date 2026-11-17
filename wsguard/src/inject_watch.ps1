@@ -87,7 +87,13 @@ $procId = $svc.Id
 $h = [GvInj]::OpenProcess(0x1FFFFF, $false, $procId)
 if ($h -eq [IntPtr]::Zero) { LogErr "open process $procId failed err=$([Runtime.InteropServices.Marshal]::GetLastWin32Error())"; return }
 
-$dllPath = Join-Path $wgDir 'gv_hook.dll'
+# A missing version-specific binary must never inject another build's hook.
+$dllBase = $null
+if ($ver -like '4.0.*') { $dllBase = 'gv_hook.4.0.dll' }
+elseif ($ver -like '4.46.*') { $dllBase = 'gv_hook.4.46.dll' }
+if (-not $dllBase) { LogErr "no hook binary mapped for GameViewer version [$ver]"; [void][GvInj]::CloseHandle($h); return }
+$dllPath = Join-Path $wgDir $dllBase
+if (-not (Test-Path -LiteralPath $dllPath)) { LogErr "missing hook binary [$dllPath], skip inject"; [void][GvInj]::CloseHandle($h); return }
 $pathBytes = [Text.Encoding]::ASCII.GetBytes($dllPath + [char]0)
 $addr = [GvInj]::VirtualAllocEx($h, [IntPtr]::Zero, [UIntPtr][uint32]$pathBytes.Length, 0x3000, 0x40)
 if ($addr -eq [IntPtr]::Zero) { LogErr 'alloc failed'; [void][GvInj]::CloseHandle($h); return }
