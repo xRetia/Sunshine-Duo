@@ -451,12 +451,12 @@ function Install-Wsguard {
             log_level         = 'warn'
             interval          = 60
             recycle_minutes   = 30
-            gameviewer_versions = @('4.0.*')
+            gameviewer_versions = @('4.0.*', '4.46.*')
         }
         $json = $cfg | ConvertTo-Json
         [IO.File]::WriteAllText($WgCfgPath, $json, (New-Object System.Text.UTF8Encoding($false)))
         $alNote2 = if ($AutoLogon) { '开机自动登录开' } else { '开机自动登录关' }
-        Write-Log "OK: wsguard\config.json 已生成（默认参数：127.0.0.2 / ${w}x${h} / 30 分钟重建 / Apollo 守卫开 / $alNote2 / 日志仅警告与错误 / GameViewer 4.0.*）"
+        Write-Log "OK: wsguard\config.json 已生成（默认参数：127.0.0.2 / ${w}x${h} / 30 分钟重建 / Apollo 守卫开 / $alNote2 / 日志仅警告与错误 / GameViewer 4.0.*、4.46.*）"
     }
 
     # 服务幂等注册
@@ -1583,7 +1583,7 @@ public static class PwCheck {
             keepalive = $true; guard_uu = $true; guard_apollo = $true; display_keepalive = $true
             auto_logon = $true; log_level = 'warn'
             interval = 60; recycle_minutes = 30
-            gameviewer_versions = @('4.0.*')
+            gameviewer_versions = @('4.0.*', '4.46.*')
         }
         $j = $cfg | ConvertTo-Json
         ($j -match '127\.0\.0\.2') -and ($j -match 'dpapi') -and ($j -match 'guard_apollo') -and ($j -match 'auto_logon') -and ($j -match 'log_level') -and ($j -match 'gameviewer_versions')

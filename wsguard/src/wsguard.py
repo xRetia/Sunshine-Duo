@@ -145,7 +145,7 @@ DEFAULT_CONFIG = {
     # the PS guard refuses to inject unless GameViewerService.exe's
     # FileVersion matches one of these patterns. Update after a verified
     # GameViewer upgrade - no repack needed.
-    'gameviewer_versions': ['4.0.*'],
+    'gameviewer_versions': ['4.0.*', '4.46.*'],
     # auto_logon: when NO Game session exists at all (e.g. right after boot),
     # let the RDP keepalive log in to 127.0.0.2 itself, which creates the
     # Game session; sunshine/apollo then launch into it unattended.
