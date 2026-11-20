@@ -138,6 +138,9 @@ DEFAULT_CONFIG = {
     'keepalive': True,
     'guard_uu': True,
     'guard_apollo': True,
+    'guard_apollo_console': True,
+    'console_conf_path': 'config\\sunshine.conf',
+    'game_conf_path': 'config\\sunshine-game.conf',
     'display_keepalive': True,
     'interval': 60,
     'recycle_minutes': 30,
@@ -168,6 +171,11 @@ def load_config():
         pass
     except Exception as e:
         log_err('config load error: %r' % e)
+    # 将相对路径配置（相对于 sunshine 根目录）展开为绝对路径，避免工作目录漂移
+    root = os.path.dirname(SVC_DIR)
+    for key in ('console_conf_path', 'game_conf_path'):
+        if cfg.get(key) and not os.path.isabs(cfg[key]):
+            cfg[key] = os.path.join(root, cfg[key])
     return cfg
 
 
@@ -222,6 +230,13 @@ class WTS_SESSION_INFOW(ctypes.Structure):
                 ('State', ctypes.c_int)]
 
 wtsapi32 = ctypes.windll.wtsapi32
+
+def find_console_session():
+    """WTSGetActiveConsoleSessionId，返回控制台会话 id（-1 表示未知）。"""
+    _kernel32.WTSGetActiveConsoleSessionId.restype = wintypes.DWORD
+    _kernel32.WTSGetActiveConsoleSessionId.argtypes = []
+    return _kernel32.WTSGetActiveConsoleSessionId()
+
 
 def find_user_session(username):
     """Return (sessionId, state) for the given user's remote session, or (-1, -1).
@@ -318,6 +333,10 @@ TokenElevation = 20
 TokenLinkedToken = 19
 CREATE_UNICODE_ENV_FLAG = 0x0400
 
+_kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+_kernel32.GetCurrentProcess.argtypes = []
+_advapi32.OpenProcessToken.restype = wintypes.BOOL
+_advapi32.OpenProcessToken.argtypes = [wintypes.HANDLE, wintypes.DWORD, ctypes.POINTER(wintypes.HANDLE)]
 _kernel32.OpenProcess.restype = wintypes.HANDLE
 _kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
 _kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
@@ -361,7 +380,79 @@ class PROCESS_INFORMATION(ctypes.Structure):
                 ('dwProcessId', wintypes.DWORD), ('dwThreadId', wintypes.DWORD)]
 
 
-_apollo_last_launch = 0.0
+_apollo_last_launch = {}
+
+
+def state_paths(cfg):
+    """State file for each Apollo instance, taken from its conf's file_state."""
+    root = os.path.dirname(SVC_DIR)
+    paths = []
+    for key in ('console_conf_path', 'game_conf_path'):
+        conf = cfg.get(key)
+        if not conf:
+            continue
+        state = ''
+        try:
+            with open(conf, 'r', encoding='utf-8-sig') as f:
+                for line in f:
+                    name, sep, value = line.partition('=')
+                    if sep and name.strip() == 'file_state':
+                        state = value.strip().strip('"\'')
+                        break
+        except Exception:
+            pass
+        if not state:
+            state = os.path.join(os.path.dirname(conf), 'sunshine_state.json')
+        elif not os.path.isabs(state):
+            state = os.path.join(os.path.dirname(conf), state)
+        if os.path.normcase(os.path.abspath(state)) not in {
+                os.path.normcase(os.path.abspath(p)) for p in paths}:
+            paths.append(state)
+    legacy = os.path.join(root, 'config', 'sunshine_state.json')
+    if os.path.normcase(os.path.abspath(legacy)) not in {
+            os.path.normcase(os.path.abspath(p)) for p in paths}:
+        paths.append(legacy)
+    return paths
+
+
+def normalize_state_types(cfg):
+    """Apollo 0.4.6 aborts on startup when a state file carries stringified
+    booleans/numbers (upstream issue #835: the Web UI re-saves per-device
+    settings in that form). Coerce the known keys back to native types in
+    every instance's state before launching, so a Web UI save cannot re-trigger
+    the crash loop. Best effort: unreadable/locked files are skipped silently."""
+    for path in state_paths(cfg):
+        _normalize_state_file(path)
+
+
+def _normalize_state_file(path):
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    except Exception:
+        return
+    changed = False
+    try:
+        for dev in data.get('root', {}).get('named_devices', []):
+            for key in ('allow_client_commands', 'always_use_virtual_display', 'enable_legacy_ordering'):
+                val = dev.get(key)
+                if isinstance(val, str) and val.lower() in ('true', 'false'):
+                    dev[key] = val.lower() == 'true'
+                    changed = True
+            perm = dev.get('perm')
+            if isinstance(perm, str) and perm.isdigit():
+                dev['perm'] = int(perm)
+                changed = True
+    except Exception:
+        return
+    if not changed:
+        return
+    try:
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=4)
+        log('normalized %s value types (Apollo issue #835)' % os.path.basename(path))
+    except Exception as e:
+        log_warn('could not rewrite %s: %r' % (os.path.basename(path), e))
 
 
 def apollo_running_in(session_id):
@@ -416,64 +507,87 @@ def _elevated_primary_token(raw_token):
             _kernel32.CloseHandle(linked)
 
 
-def launch_apollo(session_id):
-    """Launch sunshine.exe as the elevated user token inside their session."""
+def launch_apollo(session_id, config_path=None, system_token=False, force=False):
+    """Launch sunshine.exe as the elevated user token inside their session.
+
+    When system_token is True (Console session), use the service's own SYSTEM
+    token instead of WTSQueryUserToken, so Apollo runs as SYSTEM into the
+    Console session and can handle UAC prompts.
+    """
     global _apollo_last_launch
     exe = os.path.join(os.path.dirname(SVC_DIR), 'sunshine.exe')
     if not os.path.exists(exe):
         log_err('apollo guard: sunshine.exe not found: %s' % exe)
         return None
-    # rate-limit: never relaunch more often than once per 20s
-    if time.time() - _apollo_last_launch < 20:
+    # Rate-limit each session independently so one launch cannot starve the other.
+    # force=True (manual restart via the control pipe) bypasses the limiter.
+    if not force and time.time() - _apollo_last_launch.get(session_id, 0) < 20:
         return None
-    _apollo_last_launch = time.time()
-    raw = wintypes.HANDLE()
-    if not wtsapi32.WTSQueryUserToken(session_id, ctypes.byref(raw)):
-        log_warn('apollo guard: WTSQueryUserToken(%d) failed err=%d' % (session_id, ctypes.GetLastError()))
-        return None
-    try:
-        tok, linked = _elevated_primary_token(raw)
-        if not tok:
-            log_warn('apollo guard: could not build an elevated primary token')
+    _apollo_last_launch[session_id] = time.time()
+    if system_token:
+        raw = wintypes.HANDLE()
+        if not _advapi32.OpenProcessToken(_kernel32.GetCurrentProcess(),
+                                          TOKEN_DUPLICATE | TOKEN_QUERY,
+                                          ctypes.byref(raw)):
+            log_err('apollo console guard: OpenProcessToken(SYSTEM) failed err=%d' % ctypes.get_last_error())
             return None
         try:
-            # the linked token may carry session 0: stamp the target session on
-            sid_val = wintypes.DWORD(session_id)
-            if not _advapi32.SetTokenInformation(wintypes.HANDLE(tok), TokenSessionId, ctypes.byref(sid_val), ctypes.sizeof(sid_val)):
-                log_err('apollo guard: SetTokenInformation(TokenSessionId) failed err=%d' % ctypes.GetLastError())
+            tok2, _ = _elevated_primary_token(raw)
+            if not tok2:
+                log_err('apollo console guard: DuplicateTokenEx(SYSTEM) failed err=%d' % ctypes.GetLastError())
                 return None
-            env = ctypes.c_void_p()
-            if not _userenv.CreateEnvironmentBlock(ctypes.byref(env), wintypes.HANDLE(tok), False):
-                env = ctypes.c_void_p()
-            try:
-                si = STARTUPINFOW()
-                si.cb = ctypes.sizeof(STARTUPINFOW)
-                si.lpDesktop = 'WinSta0\\Default'
-                # sunshine.exe is a console app: without STARTF_USESHOWWINDOW/SW_HIDE
-                # CreateProcessAsUserW gives it a visible console window in the
-                # user session. Hide it the same way the PS guard child is hidden.
-                si.dwFlags = 0x00000001  # STARTF_USESHOWWINDOW
-                si.wShowWindow = 0       # SW_HIDE
-                pi = PROCESS_INFORMATION()
-                cmdline = ctypes.create_unicode_buffer('"%s"' % exe)
-                ok = _advapi32.CreateProcessAsUserW(wintypes.HANDLE(tok), None, cmdline, None, None, False,
-                                                    CREATE_UNICODE_ENV_FLAG, env,
-                                                    os.path.dirname(exe), ctypes.byref(si), ctypes.byref(pi))
-                if ok:
-                    log('apollo guard: launched sunshine.exe pid=%d session=%d (elevated=%s)' % (
-                        pi.dwProcessId, session_id, bool(linked)))
-                    _kernel32.CloseHandle(pi.hThread)
-                    _kernel32.CloseHandle(pi.hProcess)
-                    return pi.dwProcessId
-                log_err('apollo guard: CreateProcessAsUserW failed err=%d' % ctypes.GetLastError())
-                return None
-            finally:
-                if env.value:
-                    _userenv.DestroyEnvironmentBlock(env.value)
+            tok = wintypes.HANDLE(tok2)
         finally:
-            _kernel32.CloseHandle(wintypes.HANDLE(tok))
+            _kernel32.CloseHandle(raw)
+    else:
+        raw = wintypes.HANDLE()
+        if not wtsapi32.WTSQueryUserToken(session_id, ctypes.byref(raw)):
+            log_warn('apollo guard: WTSQueryUserToken(%d) failed err=%d' % (session_id, ctypes.GetLastError()))
+            return None
+        try:
+            tok2, _ = _elevated_primary_token(raw)
+            if not tok2:
+                log_warn('apollo guard: could not build an elevated primary token')
+                return None
+            tok = wintypes.HANDLE(tok2)
+        finally:
+            _kernel32.CloseHandle(raw)
+    try:
+        # stamp the target session onto the token
+        sid_val = wintypes.DWORD(session_id)
+        if not _advapi32.SetTokenInformation(tok, TokenSessionId, ctypes.byref(sid_val), ctypes.sizeof(sid_val)):
+            log_err('apollo guard: SetTokenInformation(TokenSessionId) failed err=%d' % ctypes.GetLastError())
+            return None
+        env = ctypes.c_void_p()
+        if not _userenv.CreateEnvironmentBlock(ctypes.byref(env), tok, False):
+            env = ctypes.c_void_p()
+        try:
+            si = STARTUPINFOW()
+            si.cb = ctypes.sizeof(STARTUPINFOW)
+            si.lpDesktop = 'WinSta0\\Default'
+            si.dwFlags = 0x00000001  # STARTF_USESHOWWINDOW
+            si.wShowWindow = 0       # SW_HIDE
+            pi = PROCESS_INFORMATION()
+            if config_path:
+                cmdline = ctypes.create_unicode_buffer('"%s" "%s"' % (exe, config_path))
+            else:
+                cmdline = ctypes.create_unicode_buffer('"%s"' % exe)
+            ok = _advapi32.CreateProcessAsUserW(tok, None, cmdline, None, None, False,
+                                                CREATE_UNICODE_ENV_FLAG, env,
+                                                os.path.dirname(exe), ctypes.byref(si), ctypes.byref(pi))
+            if ok:
+                log('apollo guard: launched sunshine.exe pid=%d session=%d (system=%s)' % (
+                    pi.dwProcessId, session_id, system_token))
+                _kernel32.CloseHandle(pi.hThread)
+                _kernel32.CloseHandle(pi.hProcess)
+                return pi.dwProcessId
+            log_err('apollo guard: CreateProcessAsUserW failed err=%d' % ctypes.GetLastError())
+            return None
+        finally:
+            if env.value:
+                _userenv.DestroyEnvironmentBlock(env.value)
     finally:
-        _kernel32.CloseHandle(raw)
+        _kernel32.CloseHandle(tok)
 
 
 # ----------------------------------------------------------------------------
@@ -611,6 +725,10 @@ def tick():
         _LOG_LEVEL = _LOG_LEVELS.get(str(cfg.get('log_level', 'warn')).lower(), _LOG_LEVEL)
     except Exception:
         pass
+
+    if cfg.get('guard_apollo') or cfg.get('guard_apollo_console'):
+        normalize_state_types(cfg)
+
     sid, state = find_user_session(cfg.get('username', 'Game'))
     if cfg.get('keepalive'):
         if state == 4:
@@ -645,13 +763,207 @@ def tick():
                 apollo_state = 'ok'
             else:
                 apollo_state = 'launch'
-                launch_apollo(sid)
+                launch_apollo(sid, cfg.get('game_conf_path'))
         else:
             apollo_state = 'no-session'
 
+    apollo_console_state = 'off'
+    if cfg.get('guard_apollo_console'):
+        console_sid = find_console_session()
+        if console_sid != -1:
+            if apollo_running_in(console_sid):
+                apollo_console_state = 'ok'
+            else:
+                apollo_console_state = 'launch'
+                launch_apollo(console_sid, cfg.get('console_conf_path'), system_token=True)
+        else:
+            apollo_console_state = 'no-session'
+
     state_names = {0: 'Active', 1: 'Connected', 2: 'Query', 4: 'Disconnected'}
-    log('tick: session=%s(%s) ka_desired=%s ka_connected=%s display_hold=%s apollo=%s' % (
-        sid, state_names.get(state, str(state)), ka.desired, ka.connected, _display_held, apollo_state))
+    log('tick: session=%s(%s) ka_desired=%s ka_connected=%s display_hold=%s apollo=%s apollo_console=%s' % (
+        sid, state_names.get(state, str(state)), ka.desired, ka.connected, _display_held, apollo_state, apollo_console_state))
+
+
+# ----------------------------------------------------------------------------
+# control pipe: trayapp (or any local tool) sends one JSON line per connection
+# over \\.\pipe\wsguard-ctrl and gets a JSON line back. Commands:
+#   {"cmd":"ping"}                         -> {"ok":true}
+#   {"cmd":"restart_apollo","target":"console"|"game"}
+#     -> kills that session's sunshine.exe and relaunches it immediately
+#        (bypasses the 20s launch rate limit), no wait for the next tick.
+# Local-only pipe; SDDL grants generic access to Everyone+SYSTEM so the
+# non-elevated tray app can connect. Commands are restart-only, which is
+# acceptable exposure for this home tool.
+
+PIPE_NAME = r'\\.\pipe\wsguard-ctrl'
+PIPE_ACCESS_DUPLEX = 3
+PIPE_UNLIMITED_INSTANCES = 255
+ERROR_PIPE_CONNECTED = 535
+PROCESS_TERMINATE = 0x0001
+
+
+class SECURITY_ATTRIBUTES(ctypes.Structure):
+    _fields_ = [('nLength', wintypes.DWORD),
+                ('lpSecurityDescriptor', ctypes.c_void_p),
+                ('bInheritHandle', wintypes.BOOL)]
+
+
+_advapi32.ConvertStringSecurityDescriptorToSecurityDescriptorW.restype = wintypes.BOOL
+_advapi32.ConvertStringSecurityDescriptorToSecurityDescriptorW.argtypes = [
+    wintypes.LPCWSTR, wintypes.DWORD, ctypes.POINTER(ctypes.c_void_p),
+    ctypes.POINTER(wintypes.ULONG)]
+_kernel32.CreateNamedPipeW.restype = wintypes.HANDLE
+_kernel32.CreateNamedPipeW.argtypes = [
+    wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.DWORD,
+    wintypes.DWORD, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p]
+_kernel32.ConnectNamedPipe.restype = wintypes.BOOL
+_kernel32.ConnectNamedPipe.argtypes = [wintypes.HANDLE, ctypes.c_void_p]
+_kernel32.ReadFile.restype = wintypes.BOOL
+_kernel32.ReadFile.argtypes = [wintypes.HANDLE, ctypes.c_void_p, wintypes.DWORD,
+                               ctypes.POINTER(wintypes.DWORD), ctypes.c_void_p]
+_kernel32.WriteFile.restype = wintypes.BOOL
+_kernel32.WriteFile.argtypes = [wintypes.HANDLE, ctypes.c_void_p, wintypes.DWORD,
+                                ctypes.POINTER(wintypes.DWORD), ctypes.c_void_p]
+_kernel32.FlushFileBuffers.restype = wintypes.BOOL
+_kernel32.FlushFileBuffers.argtypes = [wintypes.HANDLE]
+_kernel32.DisconnectNamedPipe.restype = wintypes.BOOL
+_kernel32.DisconnectNamedPipe.argtypes = [wintypes.HANDLE]
+_kernel32.TerminateProcess.restype = wintypes.BOOL
+_kernel32.TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
+
+
+def _pipe_sa():
+    """SECURITY_ATTRIBUTES with SDDL D:(A;;GA;;;WD)(A;;GA;;;SY); returns
+    (sa, sd) so the SD buffer outlives the CreateNamedPipeW call, or None
+    (fall back to the default DACL) if SDDL conversion fails."""
+    sd = ctypes.c_void_p()
+    size = wintypes.ULONG(0)
+    if not _advapi32.ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            'D:(A;;GA;;;WD)(A;;GA;;;SY)', 1, ctypes.byref(sd), ctypes.byref(size)):
+        return None
+    sa = SECURITY_ATTRIBUTES()
+    sa.nLength = ctypes.sizeof(SECURITY_ATTRIBUTES)
+    sa.lpSecurityDescriptor = sd.value
+    sa.bInheritHandle = False
+    return sa, sd
+
+
+def _find_apollo_pids(session_id):
+    pids = []
+    arr = (wintypes.DWORD * 2048)()
+    cb = wintypes.DWORD(0)
+    if not _psapi.EnumProcesses(arr, ctypes.sizeof(arr), ctypes.byref(cb)):
+        return pids
+    for i in range(cb.value // ctypes.sizeof(wintypes.DWORD)):
+        pid = arr[i]
+        if pid == 0:
+            continue
+        h = _kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not h:
+            continue
+        try:
+            sid = wintypes.DWORD(0)
+            if not _kernel32.ProcessIdToSessionId(pid, ctypes.byref(sid)) or sid.value != session_id:
+                continue
+            buf = ctypes.create_unicode_buffer(1024)
+            n = wintypes.DWORD(1024)
+            if _kernel32.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(n)) and \
+                    buf.value.lower().endswith('\\sunshine.exe'):
+                pids.append(pid)
+        finally:
+            _kernel32.CloseHandle(h)
+    return pids
+
+
+def _restart_apollo(target):
+    cfg = load_config()
+    if target == 'console':
+        sid = find_console_session()
+        conf = cfg.get('console_conf_path')
+        system_token = True
+    else:
+        sid, _ = find_user_session(cfg.get('username', 'Game'))
+        conf = cfg.get('game_conf_path')
+        system_token = False
+    if sid == -1:
+        return {'ok': False, 'error': 'no-session'}
+    # stamp the limiter BEFORE killing so a tick racing in between cannot
+    # spawn a second instance
+    _apollo_last_launch[sid] = time.time()
+    pids = _find_apollo_pids(sid)
+    killed = 0
+    for pid in pids:
+        h = _kernel32.OpenProcess(PROCESS_TERMINATE | 0x1000, False, pid)
+        if h:
+            if _kernel32.TerminateProcess(h, 1):
+                killed += 1
+            _kernel32.CloseHandle(h)
+    if pids:
+        time.sleep(1.5)  # let the ports/AVD release before relaunch
+    newpid = launch_apollo(sid, conf, system_token=system_token, force=True)
+    log('ctrl pipe: restart_apollo(%s) session=%d killed=%d relaunched=%s' % (
+        target, sid, killed, bool(newpid)))
+    return {'ok': True, 'target': target, 'session': sid,
+            'killed': killed, 'relaunched': bool(newpid)}
+
+
+def _ctrl_dispatch(req):
+    cmd = str(req.get('cmd', ''))
+    if cmd == 'ping':
+        return {'ok': True, 'cmd': 'ping'}
+    if cmd == 'restart_apollo':
+        return _restart_apollo(str(req.get('target', 'game')))
+    return {'ok': False, 'error': 'unknown cmd'}
+
+
+def ctrl_pipe_server():
+    while True:
+        try:
+            sa_pack = _pipe_sa()
+            sa_ptr = None
+            if sa_pack is not None:
+                sa_ptr = ctypes.cast(ctypes.byref(sa_pack[0]), ctypes.c_void_p)
+            h = _kernel32.CreateNamedPipeW(
+                PIPE_NAME, PIPE_ACCESS_DUPLEX, 0,  # PIPE_TYPE_BYTE | PIPE_WAIT
+                PIPE_UNLIMITED_INSTANCES, 4096, 4096, 0, sa_ptr)
+            if not h or h == wintypes.HANDLE(-1).value:
+                log_err('ctrl pipe: CreateNamedPipeW failed err=%d' % ctypes.get_last_error())
+                time.sleep(10)
+                continue
+            try:
+                ok = _kernel32.ConnectNamedPipe(h, None)
+                if not ok and ctypes.get_last_error() != ERROR_PIPE_CONNECTED:
+                    time.sleep(0.2)
+                    continue
+                raw = b''
+                while len(raw) < 4096:
+                    buf = ctypes.create_string_buffer(4096)
+                    got = wintypes.DWORD(0)
+                    if not _kernel32.ReadFile(h, buf, 4096, ctypes.byref(got), None) or got.value == 0:
+                        break
+                    raw += buf.raw[:got.value]
+                    if b'\n' in raw:
+                        raw = raw.split(b'\n', 1)[0]
+                        break
+                try:
+                    resp = _ctrl_dispatch(json.loads(raw.decode('utf-8', 'replace')))
+                except Exception as e:
+                    resp = {'ok': False, 'error': 'bad request: %r' % e}
+                data = (json.dumps(resp) + '\n').encode('utf-8')
+                wrote = wintypes.DWORD(0)
+                _kernel32.WriteFile(h, ctypes.create_string_buffer(data), len(data),
+                                    ctypes.byref(wrote), None)
+                _kernel32.FlushFileBuffers(h)
+            finally:
+                _kernel32.DisconnectNamedPipe(h)
+                _kernel32.CloseHandle(h)
+        except Exception as e:
+            log_err('ctrl pipe error: %r' % e)
+            time.sleep(5)
+
+
+def start_ctrl_pipe():
+    threading.Thread(target=ctrl_pipe_server, daemon=True, name='ctrl-pipe').start()
 
 
 # ----------------------------------------------------------------------------
@@ -739,6 +1051,10 @@ def _service_main(argc, argv):
         ka.start()
     except Exception as e:
         log_err('service: keepalive start error: %r' % e)
+    try:
+        start_ctrl_pipe()
+    except Exception as e:
+        log_err('service: ctrl pipe start error: %r' % e)
     log('service: RUNNING (ctypes SCM)')
     try:
         tick()
@@ -889,6 +1205,7 @@ def main():
     if '--console' in args:
         log('console mode - Ctrl+C to stop')
         ka.start()
+        start_ctrl_pipe()
         try:
             while True:
                 tick()

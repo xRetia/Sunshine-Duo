@@ -6,6 +6,8 @@ tools/install-log.txt
 # ---- 密钥与凭据（本机生成，严禁入库）----
 config/credentials/
 config/sunshine_state.json
+config/sunshine_state-console.json
+config/sunshine_state-game.json
 wsguard/rdp.cred
 
 # ---- wsguard 构建现场（pip 依赖见 wsguard/src/requirements-build.txt / requirements-rdp.txt）----
@@ -24,3 +26,8 @@ Links/*
 config/sunshine.conf
 wsguard/config.json
 tools/GameManager.json
+
+# ---- SunshineDuoTray 托盘构建产物与本机配置 ----
+tools/trayapp/bin/
+tools/trayapp/obj/
+tools/trayapp/trayapp.json

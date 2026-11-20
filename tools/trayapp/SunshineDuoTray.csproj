@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>SunshineDuoTray</AssemblyName>
+    <ApplicationIcon>..\..\assets\web\images\apollo.ico</ApplicationIcon>
+    <Version>1.0.0</Version>
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\assets\web\images\apollo-playing.ico" LogicalName="apollo-playing.ico" />
+    <EmbeddedResource Include="..\..\assets\web\images\apollo-pausing.ico" LogicalName="apollo-pausing.ico" />
+    <EmbeddedResource Include="..\..\assets\web\images\apollo-locked.ico" LogicalName="apollo-locked.ico" />
+  </ItemGroup>
+
+</Project>
