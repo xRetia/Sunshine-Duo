@@ -4,6 +4,7 @@
             "allow-client-commands": false,
             "image-path": "desktop.png",
             "name": "桌面",
+            "terminate-on-pause": true,
             "uuid": "DD25BCE6-EE24-C70E-BD89-EDDF4C66038A"
         },
         {

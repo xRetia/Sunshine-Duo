@@ -375,6 +375,12 @@ _user32.EnumDisplaySettingsExW.restype = wintypes.BOOL
 _user32.EnumDisplaySettingsExW.argtypes = [ctypes.c_wchar_p, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD]
 _user32.ChangeDisplaySettingsExW.restype = ctypes.c_long
 _user32.ChangeDisplaySettingsExW.argtypes = [ctypes.c_wchar_p, ctypes.c_void_p, wintypes.HWND, wintypes.DWORD, ctypes.c_void_p]
+_user32.SetDisplayConfig.restype = ctypes.c_long
+_user32.SetDisplayConfig.argtypes = [ctypes.c_uint32, ctypes.c_void_p,
+                                     ctypes.c_uint32, ctypes.c_void_p, ctypes.c_uint32]
+SDC_TOPOLOGY_INTERNAL = 0x00000001
+SDC_TOPOLOGY_EXTEND = 0x00000004
+SDC_APPLY = 0x00000080
 
 SUDOVDA_ADAPTER = 'SudoMaker Virtual Display Adapter'
 ENUM_CURRENT_SETTINGS = -1
@@ -487,16 +493,35 @@ def _exclusive_enabled(cfg):
     return cfg.get('default_display_mode') == 'only'
 
 
+def _display_mode(cfg):
+    """Active topology mode: 'mirror' | 'only' | 'extend'."""
+    mode = str(cfg.get('default_display_mode', '')).strip().lower()
+    if mode not in ('mirror', 'only', 'extend'):
+        mode = 'only' if _exclusive_enabled(cfg) else 'mirror'
+    return mode
+
+
 class DisplayExclusive:
-    """Keeps Windows topology at "SudoVDA only" while a stream runs."""
+    """Runs the configured topology per display mode and cleans up leftovers.
+
+    Streaming  (client connected, per Apollo log markers):
+      only   -> detach every physical source (virtual display solo)
+      extend -> keep physical sources, move virtual display to the right of the
+                rightmost physical source (and make it non-primary safe)
+      mirror -> keep physical sources, detach leftover virtual displays
+    Idle (no client):
+      every mode -> detach leftover virtual displays and reattach any physical
+                    sources this worker previously detached (task: "Console 会话
+                    没有链接客户端时关闭虚拟屏")."""
 
     def __init__(self):
         self.disabled = {}          # device name -> saved mode dict
         self._file = os.path.join(SVC_DIR, 'display-disabled.json')
-        self._armed_since = None    # "needs exclusivity" first seen at
+        self._armed_since = None    # "needs a topology change" first seen at
         self._restore_since = None  # "needs restore" first seen at
         self._last_action = 0.0
         self._last_state = ''
+        self._last_mode = ''        # display mode the state was seen under
         self._log_off = 0           # console log tail offset
         self._streaming = False     # a Moonlight client is actually streaming
         self._load_disabled()
@@ -552,46 +577,176 @@ class DisplayExclusive:
     def _state(self, vda, others):
         if vda and others:
             # only detach while a client is really streaming
-            return 'extend-detected' if self._streaming else 'extend-idle'
+            return 'mixed-stream' if self._streaming else 'mixed-idle'
         if vda:
-            return 'exclusive'
-        if self.disabled:
-            return 'needs-restore'
-        return 'idle'
+            return 'vda-only' if self._streaming else 'vda-idle'
+        if others:
+            return 'phys-only' if self._streaming else 'idle'
+        return 'needs-restore' if self.disabled else 'none-active'
 
     def poll(self, cfg):
-        if not _exclusive_enabled(cfg):
-            vda, others = _display_sources()
-            st = self._state(vda, others)
-            if st == 'extend-detected' and st != self._last_state:
-                log_warn('display exclusive: SudoVDA active with other displays but '
-                         'display_exclusive is disabled in config.json')
-            self._last_state = st
-            self._armed_since = self._restore_since = None
-            return
+        mode = _display_mode(cfg)
         self._read_stream_state(cfg)
         vda, others = _display_sources()
         state = self._state(vda, others)
-        if state != self._last_state:
-            log('display exclusive: state %s -> %s (vda=%s others=%d disabled=%d)' % (
-                self._last_state or 'init', state, vda, len(others), len(self.disabled)))
+        if state != self._last_state or mode != self._last_mode:
+            log('display %s: state %s -> %s (vda=%s others=%d disabled=%d)' % (
+                mode, self._last_state or 'init', state, vda, len(others), len(self.disabled)))
             self._last_state = state
+            self._last_mode = mode
             self._armed_since = None
             self._restore_since = None
             return
         now = time.time()
-        if state == 'extend-detected':
-            if self._armed_since is None:
+        if now - self._last_action < ENUM_RECHECK_SECS:
+            return
+        # ---- idle cleanup: virtual display must be OFF when no client ----
+        # The physical displays are re-enabled (SetDisplayConfig) BEFORE the
+        # virtual ones detach: Windows refuses a topology with zero active
+        # sources, so detaching the last display first fails forever.
+        if state in ('vda-idle', 'mixed-idle'):
+            if not others and not self.disabled:
+                pass  # headless: the VDA is the only source left, keep it
+            elif self._armed_since is None:
                 self._armed_since = now
-            elif now - self._armed_since >= ENUM_STABLE_SECS and now - self._last_action >= ENUM_RECHECK_SECS:
+            elif now - self._armed_since >= ENUM_STABLE_SECS:
                 self._last_action = now
-                self._disable_others(vda, others)
+                self._idle_cleanup(vda)
         elif state == 'needs-restore':
             if self._restore_since is None:
                 self._restore_since = now
             elif now - self._restore_since >= ENUM_STABLE_SECS:
                 self._last_action = now
                 self._restore()
+        elif state == 'phys-only' and self.disabled:
+            # previously detached displays are all back (user action etc.) -
+            # clear stale bookkeeping so it cannot fight future applies
+            self._last_action = now
+            self.disabled.clear()
+            self._save_disabled()
+            log('display %s: cleared stale disabled bookkeeping' % mode)
+        # ---- streaming: apply the configured topology ----
+        if state == 'mixed-stream':
+            if mode == 'only':
+                if self._armed_since is None:
+                    self._armed_since = now
+                elif now - self._armed_since >= ENUM_STABLE_SECS:
+                    self._last_action = now
+                    self._disable_others(vda, others)
+            elif mode == 'extend':
+                if self._armed_since is None:
+                    self._armed_since = now
+                elif now - self._armed_since >= ENUM_STABLE_SECS:
+                    self._last_action = now
+                    self._place_extend(vda, others)
+            else:  # mirror: stream captures the physical primary - drop the VDA
+                # only when physical displays are actually present; a lone VDA
+                # means the stream itself runs on it - detaching would kill it
+                if others and self._armed_since is None:
+                    self._armed_since = now
+                elif others and now - self._armed_since >= ENUM_STABLE_SECS:
+                    self._last_action = now
+                    self._detach_vda(vda, 'mirror streaming')
+        elif state == 'vda-only' and mode == 'extend' and others:
+            # restore any physical displays detached earlier, then the regular
+            # mixed-stream branch places the VDA next to them
+            if self._restore_since is None:
+                self._restore_since = now
+            elif now - self._restore_since >= ENUM_STABLE_SECS:
+                self._last_action = now
+                self._restore()
+
+    def _idle_cleanup(self, vda):
+        """Idle (no streaming client): re-enable the physical displays and
+        detach every active SudoVDA source. The re-enable MUST run before the
+        detach: Windows refuses a topology with zero active sources, so the
+        physical display has to be back before the last virtual one leaves."""
+        if not self._reattach_via_topology():
+            log_warn('display: idle cleanup - topology restore failed, will retry')
+            return
+        self.disabled.clear()
+        self._save_disabled()
+        changes = []
+        for name in vda:
+            dm = _devmode_of(name)
+            if dm is None or not (dm.dmPelsWidth or dm.dmPelsHeight):
+                continue  # already detached, keep silent
+            detach = DEVMODEW()
+            detach.dmSize = ctypes.sizeof(DEVMODEW)
+            detach.dmFields = DM_POSITION | DM_PELSWIDTH | DM_PELSHEIGHT
+            detach.dmPelsWidth = 0
+            detach.dmPelsHeight = 0
+            changes.append((name, detach))
+        if not changes:
+            log('display: idle cleanup - physical displays re-enabled, no virtual displays left')
+            return
+        if _cds_batch(changes):
+            log('display: idle cleanup - re-enabled physical displays, detached %d virtual display(s)'
+                % len(changes))
+        elif self._reattach_via_topology(internal=True):
+            # CDS refused (stale/orphan VDA, often still primary): collapse the
+            # topology to the physical source, which evicts every virtual one.
+            log('display: idle cleanup - collapsed topology to internal display, '
+                'evicted %d virtual display(s)' % len(changes))
+        else:
+            log_warn('display: idle cleanup incomplete, will retry')
+
+    def _detach_vda(self, vda, why):
+        changes = []
+        for name in vda:
+            dm = _devmode_of(name)
+            if dm is None:
+                continue
+            if not (dm.dmPelsWidth or dm.dmPelsHeight):
+                continue  # already detached, keep silent
+            detach = DEVMODEW()
+            detach.dmSize = ctypes.sizeof(DEVMODEW)
+            detach.dmFields = DM_POSITION | DM_PELSWIDTH | DM_PELSHEIGHT
+            detach.dmPelsWidth = 0
+            detach.dmPelsHeight = 0
+            changes.append((name, detach))
+        if not changes:
+            return
+        if _cds_batch(changes):
+            log('display: %s - detached %d virtual display(s)' % (why, len(changes)))
+        else:
+            log_warn('display: %s - detach incomplete' % why)
+
+    def _place_extend(self, vda, others):
+        """Extend mode: put the virtual display right of the rightmost physical
+        source. Only acts when the VDA currently overlaps a physical source."""
+        try:
+            right = 0
+            for name in others:
+                dm = _devmode_of(name)
+                if dm is None or not (dm.dmPelsWidth or dm.dmPelsHeight):
+                    continue
+                right = max(right, dm.dmPositionX + dm.dmPelsWidth)
+            overlaps = False
+            vda_dm = None
+            for name in vda:
+                dm = _devmode_of(name)
+                if dm is None or not (dm.dmPelsWidth or dm.dmPelsHeight):
+                    continue
+                vda_dm = dm
+                if (dm.dmPositionX < right and dm.dmPositionX + dm.dmPelsWidth > 0):
+                    overlaps = True
+            if vda_dm is None:
+                return
+            if not overlaps and vda_dm.dmPositionX >= right:
+                return  # already placed correctly
+            dm = DEVMODEW()
+            dm.dmSize = ctypes.sizeof(DEVMODEW)
+            dm.dmFields = DM_POSITION | DM_PELSWIDTH | DM_PELSHEIGHT
+            dm.dmPositionX = right
+            dm.dmPositionY = 0
+            dm.dmPelsWidth = vda_dm.dmPelsWidth
+            dm.dmPelsHeight = vda_dm.dmPelsHeight
+            if _cds_batch([(vda[0], dm)]):
+                log('display extend: placed %s at x=%d (right of %d physical source(s))'
+                    % (vda[0], right, len(others)))
+        except Exception as e:
+            log_warn('display extend: placement error %r' % e)
 
     def _disable_others(self, vda, others):
         changes = []
@@ -624,39 +779,31 @@ class DisplayExclusive:
                              if k not in [c[0] for c in changes]}
             log_warn('display exclusive: detach incomplete, state not persisted')
 
+    def _reattach_via_topology(self, internal=False):
+        """Rebuild the topology via CCD. ChangeDisplaySettingsEx cannot re-attach
+        a fully detached source on this machine (the AMD driver rejects it with
+        DISP_CHANGE_FAILED - observed live), but the CCD topology switch does.
+        internal=False re-enables ALL available sources (extend); internal=True
+        collapses the topology to the primary physical source, which also kicks
+        orphaned virtual displays that refuse a CDS detach (e.g. a stale VDA
+        left behind as primary by a crashed Apollo)."""
+        flag = SDC_TOPOLOGY_INTERNAL if internal else SDC_TOPOLOGY_EXTEND
+        r = _user32.SetDisplayConfig(0, None, 0, None, flag | SDC_APPLY)
+        if r != 0:
+            log_warn('display: SetDisplayConfig(%s) returned %d'
+                     % ('INTERNAL' if internal else 'EXTEND', r))
+            return False
+        return True
+
     def _restore(self):
-        changes = []
-        restored = []
-        for name, mode in list(self.disabled.items()):
-            dm = _devmode_of(name, ENUM_REGISTRY_SETTINGS)
-            if dm is None:
-                log_warn('display exclusive: no registry mode for %s' % name)
-                restored.append(name)  # nothing we can do; stop retrying it
-                continue
-            dm.dmPositionX = mode.get('x', 0)
-            dm.dmPositionY = mode.get('y', 0)
-            dm.dmPelsWidth = mode.get('w', 0)
-            dm.dmPelsHeight = mode.get('h', 0)
-            dm.dmBitsPerPel = mode.get('bpp', 32)
-            dm.dmDisplayFrequency = mode.get('freq', 60)
-            dm.dmDisplayOrientation = mode.get('orient', 0)
-            if not (dm.dmPelsWidth or dm.dmPelsHeight):
-                restored.append(name)
-                continue
-            dm.dmFields = (DM_DISPLAYFLAGS | DM_DISPLAYFREQUENCY | DM_PELSWIDTH |
-                           DM_PELSHEIGHT | DM_BITSPERPEL | DM_POSITION)
-            changes.append((name, dm))
-            restored.append(name)
-        ok = True
-        if changes:
-            ok = _cds_batch(changes)
-            log('display exclusive: stream ended - reattached %d display(s)' % len(changes))
-        if ok:
-            for name in restored:
-                self.disabled.pop(name, None)
+        if not self.disabled:
+            return
+        if self._reattach_via_topology():
+            self.disabled.clear()
             self._save_disabled()
+            log('display: stream ended - physical displays re-enabled (extend topology)')
         else:
-            log_warn('display exclusive: reattach incomplete, will retry')
+            log_warn('display: reattach incomplete, will retry')
 
     def _load_disabled(self):
         try:
@@ -759,8 +906,8 @@ def launch_display_worker(session_id):
 
 
 def ensure_display_worker(cfg):
-    if not _exclusive_enabled(cfg):
-        return
+    # worker runs in every display mode: it applies the streaming topology
+    # (only/extend) and cleans up leftover virtual displays while idle.
     sid = find_console_session()
     if sid == -1 or _worker_alive():
         return
@@ -769,17 +916,25 @@ def ensure_display_worker(cfg):
 
 
 def run_displaycheck():
-    """One-shot dry run: print what the exclusivity poller would see/do."""
+    """One-shot dry run: print what the topology poller would see/do."""
     cfg = load_config()
+    mode = _display_mode(cfg)
     vda, others = _display_sources()
-    print('exclusive enabled: %s' % _exclusive_enabled(cfg))
+    print('display mode: %s (exclusive=%s)' % (mode, _exclusive_enabled(cfg)))
     print('active SudoVDA sources: %s' % vda)
     print('active other sources:   %s' % others)
     print('disabled (pending restore): %s' % _dx.disabled)
     state = _dx._state(vda, others)
     print('state: %s' % state)
-    if state == 'extend-detected':
-        print('would detach: %s' % others)
+    if state == 'mixed-stream':
+        if mode == 'only':
+            print('would detach: %s' % others)
+        elif mode == 'extend':
+            print('would place VDA right of: %s' % others)
+        else:
+            print('would detach VDA (mirror): %s' % vda)
+    elif state in ('vda-idle', 'mixed-idle'):
+        print('would detach VDA (idle cleanup): %s' % vda)
     elif state == 'needs-restore':
         print('would reattach: %s' % list(_dx.disabled))
     return 0
@@ -1303,13 +1458,11 @@ def tick():
 
     if cfg.get('guard_apollo') or cfg.get('guard_apollo_console'):
         normalize_state_types(cfg)
-        # Console: paired clients stream onto the SudoVDA virtual display
-        # whenever a virtual-display mode is configured (only/extend); mirror
-        # mode keeps capturing the physical primary on purpose.
-        _wants_virtual = _exclusive_enabled(cfg) or \
-            str(cfg.get('default_display_mode', '')).strip().lower() in ('only', 'extend')
-        if _wants_virtual:
-            set_apollo_virtual_display(cfg, True, 'console')
+        # Console: paired clients stream onto the SudoVDA virtual display for
+        # virtual-display modes (only/extend). Mirror mode streams the physical
+        # primary, so no virtual display is wanted there.
+        _mode = _display_mode(cfg)
+        set_apollo_virtual_display(cfg, _mode in ('only', 'extend'), 'console')
         # Game session is RDP-based: it never creates SudoVDA virtual displays,
         # so pin its paired devices off (the inverse of console).
         set_apollo_virtual_display(cfg, False, 'game')
