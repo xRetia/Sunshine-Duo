@@ -24,10 +24,17 @@ Links/*
 
 # ---- 本机生成的运行配置（安装时按本机路径/硬件重写，不入库）----
 config/sunshine.conf
+config/sunshine-game.conf
 wsguard/config.json
 tools/GameManager.json
+
+# ---- wsguard 运行期状态（服务/显示工作进程自写）----
+wsguard/display-worker.json
+wsguard/display-disabled.json
 
 # ---- SunshineDuoTray 托盘构建产物与本机配置 ----
 tools/trayapp/bin/
 tools/trayapp/obj/
+tools/trayapp/publish/
 tools/trayapp/trayapp.json
+tools/SunshineDuoTray/

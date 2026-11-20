@@ -10,6 +10,7 @@ internal static class Program
         using var mutex = new Mutex(true, "SunshineDuoTray", out var fresh);
         if (!fresh) return;
         ApplicationConfiguration.Initialize();
+        Application.SetColorMode(SystemColorMode.Dark);
         Application.Run(new TrayContext());
     }
 }

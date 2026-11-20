@@ -41,4 +41,10 @@ public static class GuardPipe
 
     public static Task<string> RestartApollo(string target) =>
         SendAsync($"{{\"cmd\":\"restart_apollo\",\"target\":\"{target}\"}}");
+
+    public static Task<string> SetDisplayMode(string mode) =>
+        SendAsync($"{{\"cmd\":\"set_display_mode\",\"mode\":\"{mode}\"}}");
+
+    public static Task<string> SetResolution(int width, int height, string[]? resolutions = null) =>
+        SendAsync($"{{\"cmd\":\"set_resolution\",\"width\":{width},\"height\":{height},\"resolutions\":{System.Text.Json.JsonSerializer.Serialize(resolutions ?? Array.Empty<string>())}}}");
 }

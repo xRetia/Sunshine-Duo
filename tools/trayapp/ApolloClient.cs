@@ -1,6 +1,6 @@
 using System.Net;
-using System.Net.Http.Headers;
 using System.Text;
+using System.Text.Json;
 
 namespace SunshineDuoTray;
 
@@ -13,33 +13,47 @@ public class Device
 
 public class ApolloClient : IDisposable
 {
+    private static readonly object CookieLock = new();
+    private static readonly Dictionary<int, string> Cookies = new();
+
     private readonly HttpClient _http;
+    private readonly CookieContainer _cookies = new();
+    private readonly Uri _uri;
     private readonly string _base;
+    private readonly int _port;
     private readonly string _user;
     private readonly string _pass;
 
     public ApolloClient(int port, string user, string pass)
     {
+        _port = port;
         _base = $"https://127.0.0.1:{port}";
+        _uri = new Uri(_base);
         _user = user;
         _pass = pass;
+        lock (CookieLock)
+        {
+            if (Cookies.TryGetValue(port, out var auth))
+                _cookies.Add(_uri, new Cookie("auth", auth, "/", "127.0.0.1") { Secure = true });
+        }
         var handler = new HttpClientHandler
         {
             ServerCertificateCustomValidationCallback = (_, _, _, _) => true,
+            CookieContainer = _cookies,
         };
         _http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(5) };
     }
 
-    private void Auth(HttpRequestMessage req)
+    public static void InvalidateCookies(int port)
     {
-        if (!string.IsNullOrEmpty(_user))
-            req.Headers.Authorization = new AuthenticationHeaderValue("Basic",
-                Convert.ToBase64String(Encoding.UTF8.GetBytes($"{_user}:{_pass}")));
+        lock (CookieLock) Cookies.Remove(port);
     }
 
-    private async Task<(string body, HttpStatusCode status, string err)> SendAsync(HttpRequestMessage req, string? json = null)
+    public string? AuthCookie => _cookies.GetCookies(_uri)["auth"]?.Value;
+
+    private async Task<(string body, HttpStatusCode status, string err)> SendAsync(
+        HttpRequestMessage req, string? json = null)
     {
-        Auth(req);
         if (json != null)
             req.Content = new StringContent(json, Encoding.UTF8, "application/json");
         try
@@ -54,39 +68,80 @@ public class ApolloClient : IDisposable
         }
     }
 
-    public async Task<bool> Probe()
+    private async Task<string?> LoginAsync()
     {
-        var (body, status, err) = await SendAsync(new HttpRequestMessage(HttpMethod.Get, $"{_base}/api/config"));
-        return err == "" && (int)status != 0; // 401 也算在线（服务可达，仅未认证）
+        var payload = JsonSerializer.Serialize(new { username = _user, password = _pass });
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"{_base}/api/login")
+        {
+            Content = new StringContent(payload, Encoding.UTF8, "application/json"),
+        };
+        var (_, status, err) = await SendAsync(req);
+        if (err != "") return "无法连接 WebUI: " + err;
+        if (status != HttpStatusCode.OK) return $"WebUI 登录失败（HTTP {(int)status}），请检查账号密码";
+        var cookie = _cookies.GetCookies(_uri)["auth"]?.Value;
+        if (cookie == null) return "WebUI 登录未返回会话 Cookie";
+        lock (CookieLock) Cookies[_port] = cookie;
+        return null;
     }
 
-    public async Task<string> SendPin(string pin)
+    public async Task<bool> Probe()
     {
-        var (body, status, err) = await SendAsync(
-            new HttpRequestMessage(HttpMethod.Post, $"{_base}/api/pin"), $"{{\"pin\":\"{pin}\"}}");
-        if (status != HttpStatusCode.OK)
-            return err != "" ? err : $"HTTP {(int)status}: {body}";
-        // Apollo may require a client name; retry with an empty one if the bare pin failed
-        if (body.Contains("false") || body.Contains("error"))
+        try
         {
-            (body, status, err) = await SendAsync(
-                new HttpRequestMessage(HttpMethod.Post, $"{_base}/api/pin"), $"{{\"pin\":\"{pin}\",\"name\":\"\"}}");
-            if (status != HttpStatusCode.OK)
-                return err != "" ? err : $"HTTP {(int)status}: {body}";
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            using var tcp = new System.Net.Sockets.TcpClient();
+            await tcp.ConnectAsync("127.0.0.1", _port, cts.Token);
+            return true;
         }
-        return null!;
+        catch
+        {
+            return false;
+        }
+    }
+
+    public async Task<string> EnsureLoginAsync()
+    {
+        if (string.IsNullOrEmpty(_user)) return "尚未配置 WebUI 账号，请先在「设置」里填写";
+        if (_cookies.GetCookies(_uri)["auth"] != null) return null!;
+        return await LoginAsync() ?? null!;
+    }
+
+    public async Task<string> SendPin(string pin, string name = "")
+    {
+        var err = await EnsureLoginAsync();
+        if (err != null) return err;
+        var payload = JsonSerializer.Serialize(new { pin, name });
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"{_base}/api/pin");
+        var (body, status, sendErr) = await SendAsync(req, payload);
+        if (sendErr != "") return sendErr;
+        if (status != HttpStatusCode.OK) return $"HTTP {(int)status}: {body}";
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            var ok = doc.RootElement.TryGetProperty("status", out var s) &&
+                     (s.ValueKind == JsonValueKind.True ||
+                      (s.ValueKind == JsonValueKind.String && s.GetString() == "true"));
+            return ok ? null! : "设备未在等待配对，或 PIN 不正确";
+        }
+        catch
+        {
+            return body.Contains("false") ? "设备未在等待配对，或 PIN 不正确" : null!;
+        }
     }
 
     public async Task<(List<Device> devices, string err)> ListClients()
     {
-        var (body, status, err) = await SendAsync(
-            new HttpRequestMessage(HttpMethod.Get, $"{_base}/api/clients/list"));
+        var err = await EnsureLoginAsync();
+        if (err != null) return (new List<Device>(), err);
+        using var req = new HttpRequestMessage(HttpMethod.Get, $"{_base}/api/clients/list");
+        var (body, status, sendErr) = await SendAsync(req);
+        if (sendErr != "") return (new List<Device>(), sendErr);
         if (status != HttpStatusCode.OK)
-            return (new List<Device>(), err != "" ? err : $"HTTP {(int)status}: {body}");
+            return (new List<Device>(), $"HTTP {(int)status}: {body}");
         var devices = new List<Device>();
         try
         {
-            using var doc = System.Text.Json.JsonDocument.Parse(body);
+            using var doc = JsonDocument.Parse(body);
             if (doc.RootElement.TryGetProperty("named_certs", out var arr))
             {
                 foreach (var el in arr.EnumerateArray())
@@ -96,8 +151,8 @@ public class ApolloClient : IDisposable
                         Name = el.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "",
                         Uuid = el.TryGetProperty("uuid", out var u) ? u.GetString() ?? "" : "",
                         Connected = el.TryGetProperty("connected", out var c) &&
-                                    (c.ValueKind == System.Text.Json.JsonValueKind.True ||
-                                     (c.ValueKind == System.Text.Json.JsonValueKind.String && c.GetString() == "true")),
+                                    (c.ValueKind == JsonValueKind.True ||
+                                     (c.ValueKind == JsonValueKind.String && c.GetString() == "true")),
                     });
                 }
             }
@@ -111,16 +166,25 @@ public class ApolloClient : IDisposable
 
     public async Task<string> Unpair(string uuid)
     {
-        var (body, status, err) = await SendAsync(
-            new HttpRequestMessage(HttpMethod.Post, $"{_base}/api/clients/unpair"),
-            $"{{\"uuid\":\"{uuid}\"}}");
-        if (status != HttpStatusCode.OK)
-            return err != "" ? err : $"HTTP {(int)status}: {body}";
+        var err = await EnsureLoginAsync();
+        if (err != null) return err;
+        var payload = JsonSerializer.Serialize(new { uuid });
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"{_base}/api/clients/unpair");
+        var (body, status, sendErr) = await SendAsync(req, payload);
+        if (sendErr != "") return sendErr;
+        if (status != HttpStatusCode.OK) return $"HTTP {(int)status}: {body}";
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            if (doc.RootElement.TryGetProperty("status", out var s) &&
+                (s.ValueKind == JsonValueKind.False ||
+                 (s.ValueKind == JsonValueKind.String && s.GetString() == "false")))
+                return "Apollo 拒绝解除配对";
+        }
+        catch { }
         return null!;
     }
 
-    public void Dispose()
-    {
-        _http.Dispose();
-    }
+    public void Dispose() => _http.Dispose();
 }
+

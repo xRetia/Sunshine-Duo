@@ -68,8 +68,8 @@ public static class Dpapi
 
 public class AppConfig
 {
-    public int ConsolePort { get; set; } = 47984;
-    public int GamePort { get; set; } = 48010;
+    public int ConsolePort { get; set; } = 48100;
+    public int GamePort { get; set; } = 48200;
     public string WebUser { get; set; } = "";
     public string WebPassEnc { get; set; } = "";
     public bool AutoStart { get; set; }
