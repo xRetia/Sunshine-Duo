@@ -179,6 +179,74 @@ def load_config():
     return cfg
 
 
+def save_config_display_mode(mode):
+    """Persist display mode choice to config.json (hot-reloaded by every tick).
+    mode: 'mirror' | 'only' | 'extend'. display_exclusive follows 'only'."""
+    if mode not in ('mirror', 'only', 'extend'):
+        return False
+    try:
+        with open(CONFIG_PATH, 'r', encoding='utf-8-sig') as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        data = {}
+    except Exception as e:
+        log_err('display mode save: read error %r' % e)
+        return False
+    data['default_display_mode'] = mode
+    data['display_exclusive'] = (mode == 'only')
+    try:
+        with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=4)
+        log('display mode set to %s (display_exclusive=%s)' % (mode, mode == 'only'))
+        return True
+    except Exception as e:
+        log_err('display mode save: write error %r' % e)
+        return False
+
+
+def save_config_resolution(width, height, resolutions=None):
+    """Persist virtual-display resolution (width x height) to config.json.
+    Hot-reloaded by every tick; consumed as wsguard's width/height for the
+    RDP keepalive and SudoVDA video mode. An optional resolutions list is
+    stored as sudovda_resolutions (candidate resolutions kept for the setup
+    wizard / future driver panes)."""
+    try:
+        width = int(width); height = int(height)
+    except Exception:
+        return False
+    if width <= 0 or height <= 0:
+        return False
+    clean = None
+    if resolutions is not None:
+        clean = []
+        for item in resolutions:
+            s = str(item).strip()
+            if s and s not in clean:
+                clean.append(s)
+    try:
+        with open(CONFIG_PATH, 'r', encoding='utf-8-sig') as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        data = {}
+    except Exception as e:
+        log_err('resolution save: read error %r' % e)
+        return False
+    data['width'] = width
+    data['height'] = height
+    if clean is not None:
+        data['sudovda_resolutions'] = clean
+    try:
+        with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=4)
+        log('resolution set to %dx%d' % (width, height))
+        if clean:
+            log('sudovda_resolutions: %d entries' % len(clean))
+        return True
+    except Exception as e:
+        log_err('resolution save: write error %r' % e)
+        return False
+
+
 # ----------------------------------------------------------------------------
 # DPAPI credential
 
@@ -280,6 +348,441 @@ def display_keep(on):
         return
     ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS | (ES_DISPLAY_REQUIRED if on else 0))
     _display_held = on
+
+
+# ----------------------------------------------------------------------------
+# display exclusivity (SudoVDA-only topology while streaming)
+#
+# Why here and not in Apollo: Apollo 0.4.6 applies dd_configuration_option
+# (ensure_only_display) at stream start via libdisplaydevice, but the apply
+# runs into "API is available: false" right after the virtual display was
+# just created (SetDisplayConfig(SDC_VALIDATE) fails during the topology
+# transition), and the 5s retry it schedules is immediately cancelled by the
+# unconditional display_device::reset_persistence() that follows in
+# process.cpp. Net effect: ensure_only_display never takes effect for virtual
+# display sessions and the physical monitor stays extended. WSGuard owns the
+# topology instead: whenever a SudoMaker virtual display is active, every
+# other active source is detached; when it disappears, everything is restored.
+# The virtual display only exists while a streaming session runs (Apollo
+# creates it when a client connects, removes it at session stop), so
+# exclusivity is scoped exactly to "a Moonlight client is streaming" -
+# including the Desktop app entry.
+
+_user32 = ctypes.WinDLL('user32', use_last_error=True)
+_user32.EnumDisplayDevicesW.restype = wintypes.BOOL
+_user32.EnumDisplayDevicesW.argtypes = [ctypes.c_wchar_p, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD]
+_user32.EnumDisplaySettingsExW.restype = wintypes.BOOL
+_user32.EnumDisplaySettingsExW.argtypes = [ctypes.c_wchar_p, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD]
+_user32.ChangeDisplaySettingsExW.restype = ctypes.c_long
+_user32.ChangeDisplaySettingsExW.argtypes = [ctypes.c_wchar_p, ctypes.c_void_p, wintypes.HWND, wintypes.DWORD, ctypes.c_void_p]
+
+SUDOVDA_ADAPTER = 'SudoMaker Virtual Display Adapter'
+ENUM_CURRENT_SETTINGS = -1
+ENUM_REGISTRY_SETTINGS = -2
+DM_POSITION = 0x00000020
+DM_BITSPERPEL = 0x00040000
+DM_PELSWIDTH = 0x00080000
+DM_PELSHEIGHT = 0x00100000
+DM_DISPLAYFLAGS = 0x00200000
+DM_DISPLAYFREQUENCY = 0x00400000
+CDS_UPDATEREGISTRY = 0x00000001
+CDS_NORESET = 0x10000000
+DISP_CHANGE_SUCCESSFUL = 0
+ENUM_STABLE_SECS = 2.0      # topology must stay in one state this long before acting
+ENUM_RECHECK_SECS = 2.0     # cool-down after an apply
+
+
+class DEVMODEW(ctypes.Structure):
+    _fields_ = [('dmDeviceName', wintypes.WCHAR * 32),
+                ('dmSpecVersion', wintypes.WORD),
+                ('dmDriverVersion', wintypes.WORD),
+                ('dmSize', wintypes.WORD),
+                ('dmDriverExtra', wintypes.WORD),
+                ('dmFields', wintypes.DWORD),
+                ('dmPositionX', ctypes.c_long),
+                ('dmPositionY', ctypes.c_long),
+                ('dmDisplayOrientation', wintypes.DWORD),
+                ('dmDisplayFixedOutput', wintypes.DWORD),
+                ('dmColor', wintypes.SHORT),
+                ('dmDuplex', wintypes.SHORT),
+                ('dmYResolution', wintypes.SHORT),
+                ('dmTTOption', wintypes.SHORT),
+                ('dmCollate', wintypes.SHORT),
+                ('dmFormName', wintypes.WCHAR * 32),
+                ('dmLogPixels', wintypes.WORD),
+                ('dmBitsPerPel', wintypes.DWORD),
+                ('dmPelsWidth', wintypes.DWORD),
+                ('dmPelsHeight', wintypes.DWORD),
+                ('dmDisplayFlags', wintypes.DWORD),
+                ('dmDisplayFrequency', wintypes.DWORD),
+                ('dmICMMethod', wintypes.DWORD),
+                ('dmICMIntent', wintypes.DWORD),
+                ('dmMediaType', wintypes.DWORD),
+                ('dmDitherType', wintypes.DWORD),
+                ('dmReserved1', wintypes.DWORD),
+                ('dmReserved2', wintypes.DWORD),
+                ('dmPanningWidth', wintypes.DWORD),
+                ('dmPanningHeight', wintypes.DWORD)]
+
+
+class _DISPLAY_DEVICEW(ctypes.Structure):
+    _fields_ = [('cb', wintypes.DWORD),
+                ('DeviceName', wintypes.WCHAR * 32),
+                ('DeviceString', wintypes.WCHAR * 128),
+                ('StateFlags', wintypes.DWORD),
+                ('DeviceID', wintypes.WCHAR * 128),
+                ('DeviceKey', wintypes.WCHAR * 128)]
+
+
+def _display_sources():
+    """Return (sudovda, others) lists of ACTIVE source device names (StateFlags
+    & ATTACHED_TO_DESKTOP). DeviceString selects the SudoMaker virtual adapter."""
+    vda, others = [], []
+    dev = _DISPLAY_DEVICEW()
+    i = 0
+    while True:
+        dev.cb = ctypes.sizeof(_DISPLAY_DEVICEW)
+        if not _user32.EnumDisplayDevicesW(None, i, ctypes.byref(dev), 0):
+            break
+        i += 1
+        if not (dev.StateFlags & 0x1):  # DISPLAY_DEVICE_ATTACHED_TO_DESKTOP
+            continue
+        if dev.DeviceString == SUDOVDA_ADAPTER:
+            vda.append(dev.DeviceName)
+        else:
+            others.append(dev.DeviceName)
+    return vda, others
+
+
+def _devmode_of(device_name, enum_index=ENUM_CURRENT_SETTINGS):
+    dm = DEVMODEW()
+    dm.dmSize = ctypes.sizeof(DEVMODEW)
+    dm.dmSpecVersion = 0x0400  # DM_SPECVERSION - required, plain EnumDisplaySettingsW
+    if not _user32.EnumDisplaySettingsExW(device_name, enum_index, ctypes.byref(dm), 0):
+        return None
+    return dm
+
+
+def _cds_batch(changes):
+    """changes: list of (device_name, devmode_or_None). Writes each with
+    CDS_UPDATEREGISTRY|CDS_NORESET, then applies everything in one call.
+    Returns True only if every step succeeded."""
+    ok = True
+    for name, dm in changes:
+        r = _user32.ChangeDisplaySettingsExW(name, ctypes.byref(dm) if dm else None, None,
+                                             CDS_UPDATEREGISTRY | CDS_NORESET, None)
+        if r != DISP_CHANGE_SUCCESSFUL:
+            log_warn('display exclusive: ChangeDisplaySettingsEx(%s) returned %d' % (name, r))
+            ok = False
+    r = _user32.ChangeDisplaySettingsExW(None, None, None, 0, None)
+    if r != DISP_CHANGE_SUCCESSFUL:
+        log_warn('display exclusive: apply call returned %d' % r)
+        ok = False
+    return ok
+
+
+def _exclusive_enabled(cfg):
+    if 'display_exclusive' in cfg:
+        return bool(cfg.get('display_exclusive'))
+    return cfg.get('default_display_mode') == 'only'
+
+
+class DisplayExclusive:
+    """Keeps Windows topology at "SudoVDA only" while a stream runs."""
+
+    def __init__(self):
+        self.disabled = {}          # device name -> saved mode dict
+        self._file = os.path.join(SVC_DIR, 'display-disabled.json')
+        self._armed_since = None    # "needs exclusivity" first seen at
+        self._restore_since = None  # "needs restore" first seen at
+        self._last_action = 0.0
+        self._last_state = ''
+        self._log_off = 0           # console log tail offset
+        self._streaming = False     # a Moonlight client is actually streaming
+        self._load_disabled()
+
+    def _console_log_path(self, cfg):
+        conf = cfg.get('console_conf_path')
+        if not conf:
+            return None
+        try:
+            with open(conf, 'r', encoding='utf-8-sig') as f:
+                for line in f:
+                    name, sep, value = line.partition('=')
+                    if sep and name.strip() == 'log_path':
+                        path = value.strip().strip('"\'')
+                        if path and not os.path.isabs(path):
+                            path = os.path.join(os.path.dirname(conf), path)
+                        return path
+        except Exception:
+            pass
+        return None
+
+    def _read_stream_state(self, cfg):
+        """Gate exclusivity on Apollo's log markers so a lingering virtual
+        display (probe leftovers, stale driver state) never turns off the
+        physical monitor while no client is streaming."""
+        path = self._console_log_path(cfg)
+        if not path:
+            self._streaming = False
+            return
+        try:
+            size = os.path.getsize(path)
+            if size < self._log_off:
+                # log truncated/recreated (Apollo restart)
+                self._log_off = 0
+                self._streaming = False
+            if size == self._log_off:
+                return
+            with open(path, 'rb') as f:
+                if self._log_off:
+                    f.seek(self._log_off)
+                data = f.read()
+                self._log_off = f.tell()
+        except Exception:
+            return
+        for line in data.splitlines():
+            if b'CLIENT CONNECTED' in line or b'New streaming session started' in line:
+                self._streaming = True
+            elif (b'CLIENT DISCONNECTED' in line
+                  or b'Session pausing for app' in line
+                  or b'Virtual Display removed successfully' in line):
+                self._streaming = False
+
+    def _state(self, vda, others):
+        if vda and others:
+            # only detach while a client is really streaming
+            return 'extend-detected' if self._streaming else 'extend-idle'
+        if vda:
+            return 'exclusive'
+        if self.disabled:
+            return 'needs-restore'
+        return 'idle'
+
+    def poll(self, cfg):
+        if not _exclusive_enabled(cfg):
+            vda, others = _display_sources()
+            st = self._state(vda, others)
+            if st == 'extend-detected' and st != self._last_state:
+                log_warn('display exclusive: SudoVDA active with other displays but '
+                         'display_exclusive is disabled in config.json')
+            self._last_state = st
+            self._armed_since = self._restore_since = None
+            return
+        self._read_stream_state(cfg)
+        vda, others = _display_sources()
+        state = self._state(vda, others)
+        if state != self._last_state:
+            log('display exclusive: state %s -> %s (vda=%s others=%d disabled=%d)' % (
+                self._last_state or 'init', state, vda, len(others), len(self.disabled)))
+            self._last_state = state
+            self._armed_since = None
+            self._restore_since = None
+            return
+        now = time.time()
+        if state == 'extend-detected':
+            if self._armed_since is None:
+                self._armed_since = now
+            elif now - self._armed_since >= ENUM_STABLE_SECS and now - self._last_action >= ENUM_RECHECK_SECS:
+                self._last_action = now
+                self._disable_others(vda, others)
+        elif state == 'needs-restore':
+            if self._restore_since is None:
+                self._restore_since = now
+            elif now - self._restore_since >= ENUM_STABLE_SECS:
+                self._last_action = now
+                self._restore()
+
+    def _disable_others(self, vda, others):
+        changes = []
+        for name in others:
+            dm = _devmode_of(name)
+            if dm is None:
+                log_warn('display exclusive: no current mode for %s, skipping' % name)
+                continue
+            if not (dm.dmPelsWidth or dm.dmPelsHeight):
+                continue  # already detached, keep silent
+            self.disabled[name] = {
+                'x': dm.dmPositionX, 'y': dm.dmPositionY,
+                'w': dm.dmPelsWidth, 'h': dm.dmPelsHeight,
+                'bpp': dm.dmBitsPerPel, 'freq': dm.dmDisplayFrequency,
+                'orient': dm.dmDisplayOrientation,
+            }
+            detach = DEVMODEW()
+            detach.dmSize = ctypes.sizeof(DEVMODEW)
+            detach.dmFields = DM_POSITION | DM_PELSWIDTH | DM_PELSHEIGHT
+            detach.dmPelsWidth = 0
+            detach.dmPelsHeight = 0
+            changes.append((name, detach))
+        if not changes:
+            return
+        if _cds_batch(changes):
+            self._save_disabled()
+            log('display exclusive: streaming on SudoVDA - detached %d display(s)' % len(changes))
+        else:
+            self.disabled = {k: v for k, v in self.disabled.items()
+                             if k not in [c[0] for c in changes]}
+            log_warn('display exclusive: detach incomplete, state not persisted')
+
+    def _restore(self):
+        changes = []
+        restored = []
+        for name, mode in list(self.disabled.items()):
+            dm = _devmode_of(name, ENUM_REGISTRY_SETTINGS)
+            if dm is None:
+                log_warn('display exclusive: no registry mode for %s' % name)
+                restored.append(name)  # nothing we can do; stop retrying it
+                continue
+            dm.dmPositionX = mode.get('x', 0)
+            dm.dmPositionY = mode.get('y', 0)
+            dm.dmPelsWidth = mode.get('w', 0)
+            dm.dmPelsHeight = mode.get('h', 0)
+            dm.dmBitsPerPel = mode.get('bpp', 32)
+            dm.dmDisplayFrequency = mode.get('freq', 60)
+            dm.dmDisplayOrientation = mode.get('orient', 0)
+            if not (dm.dmPelsWidth or dm.dmPelsHeight):
+                restored.append(name)
+                continue
+            dm.dmFields = (DM_DISPLAYFLAGS | DM_DISPLAYFREQUENCY | DM_PELSWIDTH |
+                           DM_PELSHEIGHT | DM_BITSPERPEL | DM_POSITION)
+            changes.append((name, dm))
+            restored.append(name)
+        ok = True
+        if changes:
+            ok = _cds_batch(changes)
+            log('display exclusive: stream ended - reattached %d display(s)' % len(changes))
+        if ok:
+            for name in restored:
+                self.disabled.pop(name, None)
+            self._save_disabled()
+        else:
+            log_warn('display exclusive: reattach incomplete, will retry')
+
+    def _load_disabled(self):
+        try:
+            with open(self._file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                self.disabled = {str(k): v for k, v in data.items() if isinstance(v, dict)}
+        except Exception:
+            pass
+
+    def _save_disabled(self):
+        try:
+            with open(self._file, 'w', encoding='utf-8') as f:
+                json.dump(self.disabled, f)
+        except Exception as e:
+            log_warn('display exclusive: cannot save disabled list: %r' % e)
+
+
+_dx = DisplayExclusive()
+
+
+_WORKER_HB = os.path.join(SVC_DIR, 'display-worker.json')
+_WORKER_STOP = os.path.join(SVC_DIR, 'display-worker.stop')
+
+
+def _write_worker_hb():
+    try:
+        with open(_WORKER_HB, 'w', encoding='utf-8') as f:
+            json.dump({'pid': os.getpid(), 'ts': time.time()}, f)
+    except Exception:
+        pass
+
+
+def _clear_worker_stop():
+    try:
+        if os.path.exists(_WORKER_STOP):
+            os.remove(_WORKER_STOP)
+    except Exception:
+        pass
+
+
+def _signal_worker_stop():
+    try:
+        with open(_WORKER_STOP, 'w', encoding='utf-8') as f:
+            f.write('service stop\n')
+    except Exception:
+        pass
+
+
+def run_display_worker():
+    """Display pulse for the Console session.
+
+    EnumDisplayDevices/ChangeDisplaySettingsEx operate on the calling session's
+    desktop, so the poller cannot live in the session-0 service (it sees no
+    attached displays there and never acts). The service launches this worker
+    into the console session with its SYSTEM token; the worker polls, applies
+    exclusivity and keeps a heartbeat the service checks every tick."""
+    log('display worker: started pid=%d' % os.getpid())
+    while True:
+        if os.path.exists(_WORKER_STOP):
+            log('display worker: stop signaled, exiting')
+            break
+        try:
+            _dx.poll(load_config())
+            _write_worker_hb()
+        except Exception as e:
+            log_err('display worker poll error: %r' % e)
+        time.sleep(1)
+
+
+def _worker_alive():
+    try:
+        with open(_WORKER_HB, 'r', encoding='utf-8') as f:
+            hb = json.load(f)
+        if time.time() - float(hb.get('ts', 0)) > 10:
+            return False
+        pid = int(hb.get('pid', 0))
+        console_sid = find_console_session()
+        if pid <= 0 or console_sid == -1:
+            return False
+        h = _kernel32.OpenProcess(0x1000, False, pid)  # QUERY_LIMITED_INFORMATION
+        if not h:
+            return False
+        try:
+            sid = wintypes.DWORD(0)
+            ok = _kernel32.ProcessIdToSessionId(pid, ctypes.byref(sid))
+            return bool(ok and sid.value == console_sid)
+        finally:
+            _kernel32.CloseHandle(h)
+    except Exception:
+        return False
+
+
+def launch_display_worker(session_id):
+    if getattr(sys, 'frozen', False):
+        exe, args = sys.executable, '--display-worker'
+    else:
+        exe, args = sys.executable, '"%s" --display-worker' % os.path.abspath(__file__)
+    return launch_apollo(session_id, system_token=True, force=True, exe=exe, extra_args=args)
+
+
+def ensure_display_worker(cfg):
+    if not _exclusive_enabled(cfg):
+        return
+    sid = find_console_session()
+    if sid == -1 or _worker_alive():
+        return
+    pid = launch_display_worker(sid)
+    log('display worker: launch requested session=%d pid=%s' % (sid, pid))
+
+
+def run_displaycheck():
+    """One-shot dry run: print what the exclusivity poller would see/do."""
+    cfg = load_config()
+    vda, others = _display_sources()
+    print('exclusive enabled: %s' % _exclusive_enabled(cfg))
+    print('active SudoVDA sources: %s' % vda)
+    print('active other sources:   %s' % others)
+    print('disabled (pending restore): %s' % _dx.disabled)
+    state = _dx._state(vda, others)
+    print('state: %s' % state)
+    if state == 'extend-detected':
+        print('would detach: %s' % others)
+    elif state == 'needs-restore':
+        print('would reattach: %s' % list(_dx.disabled))
+    return 0
 
 
 # ----------------------------------------------------------------------------
@@ -455,6 +958,73 @@ def _normalize_state_file(path):
         log_warn('could not rewrite %s: %r' % (os.path.basename(path), e))
 
 
+def console_state_path(cfg):
+    """State file of the Console Apollo, taken from its conf's file_state."""
+    return state_path_for_conf(cfg.get('console_conf_path'))
+
+
+def game_state_path(cfg):
+    """State file of the Game Apollo, taken from its conf's file_state."""
+    return state_path_for_conf(cfg.get('game_conf_path'))
+
+
+def state_path_for_conf(conf):
+    if not conf:
+        return None
+    state = ''
+    try:
+        with open(conf, 'r', encoding='utf-8-sig') as f:
+            for line in f:
+                name, sep, value = line.partition('=')
+                if sep and name.strip() == 'file_state':
+                    state = value.strip().strip('"\'')
+                    break
+    except Exception:
+        pass
+    if not state:
+        state = os.path.join(os.path.dirname(conf), 'sunshine_state.json')
+    elif not os.path.isabs(state):
+        state = os.path.join(os.path.dirname(conf), state)
+    return os.path.abspath(state)
+
+
+def set_apollo_virtual_display(cfg, want, conf_key='console'):
+    """Force always_use_virtual_display on every paired device of one Apollo's
+    state. The flag is a per-device record read at Apollo startup from
+    named_devices (NOT a conf key - the obsolete sunshine.conf line is inert in
+    Apollo 0.4.6). Re-run every tick: the Web UI may overwrite the state later.
+    Console wants true (all clients stream onto the virtual display); the
+    game/RDP session wants false (no SudoVDA virtual display there)."""
+    path = console_state_path(cfg) if conf_key == 'console' else game_state_path(cfg)
+    if not path:
+        return False
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    except Exception:
+        return False
+    changed = False
+    try:
+        for dev in data.get('root', {}).get('named_devices', []):
+            if dev.get('always_use_virtual_display') is not want:
+                dev['always_use_virtual_display'] = want
+                changed = True
+    except Exception:
+        return False
+    if not changed:
+        return False
+    try:
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=4)
+        log('forced always_use_virtual_display=%s in %s' % (want, os.path.basename(path)))
+        return True
+    except Exception as e:
+        log_warn('could not rewrite %s: %r' % (os.path.basename(path), e))
+        return False
+    except Exception as e:
+        log_warn('could not rewrite %s: %r' % (os.path.basename(path), e))
+
+
 def apollo_running_in(session_id):
     """True if sunshine.exe is running inside the given session."""
     arr = (wintypes.DWORD * 2048)()
@@ -507,23 +1077,26 @@ def _elevated_primary_token(raw_token):
             _kernel32.CloseHandle(linked)
 
 
-def launch_apollo(session_id, config_path=None, system_token=False, force=False):
+def launch_apollo(session_id, config_path=None, system_token=False, force=False,
+                  exe=None, extra_args=None):
     """Launch sunshine.exe as the elevated user token inside their session.
 
     When system_token is True (Console session), use the service's own SYSTEM
     token instead of WTSQueryUserToken, so Apollo runs as SYSTEM into the
     Console session and can handle UAC prompts.
+    exe/extra_args override the command line (used to spawn the display worker).
     """
     global _apollo_last_launch
-    exe = os.path.join(os.path.dirname(SVC_DIR), 'sunshine.exe')
+    exe = exe or os.path.join(os.path.dirname(SVC_DIR), 'sunshine.exe')
     if not os.path.exists(exe):
         log_err('apollo guard: sunshine.exe not found: %s' % exe)
         return None
     # Rate-limit each session independently so one launch cannot starve the other.
     # force=True (manual restart via the control pipe) bypasses the limiter.
-    if not force and time.time() - _apollo_last_launch.get(session_id, 0) < 20:
+    launch_key = (session_id, os.path.basename(exe))
+    if not force and time.time() - _apollo_last_launch.get(launch_key, 0) < 20:
         return None
-    _apollo_last_launch[session_id] = time.time()
+    _apollo_last_launch[launch_key] = time.time()
     if system_token:
         raw = wintypes.HANDLE()
         if not _advapi32.OpenProcessToken(_kernel32.GetCurrentProcess(),
@@ -568,7 +1141,9 @@ def launch_apollo(session_id, config_path=None, system_token=False, force=False)
             si.dwFlags = 0x00000001  # STARTF_USESHOWWINDOW
             si.wShowWindow = 0       # SW_HIDE
             pi = PROCESS_INFORMATION()
-            if config_path:
+            if extra_args:
+                cmdline = ctypes.create_unicode_buffer('"%s" %s' % (exe, extra_args))
+            elif config_path:
                 cmdline = ctypes.create_unicode_buffer('"%s" "%s"' % (exe, config_path))
             else:
                 cmdline = ctypes.create_unicode_buffer('"%s"' % exe)
@@ -728,8 +1303,22 @@ def tick():
 
     if cfg.get('guard_apollo') or cfg.get('guard_apollo_console'):
         normalize_state_types(cfg)
+        # Console: paired clients stream onto the SudoVDA virtual display
+        # whenever a virtual-display mode is configured (only/extend); mirror
+        # mode keeps capturing the physical primary on purpose.
+        _wants_virtual = _exclusive_enabled(cfg) or \
+            str(cfg.get('default_display_mode', '')).strip().lower() in ('only', 'extend')
+        if _wants_virtual:
+            set_apollo_virtual_display(cfg, True, 'console')
+        # Game session is RDP-based: it never creates SudoVDA virtual displays,
+        # so pin its paired devices off (the inverse of console).
+        set_apollo_virtual_display(cfg, False, 'game')
 
     sid, state = find_user_session(cfg.get('username', 'Game'))
+    try:
+        ensure_display_worker(cfg)
+    except Exception as e:
+        log_err('display worker guard error: %r' % e)
     if cfg.get('keepalive'):
         if state == 4:
             ka.desired = True
@@ -788,9 +1377,15 @@ def tick():
 # control pipe: trayapp (or any local tool) sends one JSON line per connection
 # over \\.\pipe\wsguard-ctrl and gets a JSON line back. Commands:
 #   {"cmd":"ping"}                         -> {"ok":true}
+#   {"cmd":"tick"}                         -> run one guard tick immediately
+#     (used by the installer right after the service starts, so both Apollos
+#      launch within seconds instead of waiting for the next 60s tick)
 #   {"cmd":"restart_apollo","target":"console"|"game"}
 #     -> kills that session's sunshine.exe and relaunches it immediately
 #        (bypasses the 20s launch rate limit), no wait for the next tick.
+#   {"cmd":"set_display_mode","mode":"mirror"|"only"|"extend"}
+#     -> persists the display topology choice into config.json (hot-reloaded),
+#        then runs one tick so the change takes effect immediately.
 # Local-only pipe; SDDL grants generic access to Everyone+SYSTEM so the
 # non-elevated tray app can connect. Commands are restart-only, which is
 # acceptable exposure for this home tool.
@@ -889,7 +1484,7 @@ def _restart_apollo(target):
         return {'ok': False, 'error': 'no-session'}
     # stamp the limiter BEFORE killing so a tick racing in between cannot
     # spawn a second instance
-    _apollo_last_launch[sid] = time.time()
+    _apollo_last_launch[(sid, 'sunshine.exe')] = time.time()
     pids = _find_apollo_pids(sid)
     killed = 0
     for pid in pids:
@@ -911,8 +1506,33 @@ def _ctrl_dispatch(req):
     cmd = str(req.get('cmd', ''))
     if cmd == 'ping':
         return {'ok': True, 'cmd': 'ping'}
+    if cmd == 'tick':
+        try:
+            tick()
+            return {'ok': True, 'cmd': 'tick'}
+        except Exception as e:
+            return {'ok': False, 'error': 'tick failed: %r' % e}
     if cmd == 'restart_apollo':
         return _restart_apollo(str(req.get('target', 'game')))
+    if cmd == 'set_display_mode':
+        mode = str(req.get('mode', 'mirror')).strip().lower()
+        ok = save_config_display_mode(mode)
+        if ok:
+            try:
+                tick()
+            except Exception as e:
+                log_err('set_display_mode tick error: %r' % e)
+        return {'ok': ok, 'cmd': 'set_display_mode', 'mode': mode}
+    if cmd == 'set_resolution':
+        raw = req.get('resolutions')
+        resolutions = [r for r in raw if isinstance(r, str)] if isinstance(raw, list) else None
+        ok = save_config_resolution(req.get('width'), req.get('height'), resolutions)
+        if ok:
+            try:
+                tick()
+            except Exception as e:
+                log_err('set_resolution tick error: %r' % e)
+        return {'ok': ok, 'cmd': 'set_resolution'}
     return {'ok': False, 'error': 'unknown cmd'}
 
 
@@ -1055,6 +1675,9 @@ def _service_main(argc, argv):
         start_ctrl_pipe()
     except Exception as e:
         log_err('service: ctrl pipe start error: %r' % e)
+    _clear_worker_stop()
+    # display exclusivity runs in a worker inside the console session
+    # (see ensure_display_worker), not in this session-0 process.
     log('service: RUNNING (ctypes SCM)')
     try:
         tick()
@@ -1070,6 +1693,7 @@ def _service_main(argc, argv):
         except Exception as e:
             log_err('tick error: %r' % e)
     display_keep(False)
+    _signal_worker_stop()
     _set_status(SERVICE_STOPPED)
     log('service: STOPPED')
 
@@ -1200,10 +1824,15 @@ def main():
     args = sys.argv[1:]
     if '--setup' in args:
         sys.exit(run_setup(args))
+    if '--displaycheck' in args:
+        sys.exit(run_displaycheck())
+    if '--display-worker' in args:
+        sys.exit(run_display_worker())
     if '--test' in args:
         sys.exit(run_test(args))
     if '--console' in args:
         log('console mode - Ctrl+C to stop')
+        _clear_worker_stop()
         ka.start()
         start_ctrl_pipe()
         try:
@@ -1213,6 +1842,7 @@ def main():
         except KeyboardInterrupt:
             ka.stop_evt.set()
             display_keep(False)
+            _signal_worker_stop()
         return
     run_service()
 

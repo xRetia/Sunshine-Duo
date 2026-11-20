@@ -15,12 +15,16 @@
          为 sunshine.exe 放行 TCP/UDP 入站（规则名 Apollo）。
        - 虚拟手柄驱动（默认勾选，可取消）：调用 scripts\install-gamepad.ps1 安装
          ViGEmBus（串流手柄虚拟为 Xbox 360 手柄，已装 1.17+ 自动跳过）。
-    2 · 远程桌面解锁（必装）：静默安装 tools\rdpWrapper.exe（官方命令行 -install，
-        解锁单用户并发 RDP，同一账号可同时本地 + 远程在线）。
+    2 · 用户与密码（第二步是分组的：Console 主用户 + 游戏用户）：
+       - Console 主用户：默认显示当前登录用户（不可取消对勾），SYSTEM 服务直接接管 Console 会话，不要求密码。
+       - 游戏用户（RDP 串流）：必须填写的用户名 + 密码，密码经 LogonUser 验证；
+         游戏会话由此用户的提升令牌拉起，开机自动登录有会话时 RDP 保活。
+       - 远程桌面解锁（必装）：静默安装 tools\rdpWrapper.exe（官方命令行 -install，
+         解锁单用户并发 RDP，同一账号可同时本地 + 远程在线）。
        - 会话 GPU 加速（默认勾选）：Terminal Services 策略写 3 个 DWORD，
          RDP 型会话改用物理显卡渲染 + AVC444 + 硬件编码。
     3 · 串流会话守护服务（必装，登录信息在密码卡片）：
-       - 当前用户作为串流用户，密码经 LogonUser 验证；含“开机自动登录”选项
+       - 游戏用户作为串流用户，密码经 LogonUser 验证；含“开机自动登录”选项
          （无会话时 wsguard 自动 RDP 拉起会话，auto_logon）与虚拟屏分辨率。
        - 注册 wsguard 服务 WSGuard / 显示名 Game Windows Session Guard；密码经 DPAPI
          （本机作用域）加密为 rdp.cred，供 wsguard 在串流断开后自动连接 127.0.0.2
@@ -33,7 +37,9 @@
     4 · 可选功能：
        - GameManager（tools\GameManager.exe）：可直接启动需要管理员权限的游戏，
          快捷方式目录为 <Sunshine>\Links（写入 tools\GameManager.json 的 LinksFolder）。
-       - 解绑所有已配对设备（执行时二次确认）、清空 sunshine.log。
+       - 解绑两个 Apollo 各自的已配对设备（执行时二次确认）、清空两份日志。
+    5 · WebUI 后台账号（独立一页）：用户名 + 密码 + 确认密码，与 RDP 登录账号分开；
+       两个 Apollo 各自保存凭证（初始相同），安装完成页显示后台地址与凭证。
   卸载：与安装分组一一对应的反注册操作（不删除程序文件、配置与凭据）：
         移除防火墙规则（scripts\delete-firewall-rule.bat）、卸载手柄驱动
         （scripts\uninstall-gamepad.ps1）、卸载 RdpWrapper、删除会话 GPU 加速策略、
@@ -66,7 +72,9 @@ $RdpWrapDir   = 'C:\Program Files\RDP Wrapper'            # rdpWrapper 默认安
 $LinksDir     = Join-Path $Root 'Links'                   # GameManager 快捷方式目录
 
 $ConfPath     = Join-Path $Root 'config\sunshine.conf'
-$StatePath    = Join-Path $Root 'config\sunshine_state.json'
+$LegacyStatePath  = Join-Path $Root 'config\sunshine_state.json'
+$ConsoleStatePath = Join-Path $Root 'config\sunshine_state-console.json'
+$GameStatePath    = Join-Path $Root 'config\sunshine_state-game.json'
 $LogPath      = Join-Path $Root 'config\sunshine.log'
 $LogBakPath   = Join-Path $Root 'config\sunshine.log.backup'
 $TsPolicyKey  = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services'
@@ -77,6 +85,7 @@ $WgDir        = Join-Path $Root 'wsguard'
 $WgExe        = Join-Path $WgDir 'wsguard.exe'
 $WgCredPath   = Join-Path $WgDir 'rdp.cred'
 $WgCfgPath    = Join-Path $WgDir 'config.json'
+$GameConfPath = Join-Path $Root 'config\sunshine-game.conf'
 
 $script:LogBox   = $null
 $script:Window   = $null
@@ -101,7 +110,9 @@ $GmSvcName     = if ($GmSvcName)     { $GmSvcName }     elseif ($S) { $S.GmSvcNa
 $RdpWrapDir    = if ($RdpWrapDir)    { $RdpWrapDir }    elseif ($S) { $S.RdpWrapDir }
 $LinksDir      = if ($LinksDir)      { $LinksDir }      elseif ($S) { $S.LinksDir }
 $ConfPath      = if ($ConfPath)      { $ConfPath }      elseif ($S) { $S.ConfPath }
-$StatePath     = if ($StatePath)     { $StatePath }     elseif ($S) { $S.StatePath }
+$LegacyStatePath = if ($LegacyStatePath) { $LegacyStatePath } elseif ($S) { $S.LegacyStatePath }
+$ConsoleStatePath = if ($ConsoleStatePath) { $ConsoleStatePath } elseif ($S) { $S.ConsoleStatePath }
+$GameStatePath    = if ($GameStatePath)    { $GameStatePath }    elseif ($S) { $S.GameStatePath }
 $LogPath       = if ($LogPath)       { $LogPath }       elseif ($S) { $S.LogPath }
 $LogBakPath    = if ($LogBakPath)    { $LogBakPath }    elseif ($S) { $S.LogBakPath }
 $TsPolicyKey   = if ($TsPolicyKey)   { $TsPolicyKey }   elseif ($S) { $S.TsPolicyKey }
@@ -112,6 +123,7 @@ $WgDir         = if ($WgDir)         { $WgDir }         elseif ($S) { $S.WgDir }
 $WgExe         = if ($WgExe)         { $WgExe }         elseif ($S) { $S.WgExe }
 $WgCredPath    = if ($WgCredPath)    { $WgCredPath }    elseif ($S) { $S.WgCredPath }
 $WgCfgPath     = if ($WgCfgPath)     { $WgCfgPath }     elseif ($S) { $S.WgCfgPath }
+$GameConfPath  = if ($GameConfPath)  { $GameConfPath }  elseif ($S) { $S.GameConfPath }
 
 # ── 基础函数 ──────────────────────────────────────────────────
 # Write-Log：后台 Runspace($script:SLogQueue 非空)写队列；UI 线程直接写日志框。
@@ -136,30 +148,6 @@ function Update-Ui {
     if ($script:Window) {
         $script:Window.Dispatcher.Invoke([action]{}, [System.Windows.Threading.DispatcherPriority]::Render)
     }
-}
-
-# 用 Windows 登录验证（LogonUser）校验本地用户密码
-function Test-UserPassword {
-    param([string]$User, [string]$Password)
-    if ([string]::IsNullOrEmpty($User) -or [string]::IsNullOrEmpty($Password)) { return $false }
-    if (-not ('PwCheck' -as [type])) {
-        Add-Type -TypeDefinition @"
-using System;
-using System.Runtime.InteropServices;
-public static class PwCheck {
-    [DllImport("advapi32.dll", SetLastError=true, CharSet=CharSet.Unicode)]
-    public static extern bool LogonUser(string user, string domain, string pass, int logonType, int provider, out IntPtr token);
-    [DllImport("kernel32.dll")]
-    public static extern bool CloseHandle(IntPtr h);
-}
-"@
-    }
-    $domain = $env:USERDOMAIN
-    if ([string]::IsNullOrEmpty($domain)) { $domain = '.' }
-    $tok = [IntPtr]::Zero
-    $ok = [PwCheck]::LogonUser($User, $domain, $Password, 3, 0, [ref]$tok)
-    if ($ok) { [void][PwCheck]::CloseHandle($tok); return $true }
-    return $false
 }
 
 # 枚举物理显卡（排除虚拟显卡），返回 Name/Vendor 对象数组
@@ -229,7 +217,8 @@ function Install-ApolloGuard {
 
 # 1 · 写入 sunshine.conf（必装：显卡 / 手柄 / UPnP 等默认配置）
 function Write-SunshineConf {
-    param([string]$AdapterName)
+    param([string]$AdapterName, [int]$Port = 0, [string]$DisplayMode = 'mirror',
+          [string]$SudovdaRes = '')
     if ([string]::IsNullOrWhiteSpace($AdapterName)) { throw '未选择显卡（adapter_name）' }
     $confDir = Split-Path -Parent $ConfPath
     if (-not (Test-Path $confDir)) { New-Item -ItemType Directory -Path $confDir -Force | Out-Null }
@@ -240,10 +229,21 @@ function Write-SunshineConf {
         'install_steam_audio_drivers = disabled',
         'keep_sink_default = disabled',
         'server_cmd = [{"cmd":"bubbles.scr","elevated":false,"name":"Bubbles"}]',
-        'upnp = enabled'
+        'upnp = enabled',
+        'locale = zh',
+        'sunshine_name = 主会话',
+        "file_state = $ConsoleStatePath"
     )
+    if ($Port -gt 0) { $lines += "port = $Port" }
+    $lines += "log_path = $(Join-Path $confDir 'sunshine-console.log')"
+    # 显示拓扑（虚拟屏独占/断开物理屏）不在配置阶段写死：Apollo 0.4.6 对 virtual
+    # display 会话不应用 dd_configuration_option，且启动后的
+    # display_device::reset_persistence() 会取消退避重试。由 WSGuard 运行期
+    # 按"虚拟屏是否存在"自动执行（见 wsguard.py DisplayExclusive）。
     [IO.File]::WriteAllLines($ConfPath, $lines, (New-Object System.Text.UTF8Encoding($false)))
-    Write-Log "OK: Sunshine 配置文件已写入（adapter_name = $AdapterName）"
+    $portNote = if ($Port -gt 0) { ", port = $Port" } else { '' }
+    $modeNote = switch ($DisplayMode) { 'only' { ', 独占虚拟屏' } 'extend' { ', 扩展虚拟屏' } default { ', 镜像物理屏' } }
+    Write-Log "OK: Sunshine 配置文件已写入（adapter_name = $AdapterName$portNote$modeNote）"
 }
 
 # 1 · 防火墙放行 Sunshine（默认勾选，可取消）：直接调用现成 scripts\add-firewall-rule.bat，
@@ -290,13 +290,63 @@ function Install-Gamepad {
     }
 }
 
+# 4 · 迁移旧共享 state：首次升级时把已有配对复制到两个实例各自的 state
+function Split-LegacySunshineState {
+    if (-not (Test-Path $LegacyStatePath)) { return }
+    $utf8 = New-Object System.Text.UTF8Encoding($false)
+    foreach ($target in @($ConsoleStatePath, $GameStatePath)) {
+        if (Test-Path $target) { continue }
+        $json = [IO.File]::ReadAllText($LegacyStatePath, [Text.Encoding]::UTF8)
+        [IO.File]::WriteAllText($target, $json, $utf8)
+        Write-Log "OK: 已把旧配对数据迁移到 $(Split-Path -Leaf $target)"
+    }
+}
+
+# Moonlight 按 root.uniqueid 识别主机；旧 state 拆分后需避免两实例身份相同。
+function Ensure-DistinctUniqueIds {
+    $ids = @{}
+    $utf8 = New-Object System.Text.UTF8Encoding($false)
+    foreach ($pair in @(@{ n = '控制台'; p = $ConsoleStatePath }, @{ n = '游戏'; p = $GameStatePath })) {
+        if (-not (Test-Path $pair.p)) { continue }
+        try {
+            $obj = Get-Content -LiteralPath $pair.p -Raw -Encoding UTF8 | ConvertFrom-Json
+        } catch {
+            throw "无法读取 $(Split-Path -Leaf $pair.p)：$($_.Exception.Message)"
+        }
+        if (-not $obj) { $obj = New-Object PSObject }
+        if (-not $obj.PSObject.Properties['root']) {
+            $obj | Add-Member -NotePropertyName root -NotePropertyValue (New-Object PSObject) -Force
+        }
+        $uid = [string]$obj.root.uniqueid
+        if ([string]::IsNullOrEmpty($uid) -or $uid -notmatch '^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$') {
+            $uid = [guid]::NewGuid().ToString()
+            $obj.root | Add-Member -NotePropertyName uniqueid -NotePropertyValue $uid -Force
+            [IO.File]::WriteAllText($pair.p, ($obj | ConvertTo-Json -Depth 10), $utf8)
+            $ids[$uid] = $pair.n
+            Write-Log "OK: $($pair.n)主机身份已生成（uniqueid $uid）"
+            continue
+        }
+        if ($ids.ContainsKey($uid)) {
+            $new = [guid]::NewGuid().ToString()
+            $obj.root.uniqueid = $new
+            [IO.File]::WriteAllText($pair.p, ($obj | ConvertTo-Json -Depth 10), $utf8)
+            Write-Log "OK: $($pair.n)主机身份与$($ids[$uid])重复，已换成 $new（Moonlight 才能同时显示两个主机）"
+        } else {
+            $ids[$uid] = $pair.n
+            Write-Log "OK: $($pair.n)主机身份（uniqueid $uid）"
+        }
+    }
+}
+
 # 4 · 清空状态与日志（可选：解绑所有已配对设备，执行前二次确认）
 function Reset-SunshineState {
-    if (Test-Path $StatePath) {
-        [IO.File]::WriteAllText($StatePath, '{}', (New-Object System.Text.UTF8Encoding($false)))
-        Write-Log 'OK: sunshine_state.json 已清空（已配对设备全部移除，Moonlight 客户端需重新配对）'
-    } else {
-        Write-Log '跳过: sunshine_state.json 不存在'
+    foreach ($state in @($ConsoleStatePath, $GameStatePath, $LegacyStatePath)) {
+        if (Test-Path $state) {
+            [IO.File]::WriteAllText($state, '{}', (New-Object System.Text.UTF8Encoding($false)))
+            Write-Log "OK: $(Split-Path -Leaf $state) 已清空（已配对设备全部移除，Moonlight 客户端需重新配对）"
+        } else {
+            Write-Log "跳过: $(Split-Path -Leaf $state) 不存在"
+        }
     }
     if (Test-Path $LogPath) {
         [IO.File]::WriteAllText($LogPath, '')
@@ -400,7 +450,10 @@ function Install-GameManager {
 
 # 3 · wsguard 服务（必装，rdp.cred 由密码经 DPAPI 本机作用域加密生成）
 function Install-Wsguard {
-    param([string]$RdpUser, [string]$Password, [int]$Vw = 0, [int]$Vh = 0, [bool]$AutoLogon = $false)
+    param([string]$RdpUser, [string]$Password, [int]$Vw = 0, [int]$Vh = 0, [bool]$AutoLogon = $false,
+          [string]$DisplayMode = 'mirror', [bool]$DisplayExclusive = $false, [int]$PortMain = 48100, [int]$PortGame = 48200,
+          [string]$ConsoleConf = 'config\sunshine.conf', [string]$GameConf = 'config\sunshine-game.conf',
+          [string[]]$SudovdaResList = @())
     if (-not (Test-Path $WgExe)) { throw "未找到 $WgExe" }
 
     # rdp.cred：密码非空则（重新）生成；留空且已有则沿用
@@ -418,11 +471,18 @@ function Install-Wsguard {
         throw '未提供密码且 rdp.cred 不存在，无法安装 wsguard'
     }
 
-    # config.json：不存在则生成默认配置；存在则同步 guard_apollo 与虚拟屏分辨率（热重载）
+    # config.json：不存在则生成默认配置；存在则同步 Apollo 守卫与显示模式/独占开关（热重载）
     if (Test-Path $WgCfgPath) {
         $cfg = Get-Content $WgCfgPath -Raw -Encoding UTF8 | ConvertFrom-Json
         $cfg | Add-Member -NotePropertyName guard_apollo -NotePropertyValue $true -Force
         $cfg | Add-Member -NotePropertyName auto_logon -NotePropertyValue ([bool]$AutoLogon) -Force
+        $cfg | Add-Member -NotePropertyName default_display_mode -NotePropertyValue $DisplayMode -Force
+        $cfg | Add-Member -NotePropertyName display_exclusive -NotePropertyValue ([bool]$DisplayExclusive) -Force
+        $cfg | Add-Member -NotePropertyName console_port -NotePropertyValue $PortMain -Force
+        $cfg | Add-Member -NotePropertyName game_port -NotePropertyValue $PortGame -Force
+        if ($SudovdaResList.Count -gt 0) {
+            $cfg | Add-Member -NotePropertyName sudovda_resolutions -NotePropertyValue @($SudovdaResList) -Force
+        }
         if ($Vw -ge 320 -and $Vh -ge 240) {
             $cfg | Add-Member -NotePropertyName width -NotePropertyValue $Vw -Force
             $cfg | Add-Member -NotePropertyName height -NotePropertyValue $Vh -Force
@@ -447,12 +507,17 @@ function Install-Wsguard {
             guard_uu          = $true
             guard_apollo      = $true
             display_keepalive = $true
+            console_port      = $PortMain
+            game_port         = $PortGame
+            default_display_mode = $DisplayMode
+            display_exclusive = [bool]$DisplayExclusive
             auto_logon        = [bool]$AutoLogon
             log_level         = 'warn'
             interval          = 60
             recycle_minutes   = 30
             gameviewer_versions = @('4.0.*', '4.46.*')
         }
+        if ($SudovdaResList.Count -gt 0) { $cfg.sudovda_resolutions = @($SudovdaResList) }
         $json = $cfg | ConvertTo-Json
         [IO.File]::WriteAllText($WgCfgPath, $json, (New-Object System.Text.UTF8Encoding($false)))
         $alNote2 = if ($AutoLogon) { '开机自动登录开' } else { '开机自动登录关' }
@@ -483,6 +548,7 @@ function Install-Wsguard {
     if ($LASTEXITCODE -ne 0) { throw "sc create 失败（错误码 $LASTEXITCODE）" }
     $null = & sc.exe description $SvcName 'Keeps the streaming user RDP session alive (headless client) and GameViewer pinned to the console session.' 2>&1
     $null = & sc.exe failure $SvcName reset= 86400 actions= 'restart/60000/restart/60000/restart/60000' 2>&1
+    $startedAt = Get-Date
     $null = & sc.exe start $SvcName 2>&1
     Start-Sleep -Seconds 3
     Update-Ui
@@ -494,10 +560,89 @@ function Install-Wsguard {
     } else {
         throw "服务 $SvcName 注册失败"
     }
+    # 只回显本次服务启动后新增的日志行：watch.log 是累积的，直接 tail 会把
+    # 上一次安装遗留的旧错误当成这次的问题展示出来
     $watch = Join-Path $WgDir 'watch.log'
     if (Test-Path $watch) {
-        Get-Content -LiteralPath $watch -Tail 2 | ForEach-Object { Write-Log "  [watch] $_" }
+        $lines = @(Get-Content -LiteralPath $watch -ErrorAction SilentlyContinue)
+        $new = @()
+        foreach ($l in $lines) {
+            if ($l -match '^\s*(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})') {
+                $ts = [datetime]::ParseExact($Matches[1], 'yyyy-MM-dd HH:mm:ss', $null)
+                if ($ts -ge $startedAt) { $new += $l }
+            }
+        }
+        if ($new.Count -gt 0) {
+            $new | Select-Object -Last 6 | ForEach-Object { Write-Log "  [watch] $_" }
+        }
     }
+}
+
+# 3 · 生成游戏会话（次 Apollo）配置文件（从主 conf 复制，只覆盖端口与显示相关）
+function Write-GameConf {
+    param([string]$ConsoleConfPath, [string]$GameConfPath, [int]$PortGame, [string]$DisplayMode = 'physical',
+          [int]$Vw = 0, [int]$Vh = 0)
+    $read = Get-Content -LiteralPath $ConsoleConfPath -Encoding UTF8
+    if (-not $read) { throw "主配置文件 [$ConsoleConfPath] 未找到" }
+    $lines = @($read) | Where-Object { $_ -notmatch '^\s*log_path\s*=' }
+    $lines += "log_path = $(Join-Path (Split-Path -Parent $GameConfPath) 'sunshine-game.log')"
+    if ($PortGame -gt 0) {
+        # 覆盖或删除已有 port 行（防止主 conf 不带 port 首次生成失效）
+        $lines = $lines | Where-Object { $_ -notmatch '^\s*port\s*=' }
+        $lines += "port = $PortGame"
+    }
+    # Game 会话走 RDP 显示驱动：剥离 Console 专属的虚拟屏 / dd_* 配置，避免误改 RDP 会话显示
+    # 名称与 state 必须各自独立：Moonlight 显示两个主机，配对设备互不争写
+    $lines = $lines | Where-Object {
+        $_ -notmatch '^\s*(dd_\w+|always_use_virtual_display|isolated_virtual_display_option|output_name_windows|sunshine_name|file_state)\s*='
+    }
+    $lines += 'sunshine_name = 游戏会话'
+    $lines += "file_state = $GameStatePath"
+    [IO.File]::WriteAllLines($GameConfPath, $lines, (New-Object System.Text.UTF8Encoding($false)))
+    $portNote = if ($PortGame -gt 0) { ", port = $PortGame" } else { '' }
+    Write-Log "OK: 游戏会话配置文件已生成 [$GameConfPath]$portNote（独立 state，共享 apps/证书）"
+}
+
+# 3 · 生成 WebUI 登录凭证（`sunshine.exe <conf> --creds user password`，写入该 conf 的 state）
+function Set-WebUICredentials {
+    param([string]$User, [string]$Password)
+    $exe = Join-Path $Root 'sunshine.exe'
+    if (-not (Test-Path $exe)) { throw "未找到 $exe" }
+    foreach ($conf in @($ConfPath, $GameConfPath)) {
+        if (-not (Test-Path $conf)) { throw "未找到配置文件 $conf，无法设置 WebUI 凭证" }
+        $argLine = '"{0}" --creds "{1}" "{2}"' -f $conf, $User, $Password
+        $p = Start-Process -FilePath $exe -ArgumentList $argLine -WindowStyle Hidden -PassThru -Wait
+        if ($p.ExitCode -ne 0) {
+            throw "sunshine --creds 返回码 $($p.ExitCode)（$conf），请手动在 Web UI 设置用户名和密码"
+        }
+    }
+    Write-Log 'OK: Apollo WebUI 凭证已设置（控制台与游戏会话各存一份，用户名/密码相同）'
+    Write-Log ('提示: WebUI 后台地址 https://localhost:<端口+1>（控制台）/（游戏会话端口+1），用户名 ' + $User)
+}
+
+# 3 · 可选驱动：SudoVDA 虚拟显示器（独立于显示模式开关，仅决定是否安装驱动）
+function Install-SudoVDA {
+    $bat = Join-Path $Root 'scripts\install-sudovda.bat'
+    if (-not (Test-Path $bat)) { throw "未找到 $bat" }
+    Write-Log '执行 scripts\install-sudovda.bat（安装 SudoVDA 虚拟显示驱动）...'
+    $p = Start-Process -FilePath $bat -WindowStyle Hidden -PassThru -Wait
+    if ($p.ExitCode -ne 0) { throw "install-sudovda.bat 返回码 $($p.ExitCode)（证书=1 / 建设备节点=2 / 装驱动=3）" }
+    Start-Sleep -Seconds 1
+    $dev = @(Get-PnpDevice | Where-Object {
+        ($_.InstanceId -match 'sudovda') -or ((@($_.HardwareID) -join ';') -match 'sudovda')
+    })
+    if ($dev.Count -eq 0 -or $dev[0].Status -ne 'OK') {
+        throw 'SudoVDA 设备未在设备管理器中出现（root\sudomaker\sudovda），安装未生效'
+    }
+    Write-Log "OK: SudoVDA 虚拟显示驱动已就绪（$($dev[0].FriendlyName)，Status=$($dev[0].Status)）"
+}
+function Uninstall-SudoVDA {
+    $bat = Join-Path $Root 'scripts\uninstall-sudovda.bat'
+    if (-not (Test-Path $bat)) { throw "未找到 $bat" }
+    Write-Log '执行 scripts\uninstall-sudovda.bat（卸载 SudoVDA 虚拟显示驱动）...'
+    $p = Start-Process -FilePath $bat -WindowStyle Hidden -PassThru -Wait
+    if ($p.ExitCode -ne 0) { throw "uninstall-sudovda.bat 返回码 $($p.ExitCode)" }
+    Write-Log 'OK: SudoVDA 虚拟显示驱动卸载流程已执行'
 }
 
 # ============================================================================
@@ -650,6 +795,255 @@ function Uninstall-GameManager {
     }
 }
 
+# 5 · Sunshine-Duo 托盘（部署 / 快捷方式 / 开机自启，可选组件）
+# 自启写入「当前登录用户」的 Run 键（按 SID 定位 hive，与托盘内置「设置」同名同值，互相覆盖一致）
+function Get-ConsoleUserInfo {
+    $name = try { (Get-CimInstance Win32_ComputerSystem -ErrorAction Stop).UserName } catch { $null }
+    if (-not $name) { return $null }
+    try {
+        $sid = (New-Object System.Security.Principal.NTAccount($name)).Translate(
+            [System.Security.Principal.SecurityIdentifier]).Value
+        $pk = "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\$sid"
+        $profile = (Get-ItemProperty -Path $pk -ErrorAction Stop).ProfileImagePath
+    } catch { return $null }
+    if (-not $profile) { return $null }
+    $profile = [Environment]::ExpandEnvironmentVariables($profile)
+    return [PSCustomObject]@{
+        Name      = $name
+        Sid       = $sid
+        Desktop   = Join-Path $profile 'Desktop'
+        StartMenu = Join-Path $profile 'AppData\Roaming\Microsoft\Windows\Start Menu\Programs'
+        RunKey    = "Registry::HKEY_USERS\$sid\Software\Microsoft\Windows\CurrentVersion\Run"
+    }
+}
+
+function Find-TrayAppExe {
+    $cands = @(
+        (Join-Path $Root 'tools\trayapp\bin\Release\net9.0-windows\win-x64\publish\SunshineDuoTray.exe'),
+        (Join-Path $Root 'tools\trayapp\SunshineDuoTray.exe'),
+        (Join-Path $Root 'tools\trayapp\publish\SunshineDuoTray.exe'),
+        (Join-Path $Root 'tools\SunshineDuoTray\SunshineDuoTray.exe')
+    )
+    foreach ($c in $cands) { if (Test-Path -LiteralPath $c) { return $c } }
+    return $null
+}
+
+function Install-TrayApp {
+    param([bool]$DesktopShortcut, [bool]$StartShortcut, [bool]$AutoStart,
+          [int]$PortMain = 0, [int]$PortGame = 0, [string]$WebUser = '', [bool]$StartNow = $false)
+    $deployDir = Join-Path $Root 'tools\SunshineDuoTray'
+    $deployExe = Join-Path $deployDir 'SunshineDuoTray.exe'
+    $src = Find-TrayAppExe
+    if (-not $src) {
+        Write-Log '警告: 未找到 SunshineDuoTray.exe（先在 tools\trayapp 运行 dotnet publish），已跳过托盘部署'
+        return
+    }
+    Get-Process -Name 'SunshineDuoTray' -ErrorAction SilentlyContinue |
+        Stop-Process -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Path $deployDir -Force | Out-Null
+    if ([IO.Path]::GetFullPath($src) -ne [IO.Path]::GetFullPath($deployExe)) {
+        Copy-Item -LiteralPath $src -Destination $deployExe -Force
+    }
+    Write-Log "OK: 托盘应用已部署 $deployExe"
+
+    # 同步托盘配置：端口与后台用户名跟本次安装保持一致；已加密的 WebUI 密码与自启设置保留
+    if ($PortMain -gt 0 -and $PortGame -gt 0) {
+        $trayJsonPath = Join-Path $deployDir 'trayapp.json'
+        try {
+            $tcfg = $null
+            if (Test-Path -LiteralPath $trayJsonPath) {
+                $tcfg = Get-Content -LiteralPath $trayJsonPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            }
+            if (-not $tcfg) { $tcfg = New-Object PSObject }
+            $tcfg | Add-Member -NotePropertyName ConsolePort -NotePropertyValue ([int]$PortMain) -Force
+            $tcfg | Add-Member -NotePropertyName GamePort -NotePropertyValue ([int]$PortGame) -Force
+            if (-not [string]::IsNullOrEmpty($WebUser)) {
+                $tcfg | Add-Member -NotePropertyName WebUser -NotePropertyValue $WebUser -Force
+            }
+            if (-not ($tcfg.PSObject.Properties.Name -contains 'WebPassEnc')) {
+                $tcfg | Add-Member -NotePropertyName WebPassEnc -NotePropertyValue '' -Force
+            }
+            if (-not ($tcfg.PSObject.Properties.Name -contains 'AutoStart')) {
+                $tcfg | Add-Member -NotePropertyName AutoStart -NotePropertyValue ([bool]$AutoStart) -Force
+            }
+            [IO.File]::WriteAllText($trayJsonPath, ($tcfg | ConvertTo-Json), (New-Object System.Text.UTF8Encoding($false)))
+            Write-Log "OK: 托盘配置已同步 $trayJsonPath（Console $PortMain / Game $PortGame）"
+        } catch {
+            Write-Log "警告: 写入 trayapp.json 失败: $($_.Exception.Message)"
+        }
+    }
+
+    if ($StartNow) {
+        try {
+            Start-Process -FilePath $deployExe -WorkingDirectory $deployDir
+            Write-Log 'OK: Sunshine-Duo 托盘已启动'
+        } catch {
+            Write-Log "警告: 托盘启动失败: $($_.Exception.Message)"
+        }
+    }
+
+    $u = Get-ConsoleUserInfo
+    if (-not $u) {
+        Write-Log '警告: 未能确定当前登录用户，快捷方式/开机自启已跳过'
+        return
+    }
+    if ($DesktopShortcut -or $StartShortcut) {
+        $ws = New-Object -ComObject WScript.Shell
+        foreach ($p in @(
+                @{ On = $DesktopShortcut; Dir = $u.Desktop },
+                @{ On = $StartShortcut; Dir = $u.StartMenu })) {
+            if (-not $p.On) { continue }
+            if (-not (Test-Path -LiteralPath $p.Dir)) { New-Item -ItemType Directory -Path $p.Dir -Force | Out-Null }
+            $lnkPath = Join-Path $p.Dir 'Sunshine-Duo 托盘.lnk'
+            $lnk = $ws.CreateShortcut($lnkPath)
+            $lnk.TargetPath = $deployExe
+            $lnk.WorkingDirectory = $deployDir
+            $lnk.IconLocation = "$deployExe,0"
+            $lnk.Description = 'Sunshine-Duo 托盘：双 Apollo 状态与常用操作'
+            $lnk.Save()
+            Write-Log "OK: 已创建快捷方式 $lnkPath"
+        }
+    }
+    if ($AutoStart) {
+        try {
+            if (-not (Test-Path $u.RunKey)) { New-Item -Path $u.RunKey -Force | Out-Null }
+            New-ItemProperty -Path $u.RunKey -Name 'SunshineDuoTray' -Value ('"{0}"' -f $deployExe) `
+                -PropertyType String -Force | Out-Null
+            Write-Log "OK: 已配置开机自启（用户 $($u.Name)）"
+        } catch {
+            Write-Log "警告: 开机自启设置失败: $($_.Exception.Message)"
+        }
+    }
+}
+
+function Uninstall-TrayApp {
+    $any = $false
+    Get-Process -Name 'SunshineDuoTray' -ErrorAction SilentlyContinue |
+        Stop-Process -Force -ErrorAction SilentlyContinue
+    foreach ($k in (Get-ChildItem 'Registry::HKEY_USERS' -ErrorAction SilentlyContinue)) {
+        $sid = $k.PSChildName
+        if ($sid -like '*_Classes' -or $sid -notlike 'S-1-5-21-*') { continue }
+        $runKey = "Registry::HKEY_USERS\$sid\Software\Microsoft\Windows\CurrentVersion\Run"
+        if (Test-Path $runKey) {
+            $props = Get-ItemProperty -Path $runKey -ErrorAction SilentlyContinue
+            if ($props.PSObject.Properties.Name -contains 'SunshineDuoTray') {
+                Remove-ItemProperty -Path $runKey -Name 'SunshineDuoTray' -ErrorAction SilentlyContinue
+                Write-Log "OK: 已删除用户 hive [$sid] 的托盘自启键"
+                $any = $true
+            }
+        }
+        $pk = "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\$sid"
+        try {
+            $profile = [Environment]::ExpandEnvironmentVariables(
+                (Get-ItemProperty -Path $pk -ErrorAction Stop).ProfileImagePath)
+            foreach ($lnk in @(
+                    (Join-Path $profile 'Desktop\Sunshine-Duo 托盘.lnk'),
+                    (Join-Path $profile 'AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Sunshine-Duo 托盘.lnk'))) {
+                if (Test-Path -LiteralPath $lnk) {
+                    Remove-Item -LiteralPath $lnk -Force -ErrorAction SilentlyContinue
+                    Write-Log "OK: 已删除快捷方式 $lnk"
+                    $any = $true
+                }
+            }
+        } catch { }
+    }
+    # 程序目录：删 exe，保留 trayapp.json（端口与登录配置）
+    $deployDir = Join-Path $Root 'tools\SunshineDuoTray'
+    $exe = Join-Path $deployDir 'SunshineDuoTray.exe'
+    if (Test-Path -LiteralPath $exe) {
+        Remove-Item -LiteralPath $exe -Force -ErrorAction SilentlyContinue
+        Write-Log "OK: 已删除 $exe（保留 trayapp.json）"
+        $any = $true
+    }
+    if (-not $any) { Write-Log '提示: 未发现 Sunshine-Duo 托盘残留' }
+}
+
+# 停止并结束 WSGuard / Sunshine(双 Apollo) / 托盘进程。
+# 安装与卸载都先走这里：wsguard 判断 Apollo 是否存活只看"会话里有没有 sunshine.exe"，
+# 不看它跑的是哪份 conf/端口；不清场的话，旧端口实例会被判为"仍在运行"，
+# 新配置的 Apollo 不会被拉起（表现为"装完 X 端口是 Main、Y 端口不在线"）。
+function Stop-StreamingProcesses {
+    foreach ($n in @($SvcName, $LegacySvc)) {
+        if (Get-Service -Name $n -ErrorAction SilentlyContinue) {
+            $null = & sc.exe stop $n 2>&1
+        }
+    }
+    Start-Sleep -Seconds 1
+    $killed = @()
+    foreach ($n in @('wsguard', 'sunshine', 'SunshineDuoTray')) {
+        $procs = @(Get-Process -Name $n -ErrorAction SilentlyContinue)
+        if ($procs.Count -gt 0) {
+            $procs | Stop-Process -Force -ErrorAction SilentlyContinue
+            $killed += ("{0} x{1}" -f $n, $procs.Count)
+        }
+    }
+    if ($killed.Count -gt 0) {
+        Start-Sleep -Seconds 2
+        Write-Log ("OK: 已停止旧进程（{0}）" -f ($killed -join '、'))
+    } else {
+        Write-Log '提示: 无 WSGuard / Sunshine / 托盘进程在运行'
+    }
+}
+
+# 经 \\.\pipe\wsguard-ctrl 让 wsguard 立即执行一次 tick（不等 60s 周期），
+# 服务启动后数秒内即可把两个 Apollo 拉起来。
+function Send-WsguardTick {
+    param([int]$TimeoutSec = 30)
+    $deadline = (Get-Date).AddSeconds($TimeoutSec)
+    while ((Get-Date) -lt $deadline) {
+        try {
+            $pipe = New-Object System.IO.Pipes.NamedPipeClientStream(
+                '.', 'wsguard-ctrl', [System.IO.Pipes.PipeDirection]::InOut)
+            $pipe.Connect(2000)
+            try {
+                $writer = New-Object IO.StreamWriter($pipe)
+                $writer.NewLine = "`n"
+                $writer.AutoFlush = $true
+                $writer.WriteLine('{"cmd":"tick"}')
+                $reader = New-Object IO.StreamReader($pipe)
+                $resp = $reader.ReadLine()
+                if ($resp -match '"ok"\s*:\s*true') {
+                    Write-Log 'OK: 已触发 WSGuard 立即拉起 Apollo'
+                    return
+                }
+                Write-Log "警告: WSGuard tick 响应异常: $resp"
+                return
+            } finally {
+                $pipe.Dispose()
+            }
+        } catch {
+            Start-Sleep -Seconds 2
+        }
+    }
+    Write-Log '警告: 未能连接 wsguard 控制管道（服务可能未就绪），Apollo 将在下一个 tick 周期拉起'
+}
+
+# 等待两个 Apollo 的 WebUI 端口（conf 端口 +1）开始监听，装完页/后台立即可用
+function Wait-ApolloWeb {
+    param([int]$PortMain, [int]$PortGame, [int]$TimeoutSec = 90)
+    $deadline = (Get-Date).AddSeconds($TimeoutSec)
+    $up = @{}
+    while ((Get-Date) -lt $deadline) {
+        foreach ($p in @(@{ n = '控制台'; v = $PortMain }, @{ n = '游戏'; v = $PortGame })) {
+            if ($up.ContainsKey($p.n)) { continue }
+            $c = New-Object Net.Sockets.TcpClient
+            try {
+                if ($c.ConnectAsync('127.0.0.1', $p.v).Wait(1200) -and $c.Connected) {
+                    $up[$p.n] = $true
+                    Write-Log ("OK: {0} Apollo 已就绪（WebUI https://localhost:{1}）" -f $p.n, $p.v)
+                }
+            } catch { } finally { $c.Close() }
+        }
+        if ($up.Count -ge 2) { return }
+        Start-Sleep -Seconds 2
+    }
+    foreach ($p in @(@{ n = '控制台'; v = $PortMain }, @{ n = '游戏'; v = $PortGame })) {
+        if (-not $up.ContainsKey($p.n)) {
+            Write-Log ("警告: {0} Apollo WebUI 端口 {1} 未就绪（该会话未登录或启动较慢，稍后由 WSGuard 自动拉起）" -f $p.n, $p.v)
+        }
+    }
+}
+
 # ============================================================================
 # 执行编排（后台 Runspace 调用；进度 / 结果写回共享哈希表 $S.Prog）
 # ============================================================================
@@ -666,17 +1060,28 @@ function Invoke-InstallRun {
         $S.Prog.StepIndex++
         try {
             switch ($k) {
-                'conf'     { Write-SunshineConf -AdapterName $Opts.Adapter }
+                'conf'     { Write-SunshineConf -AdapterName $Opts.Adapter -Port $Opts.PortMain -DisplayMode $Opts.DisplayMode -SudovdaRes $Opts.SudovdaRes; Split-LegacySunshineState }
+                # note: Write-GameConf is performed by the wsguard step (dual Apollo ports)
                 'gpuaccel' { Install-GpuAcceleration }
                 'firewall' { Install-FirewallRule }
                 'gamepad'  { Install-Gamepad }
                 'rdpwrap'  { Install-RdpWrapper }
                 'wsguard'  {
-                    Install-Wsguard -RdpUser $Opts.User -Password $Opts.Password -Vw $Opts.Vw -Vh $Opts.Vh -AutoLogon $Opts.AutoLogon
+                    Stop-StreamingProcesses
+                    if ($Opts.PortGame -gt 0) { Write-GameConf -ConsoleConfPath $ConfPath -GameConfPath $GameConfPath -PortGame $Opts.PortGame -DisplayMode $Opts.DisplayMode -Vw $Opts.Vw -Vh $Opts.Vh }
+                    # 先写两份 state 的凭证与主机身份，再启动服务；避免守卫拉起 Apollo 后回写覆盖
+                    Set-WebUICredentials -User $Opts.WebUser -Password $Opts.WebUiPassword
+                    Ensure-DistinctUniqueIds
+                    Install-Wsguard -RdpUser $Opts.User -Password $Opts.Password -Vw $Opts.Vw -Vh $Opts.Vh -AutoLogon $Opts.AutoLogon -DisplayMode $Opts.DisplayMode -DisplayExclusive ($Opts.DisplayMode -eq 'only') -PortMain $Opts.PortMain -PortGame $Opts.PortGame -SudovdaResList $Opts.SudovdaResList
+                    # 服务就绪后立即触发 tick 拉起两个 Apollo，并等 WebUI 端口就绪
+                    Send-WsguardTick
+                    Wait-ApolloWeb -PortMain ($Opts.PortMain + 1) -PortGame ($Opts.PortGame + 1)
                     Install-ApolloGuard -User $Opts.User
                 }
+                'sudovda'  { Install-SudoVDA }
                 'gamemgr'  { Install-GameManager }
-                'reset'    { Reset-SunshineState }
+                'tray'     { Install-TrayApp -DesktopShortcut ([bool]$Opts.TrayDesktop) -StartShortcut ([bool]$Opts.TrayStart) -AutoStart ([bool]$Opts.TrayAuto) -StartNow $true -PortMain $Opts.PortMain -PortGame $Opts.PortGame -WebUser $Opts.WebUser }
+                'reset'    { Stop-StreamingProcesses; Reset-SunshineState }
                 default    { throw "未知安装项 $k" }
             }
             $S.Prog.Steps[$k] = 'ok'
@@ -687,7 +1092,7 @@ function Invoke-InstallRun {
             [void]$results.Add(@{ Key = $k; Label = [string]$labels[$k]; Ok = $false })
         }
     }
-    if (Get-Process -Name 'sunshine' -ErrorAction SilentlyContinue) {
+    if ((Get-Process -Name 'sunshine' -ErrorAction SilentlyContinue) -and -not $S.Prog.Steps['wsguard']) {
         Write-Log '提示: Sunshine 正在运行，需要重启 Sunshine 后新配置才生效'
     }
     $S.Prog.Results = @($results | ForEach-Object {
@@ -698,6 +1103,8 @@ function Invoke-InstallRun {
 
 function Invoke-UninstallRun {
     param([hashtable]$Opts)
+    # 卸载一律先停服务并结束 WSGuard / Sunshine / 托盘进程，再执行反注册
+    Stop-StreamingProcesses
     $keys   = @($Opts.Steps)
     $labels = $Opts.Labels
     $S.Prog.StepTotal = $keys.Count
@@ -717,7 +1124,9 @@ function Invoke-UninstallRun {
                     Uninstall-ApolloGuard
                     Uninstall-Wsguard
                 }
+                'sudovda'  { Uninstall-SudoVDA }
                 'gamemgr'  { Uninstall-GameManager }
+                'trayapp'  { Uninstall-TrayApp }
                 default    { throw "未知卸载项 $k" }
             }
             $S.Prog.Steps[$k] = 'ok'
@@ -757,6 +1166,9 @@ $xaml = @'
       <Setter Property="Foreground" Value="#E2E8F0"/>
     </Style>
     <Style TargetType="CheckBox">
+      <Setter Property="Foreground" Value="#E2E8F0"/>
+    </Style>
+    <Style TargetType="RadioButton">
       <Setter Property="Foreground" Value="#E2E8F0"/>
     </Style>
     <Style TargetType="TextBox">
@@ -1068,7 +1480,7 @@ $xaml = @'
                 <TextBlock Text="Sunshine-Duo" Foreground="White" FontSize="14.5" FontWeight="Bold"
                            VerticalAlignment="Center"/>
               </StackPanel>
-              <TextBlock Text="串流环境一键部署" Foreground="#64748B" FontSize="11" Margin="0,7,0,0"/>
+              <TextBlock Text="串流环境一键部署" Foreground="#94A3B8" FontSize="11" Margin="0,7,0,0"/>
             </StackPanel>
             <!-- 导航 -->
             <StackPanel Grid.Row="1" x:Name="navHost">
@@ -1150,7 +1562,7 @@ $xaml = @'
             </StackPanel>
           </Grid>
 
-          <!-- ── 配置页（三步向导） ── -->
+          <!-- ── 配置页（五步向导） ── -->
           <Grid x:Name="pgS" Margin="28,20,28,16" Visibility="Collapsed">
             <Grid.RenderTransform><TranslateTransform x:Name="ttS"/></Grid.RenderTransform>
             <Grid.RowDefinitions>
@@ -1164,11 +1576,17 @@ $xaml = @'
               <TextBlock x:Name="lblStep1" Text="① 显卡与组件" FontSize="13" FontWeight="Bold"
                          Foreground="#3B82F6"/>
               <TextBlock Text="  ──  " Foreground="#475569"/>
-              <TextBlock x:Name="lblStep2" Text="② 串流用户密码" FontSize="13" FontWeight="Bold"
-                         Foreground="#64748B"/>
+              <TextBlock x:Name="lblStep2" Text="② 串流用户" FontSize="13" FontWeight="Bold"
+                         Foreground="#94A3B8"/>
               <TextBlock Text="  ──  " Foreground="#475569"/>
-              <TextBlock x:Name="lblStep3" Text="③ 可选功能" FontSize="13" FontWeight="Bold"
-                         Foreground="#64748B"/>
+              <TextBlock x:Name="lblStep3" Text="③ 虚拟显示器" FontSize="13" FontWeight="Bold"
+                         Foreground="#94A3B8"/>
+              <TextBlock Text="  ──  " Foreground="#475569"/>
+              <TextBlock x:Name="lblStep4" Text="④ 端口与选项" FontSize="13" FontWeight="Bold"
+                         Foreground="#94A3B8"/>
+              <TextBlock Text="  ──  " Foreground="#475569"/>
+              <TextBlock x:Name="lblStep5" Text="⑤ 后台账号" FontSize="13" FontWeight="Bold"
+                         Foreground="#94A3B8"/>
             </StackPanel>
 
             <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
@@ -1182,7 +1600,7 @@ $xaml = @'
                       <TextBlock Text="渲染显卡：" VerticalAlignment="Center"/>
                       <ComboBox x:Name="cmbGpu" Width="420" Height="26" VerticalContentAlignment="Center"/>
                     </StackPanel>
-                    <TextBlock x:Name="lblGpuInfo" Foreground="#64748B" FontSize="11"
+                    <TextBlock x:Name="lblGpuInfo" Foreground="#94A3B8" FontSize="11"
                                Margin="0,6,0,0" TextWrapping="Wrap" Text="检测中..."/>
                   </StackPanel>
                 </Border>
@@ -1190,86 +1608,267 @@ $xaml = @'
                   <StackPanel>
                     <TextBlock Text="必装组件（默认全部安装）" Foreground="#94A3B8" FontSize="11" Margin="0,0,0,6"/>
                     <CheckBox x:Name="chkConf" IsChecked="True" IsEnabled="False" Content="默认配置"/>
-                    <TextBlock FontSize="11" Foreground="#64748B" Margin="20,2,0,0" TextWrapping="Wrap"
+                    <TextBlock FontSize="11" Foreground="#94A3B8" Margin="20,2,0,0" TextWrapping="Wrap"
                                Text="按所选显卡写入 Sunshine 配置文件，含编码 / 手柄 / UPnP"/>
                     <CheckBox x:Name="chkFirewall" IsChecked="True" IsEnabled="False" Margin="0,4,0,0"
                               Content="防火墙规则"/>
-                    <TextBlock FontSize="11" Foreground="#64748B" Margin="20,2,0,0"
+                    <TextBlock FontSize="11" Foreground="#94A3B8" Margin="20,2,0,0"
                                Text="放行 Sunshine 串流端口 TCP / UDP 入站"/>
                     <CheckBox x:Name="chkRdpWrap" IsChecked="True" IsEnabled="False" Margin="0,4,0,0"
                               Content="RDP 并发解锁"/>
-                    <TextBlock FontSize="11" Foreground="#64748B" Margin="20,2,0,0" TextWrapping="Wrap"
+                    <TextBlock FontSize="11" Foreground="#94A3B8" Margin="20,2,0,0" TextWrapping="Wrap"
                                Text="同一主机同时登录主用户与串流用户，Console 会话与游戏会话互不抢占"/>
                     <CheckBox x:Name="chkWsguard" IsChecked="True" IsEnabled="False" Margin="0,4,0,0"
                               Content="串流会话守护服务"/>
-                    <TextBlock FontSize="11" Foreground="#64748B" Margin="20,2,0,0" TextWrapping="Wrap"
+                    <TextBlock FontSize="11" Foreground="#94A3B8" Margin="20,2,0,0" TextWrapping="Wrap"
                                Text="WSGuard：串流断开后维持虚拟显示输出；开机自动启动 Sunshine"/>
                   </StackPanel>
                 </Border>
                 <Border Style="{StaticResource Card}">
                   <StackPanel>
                     <CheckBox x:Name="chkGpuAccel" IsChecked="True" Content="会话 GPU 加速"/>
-                    <TextBlock FontSize="11" Foreground="#64748B" Margin="20,2,0,0" TextWrapping="Wrap"
+                    <TextBlock FontSize="11" Foreground="#94A3B8" Margin="20,2,0,0" TextWrapping="Wrap"
                                Text="远程会话改用物理显卡渲染，优先 AVC444 画质与硬件编码；已连接的会话需断开重连后生效"/>
                     <CheckBox x:Name="chkGamepad" IsChecked="True" Margin="0,6,0,0" Content="虚拟手柄驱动"/>
-                    <TextBlock FontSize="11" Foreground="#64748B" Margin="20,2,0,0" TextWrapping="Wrap"
+                    <TextBlock FontSize="11" Foreground="#94A3B8" Margin="20,2,0,0" TextWrapping="Wrap"
                                Text="ViGEmBus：串流手柄识别为 Xbox 360 手柄；已安装 1.17 或更新版本时自动跳过"/>
                   </StackPanel>
                 </Border>
               </StackPanel>
             </ScrollViewer>
 
-            <!-- 第 2 步 · 串流用户与密码（默认隐藏，Set-WizardStep 切换） -->
+            <!-- 第 2 步 · 主用户（Console）｜游戏用户（RDP）左右两栏 -->
             <StackPanel Grid.Row="1" x:Name="grpStep2" Margin="4,0,10,0" Visibility="Collapsed">
-              <Border Style="{StaticResource Card}">
-                <StackPanel>
-                  <TextBlock x:Name="txtStep2Title" Text="第 2 步 · 串流用户登录密码"
-                             Foreground="#7DD3FC" FontSize="12.5" FontWeight="Bold" Margin="0,0,0,8"/>
-                  <StackPanel Orientation="Horizontal">
-                    <TextBlock Text="串流用户：" VerticalAlignment="Center" FontWeight="Bold"/>
-                    <TextBlock x:Name="lblUser" VerticalAlignment="Center" Margin="4,0,0,0" FontWeight="Bold"/>
-                    <TextBlock Foreground="#DC2626" FontSize="11" Margin="14,0,0,0" VerticalAlignment="Center"
-                               TextWrapping="Wrap" Text="当前用户，如需更换请先登录对应用户再运行。"/>
+              <TextBlock x:Name="txtStep2Title" Text="第 2 步 · 设置串流用户"
+                         Foreground="#7DD3FC" FontSize="14" FontWeight="Bold" Margin="2,0,0,10"/>
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="250"/>
+                  <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- 左栏 · 主用户（Console 会话，只读身份卡） -->
+                <Border Grid.Column="0" Style="{StaticResource Card}" Margin="0,0,14,12" Padding="0">
+                  <StackPanel>
+                    <Border Height="4" CornerRadius="10,10,0,0" Background="#3B82F6"/>
+                    <StackPanel Margin="18,16,18,16">
+                      <TextBlock Text="主用户" Foreground="#7DD3FC" FontSize="15" FontWeight="Bold"/>
+                      <TextBlock Text="Console 会话" Foreground="#94A3B8" FontSize="11" Margin="0,2,0,16"/>
+                      <Border Width="64" Height="64" CornerRadius="32" Background="#16233F"
+                              BorderBrush="#2A3B5F" BorderThickness="1" HorizontalAlignment="Left">
+                        <TextBlock x:Name="lblConsoleAvatar" Text="?" FontSize="26" FontWeight="Bold"
+                                   Foreground="#38BDF8" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                      </Border>
+                      <TextBlock x:Name="txtConsoleUser" Foreground="White" FontSize="17" FontWeight="Bold"
+                                 Margin="0,12,0,0" TextTrimming="CharacterEllipsis"/>
+                      <Border Background="#14251A" BorderBrush="#1F5F35" BorderThickness="1" CornerRadius="11"
+                              Padding="9,4" HorizontalAlignment="Left" Margin="0,12,0,0">
+                        <StackPanel Orientation="Horizontal">
+                          <TextBlock Text="✓" Foreground="#22C55E" FontSize="11" FontWeight="Bold"
+                                     VerticalAlignment="Center"/>
+                          <TextBlock Text="SYSTEM 接管 · 无需密码" Foreground="#22C55E" FontSize="11"
+                                     FontWeight="Bold" Margin="5,0,0,0" VerticalAlignment="Center"/>
+                        </StackPanel>
+                      </Border>
+                      <TextBlock Foreground="#94A3B8" FontSize="10.5" Margin="0,14,0,0" TextWrapping="Wrap"
+                                 Text="Console 会话由系统服务直接接管物理显示器或虚拟屏，无需登录密码。"/>
+                    </StackPanel>
                   </StackPanel>
-                  <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
-                    <TextBlock Text="登录密码：" VerticalAlignment="Center" FontWeight="Bold"/>
-                    <PasswordBox x:Name="pwdRdp" Width="200" Height="24" VerticalContentAlignment="Center"/>
-                    <Button x:Name="btnVerifyPw" Content="验证" Style="{StaticResource BtnGhost}"
-                            Width="62" Margin="6,0,0,0" Padding="0,4"/>
-                    <TextBlock x:Name="lblPwState" Margin="8,0,0,0" VerticalAlignment="Center"
-                               FontSize="11" Foreground="#64748B"/>
+                </Border>
+
+                <!-- 右栏 · 游戏用户（RDP 串流，表单卡） -->
+                <Border Grid.Column="1" Style="{StaticResource Card}" Margin="0,0,0,12" Padding="0">
+                  <StackPanel>
+                    <Border Height="4" CornerRadius="10,10,0,0" Background="#22C55E"/>
+                    <StackPanel Margin="20,16,20,16">
+                      <TextBlock Text="游戏用户" Foreground="#7DD3FC" FontSize="15" FontWeight="Bold"/>
+                      <TextBlock Text="RDP 串流会话 · 手机 / 平板连这个会话" Foreground="#94A3B8"
+                                 FontSize="11" Margin="0,2,0,16"/>
+                      <TextBlock Text="用户名" Foreground="#94A3B8" FontSize="11" Margin="0,0,0,4"/>
+                      <StackPanel Orientation="Horizontal">
+                        <TextBox x:Name="txtStreamUser" Width="200" Height="28" FontSize="12.5"
+                                 VerticalContentAlignment="Center"/>
+                        <TextBlock Text="本机账户，如 Game" Foreground="#94A3B8" FontSize="11"
+                                   VerticalAlignment="Center" Margin="12,0,0,0"/>
+                      </StackPanel>
+                      <TextBlock Text="登录密码" Foreground="#94A3B8" FontSize="11" Margin="0,14,0,4"/>
+                      <StackPanel Orientation="Horizontal">
+                        <PasswordBox x:Name="pwdRdp" Width="200" Height="28" VerticalContentAlignment="Center"/>
+                        <Button x:Name="btnVerifyPw" Content="验证" Style="{StaticResource BtnGhost}"
+                                Height="28" Width="72" Margin="8,0,0,0" Padding="0,2"/>
+                        <TextBlock x:Name="lblPwState" Margin="12,0,0,0" VerticalAlignment="Center"
+                                   FontSize="11" Foreground="#94A3B8"/>
+                      </StackPanel>
+                      <TextBlock x:Name="lblCredState" Foreground="#94A3B8" FontSize="11" Margin="0,8,0,0"/>
+                      <CheckBox x:Name="chkAutoLogon" IsChecked="True" Margin="0,12,0,0"
+                                Content="开机自动登录游戏用户"/>
+                      <TextBlock FontSize="10.5" Foreground="#94A3B8" Margin="20,2,0,0"
+                                 Text="无人值守：重启后无需登录即恢复串流"/>
+                      <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
+                        <TextBlock Text="虚拟屏分辨率" Foreground="#94A3B8" FontSize="11"
+                                   VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <TextBox x:Name="txtWidth" Width="60" Height="26" Text="1600"
+                                 VerticalContentAlignment="Center"/>
+                        <TextBlock Text=" × " VerticalAlignment="Center" Foreground="#94A3B8"/>
+                        <TextBox x:Name="txtHeight" Width="60" Height="26" Text="720"
+                                 VerticalContentAlignment="Center"/>
+                        <TextBlock Text="手机横屏推荐 1920×1080" Foreground="#94A3B8" FontSize="10.5"
+                                   VerticalAlignment="Center" Margin="10,0,0,0"/>
+                      </StackPanel>
+                    </StackPanel>
                   </StackPanel>
-                  <TextBlock x:Name="lblCredState" Foreground="#64748B" FontSize="11" Margin="0,8,0,0"/>
-                  <CheckBox x:Name="chkAutoLogon" IsChecked="True" Margin="0,10,0,0"
-                            Content="开机自动登录串流用户"/>
-                  <TextBlock FontSize="11" Foreground="#64748B" Margin="20,2,0,0"
-                             Text="无人值守：重启后无需登录即恢复串流"/>
-                  <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                    <TextBlock Text="虚拟屏分辨率：" VerticalAlignment="Center"/>
-                    <TextBox x:Name="txtWidth" Width="64" Height="24" Text="1600"
-                             VerticalContentAlignment="Center"/>
-                    <TextBlock Text=" × " VerticalAlignment="Center"/>
-                    <TextBox x:Name="txtHeight" Width="64" Height="24" Text="720"
-                             VerticalContentAlignment="Center"/>
-                    <TextBlock Text="（手机横屏推荐 1920×1080）" Foreground="#64748B" FontSize="11"
-                               VerticalAlignment="Center" Margin="6,0,0,0"/>
-                  </StackPanel>
-                </StackPanel>
-              </Border>
+                </Border>
+              </Grid>
             </StackPanel>
 
-            <!-- 第 3 步 · 可选功能（默认隐藏，Set-WizardStep 切换） -->
+            <!-- 第 3 步 · 虚拟显示器（SudoVDA）（默认隐藏，Set-WizardStep 切换） -->
             <StackPanel Grid.Row="1" x:Name="grpStep3" Margin="4,0,10,0" Visibility="Collapsed">
+              <TextBlock Text="第 3 步 · 虚拟显示器（SudoVDA）"
+                         Foreground="#7DD3FC" FontSize="14" FontWeight="Bold" Margin="2,0,0,10"/>
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="330"/>
+                  <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- 左栏 · 驱动与模式 -->
+                <Border Grid.Column="0" Style="{StaticResource Card}" Margin="0,0,14,12" Padding="0">
+                  <StackPanel>
+                    <Border Height="4" CornerRadius="10,10,0,0" Background="#3B82F6"/>
+                    <StackPanel Margin="18,16,18,16">
+                      <TextBlock Text="驱动与显示方式" Foreground="#7DD3FC" FontSize="15" FontWeight="Bold"/>
+                      <TextBlock Text="Console 主会话的虚拟显示器" Foreground="#94A3B8" FontSize="11" Margin="0,2,0,14"/>
+                      <CheckBox x:Name="chkSudoVDA" Margin="0,0,0,4" Content="安装 SudoVDA 驱动"/>
+                      <TextBlock FontSize="10.5" Foreground="#94A3B8" Margin="20,0,0,12"
+                                 Text="未安装驱动时仅可选择「镜像」模式"/>
+                      <RadioButton x:Name="svMirror" GroupName="SudovdaMode" IsChecked="True" Margin="0,4,0,0"
+                                   Foreground="#E2E8F0" Content="镜像 · 串流物理主屏"/>
+                      <TextBlock FontSize="10.5" Foreground="#94A3B8" Margin="20,0,0,0" TextWrapping="Wrap"
+                                 Text="串流画面 = Console 物理显示器内容，不创建虚拟显示器"/>
+                      <RadioButton x:Name="svOnly" GroupName="SudovdaMode" Margin="0,10,0,0"
+                                   Content="独占 · 仅虚拟显示器"/>
+                      <TextBlock FontSize="10.5" Foreground="#94A3B8" Margin="20,0,0,0" TextWrapping="Wrap"
+                                 Text="只激活虚拟显示器，物理显示器全部关闭（熄屏串流）"/>
+                      <RadioButton x:Name="svExtend" GroupName="SudovdaMode" Margin="0,10,0,0"
+                                   Content="扩展 · 物理屏 + 虚拟屏"/>
+                      <TextBlock FontSize="10.5" Foreground="#94A3B8" Margin="20,0,0,0" TextWrapping="Wrap"
+                                 Text="物理显示器保留，虚拟显示器作为独立扩展桌面"/>
+                      <TextBlock x:Name="svModeDesc" Text="" Foreground="#94A3B8" FontSize="11"
+                                 Margin="0,14,0,0" TextWrapping="Wrap"/>
+                    </StackPanel>
+                  </StackPanel>
+                </Border>
+
+                <!-- 右栏 · 分辨率列表 -->
+                <Border Grid.Column="1" Style="{StaticResource Card}" Margin="0,0,0,12" Padding="0">
+                  <StackPanel>
+                    <Border Height="4" CornerRadius="10,10,0,0" Background="#22C55E"/>
+                    <StackPanel Margin="20,16,20,16">
+                      <TextBlock Text="虚拟屏分辨率" Foreground="#7DD3FC" FontSize="15" FontWeight="Bold"/>
+                      <TextBlock Text="格式 1920x1080@60 · 选中项为串流分辨率" Foreground="#94A3B8"
+                                 FontSize="11" Margin="0,2,0,12"/>
+                      <ListBox x:Name="svResList" Height="132" Background="#0C1526" BorderBrush="#2A3B5F"
+                               BorderThickness="1" FontSize="12" ScrollViewer.VerticalScrollBarVisibility="Auto">
+                        <ListBox.ItemContainerStyle>
+                          <Style TargetType="ListBoxItem">
+                            <Setter Property="Foreground" Value="#E2E8F0"/>
+                            <Setter Property="Padding" Value="8,4"/>
+                          </Style>
+                        </ListBox.ItemContainerStyle>
+                      </ListBox>
+                      <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                        <TextBox x:Name="svResInput" Width="150" Height="28" VerticalContentAlignment="Center"/>
+                        <Button x:Name="svResAdd" Content="添加" Style="{StaticResource BtnGhost}"
+                                Height="28" Width="64" Margin="8,0,0,0" Padding="0,2"/>
+                        <Button x:Name="svResDel" Content="删除选中" Style="{StaticResource BtnGhost}"
+                                Height="28" Width="86" Margin="8,0,0,0" Padding="0,2"/>
+                      </StackPanel>
+                      <TextBlock Text="快速添加" Foreground="#94A3B8" FontSize="11" Margin="0,14,0,6"/>
+                      <StackPanel Orientation="Horizontal">
+                        <Button x:Name="svP169" Content="16:9" Style="{StaticResource BtnGhost}"
+                                Height="28" Width="72" Padding="0,2"/>
+                        <Button x:Name="svP1610" Content="16:10" Style="{StaticResource BtnGhost}"
+                                Height="28" Width="72" Margin="8,0,0,0" Padding="0,2"/>
+                        <Button x:Name="svP219" Content="21:9" Style="{StaticResource BtnGhost}"
+                                Height="28" Width="72" Margin="8,0,0,0" Padding="0,2"/>
+                        <TextBlock Text="每类补齐常用档位，已有的自动跳过" Foreground="#94A3B8" FontSize="10.5"
+                                   VerticalAlignment="Center" Margin="12,0,0,0"/>
+                      </StackPanel>
+                    </StackPanel>
+                  </StackPanel>
+                </Border>
+              </Grid>
+            </StackPanel>
+
+            <!-- 第 4 步 · 可选功能与端口（默认隐藏，Set-WizardStep 切换） -->
+            <StackPanel Grid.Row="1" x:Name="grpStep4" Margin="4,0,10,0" Visibility="Collapsed">
               <Border Style="{StaticResource Card}">
                 <StackPanel>
                   <TextBlock Text="可选功能" Foreground="#7DD3FC" FontSize="12.5"
                              FontWeight="Bold" Margin="0,0,0,8"/>
                   <CheckBox x:Name="chkGameMgr" Content="游戏菜单（GameManager），建议安装"/>
-                  <TextBlock FontSize="11" Foreground="#64748B" Margin="20,2,0,0" TextWrapping="Wrap"
+                  <TextBlock FontSize="11" Foreground="#94A3B8" Margin="20,2,0,0" TextWrapping="Wrap"
                              Text="可直接启动需要管理员权限的游戏；游戏快捷方式放入 Links 目录，串流端即可启动"/>
                   <CheckBox x:Name="chkReset" Margin="0,8,0,0" Content="解绑所有已配对设备"/>
-                  <TextBlock FontSize="11" Foreground="#64748B" Margin="20,2,0,0" TextWrapping="Wrap"
+                  <TextBlock FontSize="11" Foreground="#94A3B8" Margin="20,2,0,0" TextWrapping="Wrap"
                              Text="手机 / 平板 / 电视需重新配对"/>
+                </StackPanel>
+              </Border>
+              <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+                <StackPanel>
+                  <TextBlock Text="串流端口（双会话）" Foreground="#7DD3FC" FontSize="12.5"
+                             FontWeight="Bold" Margin="0,0,0,8"/>
+                  <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                    <TextBlock Text="主会场（Console）端口族：" VerticalAlignment="Center"
+                               Foreground="#94A3B8"/>
+                    <TextBox x:Name="txtPortMain" Width="72" Height="24" Text="48100"
+                             VerticalContentAlignment="Center"/>
+                    <TextBlock Text=" 游戏会话（Game）端口族：" VerticalAlignment="Center"
+                               Foreground="#94A3B8" Margin="8,0,0,0"/>
+                    <TextBox x:Name="txtPortGame" Width="72" Height="24" Text="48200"
+                             VerticalContentAlignment="Center"/>
+                  </StackPanel>
+                  <TextBlock Text="两个端口差值 ≥ 22（RTSP = port+21，端口族不能重叠）；默认相距 100，留空则维持默认"
+                             Foreground="#94A3B8" FontSize="11" Margin="20,6,0,0"/>
+                </StackPanel>
+              </Border>
+              <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+                <StackPanel>
+                  <TextBlock Text="托盘应用（SunshineDuoTray）" Foreground="#7DD3FC" FontSize="12.5"
+                             FontWeight="Bold" Margin="0,0,0,8"/>
+                  <CheckBox x:Name="chkTrayDesktop" IsChecked="True" Content="创建桌面快捷方式"/>
+                  <CheckBox x:Name="chkTrayStart" IsChecked="True" Margin="0,6,0,0" Content="创建开始菜单快捷方式"/>
+                  <CheckBox x:Name="chkTrayAuto" Margin="0,6,0,0" Content="开机自启"/>
+                  <TextBlock FontSize="11" Foreground="#94A3B8" Margin="20,6,0,0" TextWrapping="Wrap"
+                             Text="勾选任意一项即部署托盘到 tools\SunshineDuoTray：查看双 Apollo 状态、打开后台、配对管理、重置后台密码、重启 Apollo。开机自启只对当前登录用户生效；安装后可在托盘菜单「设置」里随时修改"/>
+                </StackPanel>
+              </Border>
+            </StackPanel>
+
+            <!-- 第 5 步 · WebUI 后台账号（独立一页，与游戏用户分开） -->
+            <StackPanel Grid.Row="1" x:Name="grpStep5" Margin="4,0,10,0" Visibility="Collapsed">
+              <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+                <StackPanel>
+                  <TextBlock Text="WebUI 后台账号" Foreground="#7DD3FC" FontSize="15" FontWeight="Bold"/>
+                  <TextBlock Text="手机 / 平板浏览器登录后台，管理配对设备与串流设置"
+                             Foreground="#94A3B8" FontSize="11" Margin="0,2,0,18"/>
+                  <TextBlock Text="用户名" Foreground="#94A3B8" FontSize="11" Margin="0,0,0,4"/>
+                  <StackPanel Orientation="Horizontal">
+                    <TextBox x:Name="txtWebUser" Width="240" Height="28" FontSize="12.5"
+                             VerticalContentAlignment="Center"/>
+                    <TextBlock Text="与 RDP 登录用户无关" Foreground="#94A3B8" FontSize="11"
+                               VerticalAlignment="Center" Margin="12,0,0,0"/>
+                  </StackPanel>
+                  <TextBlock Text="密码" Foreground="#94A3B8" FontSize="11" Margin="0,16,0,4"/>
+                  <PasswordBox x:Name="pwdWebUi" Width="240" Height="28" HorizontalAlignment="Left"
+                               VerticalContentAlignment="Center"/>
+                  <TextBlock Text="确认密码" Foreground="#94A3B8" FontSize="11" Margin="0,12,0,4"/>
+                  <PasswordBox x:Name="pwdWebUi2" Width="240" Height="28" HorizontalAlignment="Left"
+                               VerticalContentAlignment="Center"/>
+                  <TextBlock x:Name="lblWebPwState" Foreground="#94A3B8" FontSize="11" Margin="0,12,0,0"
+                             TextWrapping="Wrap"/>
+                  <TextBlock Foreground="#94A3B8" FontSize="10.5" Margin="0,14,0,0" TextWrapping="Wrap"
+                             Text="安装完成页会显示后台地址；控制台与游戏会话共用一个账号密码"/>
                 </StackPanel>
               </Border>
             </StackPanel>
@@ -1297,15 +1896,16 @@ $xaml = @'
               <RowDefinition Height="Auto"/>
               <RowDefinition Height="Auto"/>
               <RowDefinition Height="Auto"/>
+              <RowDefinition Height="Auto"/>
               <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
 
             <TextBlock Grid.Row="0" x:Name="lblPhaseTitle" Text="正在部署串流环境..."
                        FontSize="17" FontWeight="Bold" Foreground="White"/>
-            <TextBlock Grid.Row="0" x:Name="lblCurrent" Text="" Foreground="#7DD3FC"
+            <TextBlock Grid.Row="1" x:Name="lblCurrent" Text="" Foreground="#7DD3FC"
                        FontSize="12.5" Margin="0,6,0,0" TextTrimming="CharacterEllipsis"/>
 
-            <StackPanel Grid.Row="1" Width="560" HorizontalAlignment="Center" Margin="0,14,0,0">
+            <StackPanel Grid.Row="2" Width="560" HorizontalAlignment="Center" Margin="0,14,0,0">
               <Grid Height="12">
                 <ProgressBar x:Name="pgBar" Style="{StaticResource PbStyle}" Minimum="0" Maximum="100"
                              Value="0" Width="560"/>
@@ -1323,15 +1923,15 @@ $xaml = @'
                 </Border>
               </Grid>
               <Grid Margin="0,5,0,0">
-                <TextBlock x:Name="lblStepCount" Text="" Foreground="#64748B" FontSize="11"
+                <TextBlock x:Name="lblStepCount" Text="" Foreground="#94A3B8" FontSize="11"
                            HorizontalAlignment="Center"/>
               </Grid>
             </StackPanel>
 
-            <StackPanel Grid.Row="2" x:Name="stepsHost" Width="560" HorizontalAlignment="Center"
+            <StackPanel Grid.Row="3" x:Name="stepsHost" Width="560" HorizontalAlignment="Center"
                         Margin="0,10,0,4"/>
 
-            <Border Grid.Row="3" Background="#D90C1526" CornerRadius="8" Margin="0,10,0,0"
+            <Border Grid.Row="4" Background="#D90C1526" CornerRadius="8" Margin="0,10,0,0"
                     BorderBrush="#1E293B" BorderThickness="1">
               <TextBox x:Name="txtLog" IsReadOnly="True" FontFamily="Consolas" FontSize="11.5"
                        Background="Transparent" Foreground="#D1E3F8" BorderThickness="0" Padding="8,6"
@@ -1350,6 +1950,14 @@ $xaml = @'
                          Foreground="White" HorizontalAlignment="Center" Margin="0,6,0,4"/>
               <TextBlock x:Name="lblFinishNote" Text="" Foreground="#94A3B8" FontSize="12"
                          HorizontalAlignment="Center" TextWrapping="Wrap"/>
+              <Border x:Name="cardWebUi" Style="{StaticResource Card}" Margin="0,16,0,0" Padding="16,12,16,12"
+                      Visibility="Collapsed">
+                <StackPanel>
+                  <TextBlock Text="WebUI 后台登录" Foreground="#7DD3FC" FontSize="13" FontWeight="Bold"/>
+                  <TextBlock x:Name="lblWebUiInfo" Foreground="#E2E8F0" FontSize="12" Margin="0,8,0,0"
+                             TextWrapping="Wrap"/>
+                </StackPanel>
+              </Border>
               <Border Style="{StaticResource Card}" Margin="0,16,0,0" MaxHeight="260">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                   <StackPanel x:Name="resHost"/>
@@ -1379,10 +1987,10 @@ $xaml = @'
                   <StackPanel>
                     <TextBlock Text="1 · 串流服务" Foreground="#94A3B8" FontSize="11" Margin="0,0,0,6"/>
                     <CheckBox x:Name="chkUFirewall" IsChecked="True" Content="移除防火墙放行规则"/>
-                    <TextBlock FontSize="11" Foreground="#64748B" Margin="20,2,0,0" Text="Apollo"/>
+                    <TextBlock FontSize="11" Foreground="#94A3B8" Margin="20,2,0,0" Text="Apollo"/>
                     <CheckBox x:Name="chkUGamepad" IsChecked="True" Margin="0,4,0,0"
                               Content="卸载虚拟手柄驱动（ViGEmBus）"/>
-                    <TextBlock FontSize="11" Foreground="#64748B" Margin="20,2,0,0" TextWrapping="Wrap"
+                    <TextBlock FontSize="11" Foreground="#94A3B8" Margin="20,2,0,0" TextWrapping="Wrap"
                                Text="其他程序依赖它时请勿勾选"/>
                   </StackPanel>
                 </Border>
@@ -1390,11 +1998,11 @@ $xaml = @'
                   <StackPanel>
                     <TextBlock Text="2 · RDP 并发解锁" Foreground="#94A3B8" FontSize="11" Margin="0,0,0,6"/>
                     <CheckBox x:Name="chkURdpWrap" IsChecked="True" Content="卸载 RdpWrapper"/>
-                    <TextBlock FontSize="11" Foreground="#64748B" Margin="20,2,0,0" TextWrapping="Wrap"
+                    <TextBlock FontSize="11" Foreground="#94A3B8" Margin="20,2,0,0" TextWrapping="Wrap"
                                Text="恢复系统默认的单会话限制"/>
                     <CheckBox x:Name="chkUGpuAccel" IsChecked="True" Margin="0,4,0,0"
                               Content="删除会话 GPU 加速策略"/>
-                    <TextBlock FontSize="11" Foreground="#64748B" Margin="20,2,0,0" TextWrapping="Wrap"
+                    <TextBlock FontSize="11" Foreground="#94A3B8" Margin="20,2,0,0" TextWrapping="Wrap"
                                Text="恢复远程会话默认渲染策略，三个注册表值一并移除"/>
                   </StackPanel>
                 </Border>
@@ -1403,17 +2011,25 @@ $xaml = @'
                     <TextBlock Text="3 · 串流会话守护服务" Foreground="#94A3B8" FontSize="11" Margin="0,0,0,6"/>
                     <CheckBox x:Name="chkUWsguard" IsChecked="True"
                               Content="卸载 WSGuard 服务并取消 Sunshine 开机自启"/>
-                    <TextBlock FontSize="11" Foreground="#64748B" Margin="20,2,0,0"
+                    <TextBlock FontSize="11" Foreground="#94A3B8" Margin="20,2,0,0"
                                Text="保留密码与设置"/>
+                    <CheckBox x:Name="chkUSudovda" IsChecked="False" Margin="0,4,0,0"
+                              Content="卸载 SudoVDA 虚拟显示驱动"/>
+                    <TextBlock FontSize="11" Foreground="#94A3B8" Margin="20,2,0,0" TextWrapping="Wrap"
+                               Text="仅在安装过 SudoVDA 时勾选；卸载后屏幕可能闪烁"/>
                   </StackPanel>
                 </Border>
                 <Border Style="{StaticResource Card}">
                   <StackPanel>
                     <TextBlock Text="4 · 可选功能" Foreground="#94A3B8" FontSize="11" Margin="0,0,0,6"/>
                     <CheckBox x:Name="chkUGameMgr" IsChecked="True" Content="卸载游戏菜单（GameManager）"/>
+                    <CheckBox x:Name="chkUTray" IsChecked="True" Margin="0,6,0,0"
+                              Content="卸载 Sunshine-Duo 托盘（含快捷方式与开机自启）"/>
+                    <TextBlock FontSize="11" Foreground="#94A3B8" Margin="20,2,0,0" TextWrapping="Wrap"
+                               Text="删除 tools\SunshineDuoTray、快捷方式与自启项，不删除托盘配置"/>
                   </StackPanel>
                 </Border>
-                <TextBlock Foreground="#64748B" FontSize="11" Margin="2,2,2,0" TextWrapping="Wrap"
+                <TextBlock Foreground="#94A3B8" FontSize="11" Margin="2,2,2,0" TextWrapping="Wrap"
                            Text="卸载不会删除 Sunshine 本体和任何游戏存档，也不删除配置与已保存的密码。卸载 RDP 并发解锁或虚拟手柄驱动时屏幕可能闪烁，属正常现象；若正通过远程操作本机，连接会断开重连一次；虚拟手柄驱动可能需重启电脑后才彻底移除。"/>
               </StackPanel>
             </ScrollViewer>
@@ -1438,6 +2054,27 @@ $xaml = @'
 # ----------------------------------------------------------------------------
 # 自检模式（不做任何系统变更）
 # ----------------------------------------------------------------------------
+$UiControlNames = @('lblRoot','txtLog','cmbGpu','lblGpuInfo',
+                   'chkConf','chkFirewall','chkRdpWrap','chkWsguard',
+                   'chkGpuAccel','chkGamepad','chkGameMgr','chkReset','chkSudoVDA',
+                   'chkTrayDesktop','chkTrayStart','chkTrayAuto',
+                   'txtConsoleUser','lblConsoleAvatar','txtStreamUser','pwdRdp','btnVerifyPw','lblPwState','lblCredState','chkAutoLogon',
+                   'txtWebUser','pwdWebUi','pwdWebUi2','lblWebPwState',
+                   'txtWidth','txtHeight','btnBack','btnNext','btnInstall',
+                   'lblStep1','lblStep2','lblStep3','lblStep4','lblStep5','grpStep1','grpStep2','grpStep3','grpStep4','grpStep5','txtStep2Title',
+                   'rootFrame','btnGoSetup',
+                   'lblHeadTitle','btnMin','btnClose','lblSideRoot',
+                   'pgW','pgS','pgR','pgF','pgU','ttW','ttS','ttR','ttF','ttU',
+                   'lblWelcomeUser','lblWelcomeGpu','lblWelcomeWg','lblWelcomeCred',
+                   'lblPhaseTitle','lblCurrent','lblStepCount','pgBar','sheen','sheenTt','sheenClip','stepsHost',
+                   'lblFinishIcon','lblFinishTitle','lblFinishNote','resHost','btnViewLog','btnFinishOk',
+                   'cardWebUi','lblWebUiInfo',
+                   'chkUFirewall','chkUGamepad','chkURdpWrap','chkUGpuAccel','chkUWsguard','chkUSudovda','chkUGameMgr',
+                   'chkUTray',
+                   'btnUninstallBack','btnUninstallStart',
+                   'svMirror','svOnly','svExtend','svModeDesc',
+                   'svResList','svResInput','svResAdd','svResDel','svP169','svP1610','svP219',
+                   'txtPortMain','txtPortGame')
 function Invoke-SelfTest {
     $script:SelfTestFail = 0
     function Check([string]$Title, [scriptblock]$Body) {
@@ -1477,21 +2114,13 @@ function Invoke-SelfTest {
         $script:win = [Windows.Markup.XamlReader]::Parse($xaml)
         $script:win -is [System.Windows.Window]
     }
-    foreach ($n in @('lblRoot','txtLog','cmbGpu','lblGpuInfo',
-                     'chkConf','chkFirewall','chkRdpWrap','chkWsguard',
-                     'chkGpuAccel','chkGamepad','chkGameMgr','chkReset',
-                     'lblUser','pwdRdp','btnVerifyPw','lblPwState','lblCredState','chkAutoLogon',
-                     'txtWidth','txtHeight','btnBack','btnNext','btnInstall',
-                     'lblStep1','lblStep2','lblStep3','grpStep1','grpStep2','grpStep3','txtStep2Title',
-                     'rootFrame','btnGoSetup',
-                     'lblHeadTitle','btnMin','btnClose','lblSideRoot',
-                     'pgW','pgS','pgR','pgF','pgU','ttW','ttS','ttR','ttF','ttU',
-                     'lblWelcomeUser','lblWelcomeGpu','lblWelcomeWg','lblWelcomeCred',
-                     'lblPhaseTitle','lblCurrent','lblStepCount','pgBar','sheen','sheenTt','stepsHost',
-                     'lblFinishIcon','lblFinishTitle','lblFinishNote','resHost','btnViewLog','btnFinishOk',
-                     'chkUFirewall','chkUGamepad','chkURdpWrap','chkUGpuAccel','chkUWsguard','chkUGameMgr',
-                     'btnUninstallBack','btnUninstallStart')) {
+    foreach ($n in $UiControlNames) {
         Check "控件 $n" { $script:win.FindName($n) -ne $null }
+    }
+    Check '默认开机自动登录游戏用户' {
+        $ui = @{}
+        foreach ($n in $UiControlNames) { $ui[$n] = $script:win.FindName($n) }
+        $ui.ContainsKey('chkAutoLogon') -and ([bool]$ui['chkAutoLogon'].IsChecked)
     }
 
     # DPAPI roundtrip（LocalMachine 作用域，与 wsguard 解密方式兼容）
@@ -1683,20 +2312,7 @@ $window.Add_Loaded({
 
 # ---- 控件收集中转 ----
 $ui = @{}
-foreach ($n in @('lblRoot','txtLog','cmbGpu','lblGpuInfo',
-                 'chkConf','chkFirewall','chkRdpWrap','chkWsguard',
-                 'chkGpuAccel','chkGamepad','chkGameMgr','chkReset',
-                 'lblUser','pwdRdp','btnVerifyPw','lblPwState','lblCredState','chkAutoLogon',
-                 'txtWidth','txtHeight','btnBack','btnNext','btnInstall',
-                 'lblStep1','lblStep2','lblStep3','grpStep1','grpStep2','grpStep3','txtStep2Title',
-                 'rootFrame','btnGoSetup',
-                 'lblHeadTitle','btnMin','btnClose','lblSideRoot',
-                 'pgW','pgS','pgR','pgF','pgU','ttW','ttS','ttR','ttF','ttU',
-                 'lblWelcomeUser','lblWelcomeGpu','lblWelcomeWg','lblWelcomeCred',
-                 'lblPhaseTitle','lblCurrent','lblStepCount','pgBar','sheen','sheenTt','sheenClip','stepsHost',
-                 'lblFinishIcon','lblFinishTitle','lblFinishNote','resHost','btnViewLog','btnFinishOk',
-                 'chkUFirewall','chkUGamepad','chkURdpWrap','chkUGpuAccel','chkUWsguard','chkUGameMgr',
-                 'btnUninstallBack','btnUninstallStart')) {
+foreach ($n in $UiControlNames) {
     $ui[$n] = $window.FindName($n)
 }
 $script:LogBox = $ui['txtLog']
@@ -1715,7 +2331,9 @@ $S.GmSvcName     = $GmSvcName
 $S.RdpWrapDir    = $RdpWrapDir
 $S.LinksDir      = $LinksDir
 $S.ConfPath      = $ConfPath
-$S.StatePath     = $StatePath
+$S.LegacyStatePath = $LegacyStatePath
+$S.ConsoleStatePath = $ConsoleStatePath
+$S.GameStatePath    = $GameStatePath
 $S.LogPath       = $LogPath
 $S.LogBakPath    = $LogBakPath
 $S.TsPolicyKey   = $TsPolicyKey
@@ -1726,6 +2344,7 @@ $S.WgDir         = $WgDir
 $S.WgExe         = $WgExe
 $S.WgCredPath    = $WgCredPath
 $S.WgCfgPath     = $WgCfgPath
+$S.GameConfPath  = $GameConfPath
 $S.LogQueue      = [System.Collections.Queue]::Synchronized((New-Object System.Collections.Queue))
 $S.Prog          = [hashtable]::Synchronized(@{
     Steps = [hashtable]::Synchronized(@{}); StepIndex = 0; StepTotal = 0
@@ -1875,26 +2494,99 @@ $ui['btnUninstallBack'].Add_Click({ if (-not $script:Running) { Show-Page w } })
 $ui['btnFinishOk'].Add_Click({ $window.Close() })
 $ui['btnViewLog'].Add_Click({ Show-Page r })
 
-# ---- 三步向导 ----
+# ---- 五步向导 ----
 $script:WizardStep = 1
 function Set-WizardStep {
     param([int]$Step)
     $script:WizardStep = $Step
-    $ui['grpStep1'].Visibility = $(if ($Step -eq 1) { 'Visible' } else { 'Collapsed' })
-    $ui['grpStep2'].Visibility = $(if ($Step -eq 2) { 'Visible' } else { 'Collapsed' })
-    $ui['grpStep3'].Visibility = $(if ($Step -eq 3) { 'Visible' } else { 'Collapsed' })
-    $conv = [System.Windows.Media.BrushConverter]::new()
-    $ui['lblStep1'].Foreground = $conv.ConvertFromString($(if ($Step -eq 1) { '#3B82F6' } else { '#64748B' }))
-    $ui['lblStep2'].Foreground = $conv.ConvertFromString($(if ($Step -eq 2) { '#3B82F6' } else { '#64748B' }))
-    $ui['lblStep3'].Foreground = $conv.ConvertFromString($(if ($Step -eq 3) { '#3B82F6' } else { '#64748B' }))
-    $ui['btnBack'].Visibility  = $(if ($Step -eq 1) { 'Collapsed' } else { 'Visible' })
-    $ui['btnNext'].Visibility  = $(if ($Step -eq 3) { 'Collapsed' } else { 'Visible' })
-    $ui['btnInstall'].Visibility = $(if ($Step -eq 3) { 'Visible' } else { 'Collapsed' })
-    # 第 2 步标题带上当前串流用户名
-    if ($Step -eq 2 -and $script:CurUser) {
-        $ui['txtStep2Title'].Text = '第 2 步 · 用户「' + $script:CurUser + '」的登录密码'
+    foreach ($i in 1..5) {
+        $ui["grpStep$i"].Visibility = $(if ($Step -eq $i) { 'Visible' } else { 'Collapsed' })
+        $ui["lblStep$i"].Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString(
+            $(if ($Step -eq $i) { '#3B82F6' } else { '#64748B' }))
+    }
+    $ui['btnBack'].Visibility    = $(if ($Step -eq 1) { 'Collapsed' } else { 'Visible' })
+    $ui['btnNext'].Visibility    = $(if ($Step -eq 5) { 'Collapsed' } else { 'Visible' })
+    $ui['btnInstall'].Visibility = $(if ($Step -eq 5) { 'Visible' } else { 'Collapsed' })
+    # 进入后台账号页时预填用户名
+    if ($Step -eq 5 -and [string]::IsNullOrEmpty($ui['txtWebUser'].Text)) {
+        $ui['txtWebUser'].Text = $script:CurUser
+    }
+    # 第 2 步标题：设置串流用户（填了游戏用户名就带上）
+    if ($Step -eq 2) {
+        $user = $ui['txtStreamUser'].Text.Trim()
+        if ([string]::IsNullOrEmpty($user)) {
+            $ui['txtStep2Title'].Text = '第 2 步 · 设置串流用户'
+        } else {
+            $ui['txtStep2Title'].Text = '第 2 步 · 设置串流用户（游戏用户：' + $user + '）'
+        }
     }
 }
+# SudoVDA 显示方式说明文本（Set-WizardStep 与单选切换共用）
+function Update-SudovdaModeDesc {
+    $desc = if ($ui['svOnly'].IsChecked) {
+        '独占模式：客户端串流时（含「桌面」App）自动只保留 SudoVDA 虚拟显示器、物理显示器断开（拓扑由 WSGuard 运行期执行）'
+    } elseif ($ui['svExtend'].IsChecked) {
+        '扩展模式：物理显示器照常保留，虚拟显示器作为扩展桌面用于串流（桌面/游戏均走虚拟屏）'
+    } else {
+        '镜像模式：直接串流 Console 物理主屏画面，不创建虚拟显示器（无需 SudoVDA）'
+    }
+    $ui['svModeDesc'].Text = $desc
+}
+$svGroup = @($ui['svMirror'], $ui['svOnly'], $ui['svExtend'])
+foreach ($rb in $svGroup) {
+    $rb.Add_Checked({ Update-SudovdaModeDesc })
+}
+
+# ---- 分辨率列表：1920x1080@60 格式的增删与预设 ----
+function Format-ResString {
+    param([string]$Raw)
+    if ($Raw -match '^\s*(\d{2,5})\s*[xX×]\s*(\d{2,5})\s*(?:@\s*(\d{2,3})\s*)?$') {
+        $w = [int]$Matches[1]; $h = [int]$Matches[2]
+        if ($w -lt 320 -or $w -gt 7680 -or $h -lt 240 -or $h -gt 4320) { return $null }
+        $s = [string]$w + 'x' + [string]$h
+        if ($Matches[3]) { $s += "@$([int]$Matches[3])" }
+        return $s
+    }
+    return $null
+}
+function Add-ResItem {
+    param([string]$Raw)
+    $norm = Format-ResString -Raw $Raw
+    if (-not $norm) {
+        $ui['svModeDesc'].Text = "分辨率格式无效：$Raw（应为 1920x1080@60）"
+        return
+    }
+    foreach ($it in $ui['svResList'].Items) {
+        if ([string]$it -eq $norm) { return }  # 已存在，跳过
+    }
+    $null = $ui['svResList'].Items.Add($norm)
+    Update-SudovdaModeDesc
+}
+$ui['svResAdd'].Add_Click({
+    $raw = $ui['svResInput'].Text.Trim()
+    if ($raw) { Add-ResItem -Raw $raw; $ui['svResInput'].Text = '' }
+})
+$ui['svResInput'].Add_KeyDown({
+    param($s, $e)
+    if ($e.Key -eq 'Enter') {
+        $raw = $ui['svResInput'].Text.Trim()
+        if ($raw) { Add-ResItem -Raw $raw; $ui['svResInput'].Text = '' }
+    }
+})
+$ui['svResDel'].Add_Click({
+    $sel = $ui['svResList'].SelectedIndex
+    if ($sel -ge 0) { $ui['svResList'].Items.RemoveAt($sel) }
+})
+# 预设：16:9 / 16:10 / 21:9 常用档位，已有的自动跳过
+$ui['svP169'].Add_Click({
+    foreach ($r in @('1280x720@60', '1920x1080@60', '2560x1440@120', '3840x2160@60')) { Add-ResItem -Raw $r }
+})
+$ui['svP1610'].Add_Click({
+    foreach ($r in @('1920x1200@60', '2560x1600@120')) { Add-ResItem -Raw $r }
+})
+$ui['svP219'].Add_Click({
+    foreach ($r in @('2560x1080@60', '3440x1440@100')) { Add-ResItem -Raw $r }
+})
 $ui['btnNext'].Add_Click({
     if ($script:Running) { return }
     if ($script:WizardStep -eq 1) {
@@ -1906,22 +2598,48 @@ $ui['btnNext'].Add_Click({
     }
     if ($script:WizardStep -eq 2) {
         $pw = $ui['pwdRdp'].Password
+        $streamUser = $ui['txtStreamUser'].Text.Trim()
+        if ([string]::IsNullOrEmpty($streamUser) -or
+            (-not (Get-LocalUser -Name $streamUser -ErrorAction SilentlyContinue))) {
+            [void][System.Windows.MessageBox]::Show($window,
+                "游戏用户 $streamUser 不是本机用户或不存在，请先创建该用户，而非回车。", '用户不合法',
+                [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Warning)
+            return
+        }
+        $expected = "$streamUser`:$pw"
         if ([string]::IsNullOrEmpty($pw)) {
             # 留空允许继续，但必须弹窗提示后果
             if (Test-Path $WgCredPath) {
                 [void][System.Windows.MessageBox]::Show($window,
-                    '密码已留空：将沿用已保存的 rdp.cred（串流登录密码）。', '留空密码',
+                    '密码已留空：将沿用已保存的 rdp.cred（游戏用户登录密码）。', '留空密码',
                     [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
             } else {
                 [void][System.Windows.MessageBox]::Show($window,
                     '密码已留空且此前未保存过凭据：请回上一步输入密码并验证后再继续。', '留空密码',
                     [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
             }
-        } elseif (-not $script:PwVerified -or $pw -ne $script:PwVerifiedFor) {
+        } elseif (-not $script:PwVerified -or $expected -ne $script:PwVerifiedFor) {
             [void][System.Windows.MessageBox]::Show($window,
                 '密码未经过验证或验证未通过，请点「验证」后继续。', '密码验证失败',
                 [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Warning)
             return
+        }
+    }
+    if ($script:WizardStep -eq 3) {
+        # 独占 / 扩展需要 SudoVDA 驱动 + 至少一条分辨率
+        if ($ui['svOnly'].IsChecked -or $ui['svExtend'].IsChecked) {
+            if (-not $ui['chkSudoVDA'].IsChecked) {
+                [void][System.Windows.MessageBox]::Show($window,
+                    '独占 / 扩展模式需要 SudoVDA 虚拟显示驱动，请勾选「安装 SudoVDA 驱动」。', '缺少驱动',
+                    [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Warning)
+                return
+            }
+            if ($ui['svResList'].Items.Count -eq 0) {
+                [void][System.Windows.MessageBox]::Show($window,
+                    '请至少添加一条虚拟屏分辨率（如 1920x1080@60），或改用「镜像」模式。', '缺少分辨率',
+                    [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Warning)
+                return
+            }
         }
     }
     Set-WizardStep ($script:WizardStep + 1)
@@ -1936,7 +2654,10 @@ $script:CurUser = $env:USERNAME
 try {
     $script:CurUser = ([Security.Principal.WindowsIdentity]::GetCurrent().Name -split '\\')[-1]
 } catch { }
-$ui['lblUser'].Text = $script:CurUser
+# 主用户（Console 侧）固定显示当前登录用户，不改逻辑
+$ui['txtConsoleUser'].Text = $script:CurUser
+if ([string]::IsNullOrEmpty($script:CurUser)) { $ui['lblConsoleAvatar'].Text = '?' }
+else { $ui['lblConsoleAvatar'].Text = $script:CurUser.Substring(0, 1).ToUpper() }
 $ui['lblWelcomeUser'].Text = $script:CurUser
 
 $gpus = Get-PhysicalGpus
@@ -1967,32 +2688,140 @@ if ($curAd) {
     if ($idx -ge 0) { $ui['cmbGpu'].SelectedIndex = $idx }
 }
 
-# 预填当前 wsguard config.json 里的虚拟屏分辨率
+# 预填当前 wsguard config.json 里的虚拟屏分辨率与已保存的分辨率清单
 try {
     $wg = Get-Content -LiteralPath $WgCfgPath -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json
     if ($wg.width)  { $ui['txtWidth'].Text  = [string][int]$wg.width }
     if ($wg.height) { $ui['txtHeight'].Text = [string][int]$wg.height }
+    if ($wg.sudovda_resolutions) {
+        foreach ($r in @($wg.sudovda_resolutions)) { Add-ResItem -Raw ([string]$r) }
+    }
 } catch { }
 if (-not $curAd -and $script:GpuNames.Count -ge 1) { $ui['cmbGpu'].SelectedIndex = 0 }
 
 # rdp.cred 状态
 if (Test-Path $WgCredPath) {
-    $ui['lblCredState'].Text = '已保存过密码，留空则继续用原来的'
+    $ui['lblCredState'].Text = '已保存过游戏用户密码，留空则继续用原来的'
     $ui['lblWelcomeCred'].Text = '已有（留空沿用）'
 } else {
-    $ui['lblCredState'].Text = '请输入登录密码并点「验证」'
+    $ui['lblCredState'].Text = '请输入游戏用户密码并点「验证」'
     $ui['lblWelcomeCred'].Text = '无（安装时需输入）'
 }
+# 密码验证状态清零（后面会由验证工作回填）
 $script:PwVerified = $false
+
+# 密码验证：独立 Runspace 跑 LogonUser，UI 线程用 DispatcherTimer 收结果。
+# 不能用 [Threading.Thread] 跑脚本块：PS 5.1 新线程没有 Runspace，脚本块一执行就抛未处理异常，整个进程直接退出。
+$script:VerifyHandle = $null
+$script:VerifyPS = $null
+$script:VerifyRS = $null
+$script:VerifyUser = ''
+$script:VerifyPassword = ''
+$script:VerifyLabel = $null
+$script:VerifyBtn = $null
+$script:VerifyOnDone = $null
+
+$script:VerifyScript = {
+    param($User, $Password)
+    if ([string]::IsNullOrEmpty($User) -or [string]::IsNullOrEmpty($Password)) { return $false }
+    if (-not ('PwCheck' -as [type])) {
+        Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public static class PwCheck {
+    [DllImport("advapi32.dll", SetLastError=true, CharSet=CharSet.Unicode)]
+    public static extern bool LogonUser(string user, string domain, string pass, int logonType, int provider, out IntPtr token);
+    [DllImport("kernel32.dll")]
+    public static extern bool CloseHandle(IntPtr h);
+}
+"@
+    }
+    $domain = $env:USERDOMAIN
+    if ([string]::IsNullOrEmpty($domain)) { $domain = '.' }
+    $tok = [IntPtr]::Zero
+    try {
+        $ok = [PwCheck]::LogonUser($User, $domain, $Password, 3, 0, [ref]$tok)
+        if ($ok) { [void][PwCheck]::CloseHandle($tok) }
+        return $ok
+    } catch {
+        return $false
+    }
+}
+
+$script:VerifyTimer = New-Object System.Windows.Threading.DispatcherTimer
+$script:VerifyTimer.Interval = [TimeSpan]::FromMilliseconds(100)
+$script:VerifyTimer.Add_Tick({
+    if ($null -eq $script:VerifyHandle -or -not $script:VerifyHandle.IsCompleted) { return }
+    $script:VerifyTimer.Stop()
+    $ps = $script:VerifyPS
+    $rs = $script:VerifyRS
+    $label = $script:VerifyLabel
+    $btn = $script:VerifyBtn
+    $done = $script:VerifyOnDone
+    $user = $script:VerifyUser
+    $password = $script:VerifyPassword
+    $ok = $false
+    try {
+        $out = $ps.EndInvoke($script:VerifyHandle)
+        if ($out.Count -gt 0) { $ok = [bool]$out[$out.Count - 1] }
+        if ($ps.Streams.Error.Count -gt 0) { Write-Log "密码验证错误：$($ps.Streams.Error[0])" }
+    } catch {
+        Write-Log "密码验证异常：$($_.Exception.Message)"
+    }
+    try { $ps.Dispose() } catch { }
+    try { $rs.Dispose() } catch { }
+    $script:VerifyHandle = $null
+    $script:VerifyPS = $null
+    $script:VerifyRS = $null
+    $script:VerifyUser = ''
+    $script:VerifyPassword = ''
+    $script:VerifyLabel = $null
+    $script:VerifyBtn = $null
+    $script:VerifyOnDone = $null
+
+    $label.Text = if ($ok) { '密码正确' } else { '密码不对，请重新输入' }
+    $label.Foreground = if ($ok) {
+        [System.Windows.Media.BrushConverter]::new().ConvertFromString('#22C55E')
+    } else {
+        [System.Windows.Media.BrushConverter]::new().ConvertFromString('#F87171')
+    }
+    $script:PwVerified = $ok
+    $script:PwVerifiedFor = if ($ok) { "$($user):$($password)" } else { '' }
+    $btn.IsEnabled = $true
+    Write-Log "密码验证状态：$($label.Text)（用户：$user）"
+    if ($null -ne $done) { $done.Invoke($ok) }
+})
+
+function Start-PasswordVerification {
+    param([string]$User, [string]$Password, $Label, $Btn, $OnDone)
+    if ($null -ne $script:VerifyHandle) { return }
+    $script:VerifyUser = $User
+    $script:VerifyPassword = $Password
+    $script:VerifyLabel = $Label
+    $script:VerifyBtn = $Btn
+    $script:VerifyOnDone = $OnDone
+    $rs = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace()
+    $rs.Open()
+    $ps = [PowerShell]::Create()
+    $ps.Runspace = $rs
+    [void]$ps.AddScript($script:VerifyScript).AddArgument($User).AddArgument($Password)
+    $script:VerifyRS = $rs
+    $script:VerifyPS = $ps
+    $script:VerifyHandle = $ps.BeginInvoke()
+    $script:VerifyTimer.Start()
+}
 
 # wsguard 现在只有单一版本：显示固定状态，不做新/旧版判断
 $ui['lblWelcomeWg'].Text = '就绪（服务名 WSGuard / 动态路径）'
 
-# 密码验证状态：验证通过对应具体密码；密码再改动即失效
-$PwVerifiedFor = ''
-$ui['pwdRdp'].Add_TextChanged({
+# 取消失落的验证状态：密码再改、用户再换即失效
+$ui['pwdRdp'].Add_PasswordChanged({
     $script:PwVerified = $false
     $script:PwVerifiedFor = ''
+    if ($ui['lblPwState'].Text -eq '密码正确') {
+        $ui['lblPwState'].Text = '密码已改，请重新验证'
+        $ui['lblPwState'].Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#F87171')
+    }
 })
 $ui['btnVerifyPw'].Add_Click({
     $pw = $ui['pwdRdp'].Password
@@ -2004,18 +2833,137 @@ $ui['btnVerifyPw'].Add_Click({
     }
     $ui['lblPwState'].Text = '验证中...'
     $ui['lblPwState'].Foreground = [System.Windows.Media.Brushes]::Gray
-    if (Test-UserPassword -User $script:CurUser -Password $pw) {
-        $ui['lblPwState'].Text = '密码正确'
-        $ui['lblPwState'].Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#22C55E')
-        $script:PwVerified = $true
-        $script:PwVerifiedFor = $pw
-        Write-Log "密码验证通过（用户：$($script:CurUser)）"
-    } else {
-        $ui['lblPwState'].Text = '密码不对，请重新输入'
-        $ui['lblPwState'].Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#F87171')
-        $script:PwVerified = $false
-    }
+    $ui['btnVerifyPw'].IsEnabled = $false
+    $user = $ui['txtStreamUser'].Text.Trim()
+    Start-PasswordVerification -User $user -Password $pw -Label $ui['lblPwState'] -Btn $ui['btnVerifyPw'] -OnDone $null
 })
+# 换用户即让密码失效，避免串流用户的凭据错配
+$ui['txtStreamUser'].Add_TextChanged({
+    $script:PwVerified = $false
+    $script:PwVerifiedFor = ''
+    $ui['lblPwState'].Text = '用户已变更，请重新验证'
+    $ui['lblPwState'].Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#F87171')
+})
+
+# 装订单列化（操作 UI 组件的全部在 UI 线程）
+function Start-InstallRun {
+    param($User, $Password, [string]$Adapter, [string]$WebUser, [string]$WebUiPassword)
+    if (-not (Get-LocalUser -Name $User -ErrorAction SilentlyContinue)) {
+        [void][System.Windows.MessageBox]::Show($window, "本机不存在用户「$User」，请检查用户名。", '错误',
+            [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Error)
+        return
+    }
+    if ($ui['chkReset'].IsChecked) {
+        $r = [System.Windows.MessageBox]::Show($window,
+            "确定解绑所有已配对设备吗？`n解绑后所有 Moonlight 客户端都需要重新配对。", '确认',
+            [System.Windows.MessageBoxButton]::YesNo, [System.Windows.MessageBoxImage]::Warning)
+        if ($r -ne [System.Windows.MessageBoxResult]::Yes) {
+            $ui['chkReset'].IsChecked = $false
+            Write-Log '用户取消：跳过状态与日志清理'
+        }
+    }
+    # 步骤编排（gpuaccel 与 firewall 等顺序：conf → gpuaccel → firewall → gamepad → rdpwrap → wsguard → sudovda → gamemgr → reset）
+    $steps = @('conf')
+    if ($ui['chkReset'].IsChecked)    { $steps += 'reset' }
+    if ($ui['chkGpuAccel'].IsChecked) { $steps += 'gpuaccel' }
+    $steps += 'firewall'
+    if ($ui['chkGamepad'].IsChecked)  { $steps += 'gamepad' }
+    $steps += 'rdpwrap'
+    $steps += 'wsguard'
+    if ($ui['chkSudoVDA'].IsChecked) { $steps += 'sudovda' }
+    if ($ui['chkGameMgr'].IsChecked)  { $steps += 'gamemgr' }
+    if ($ui['chkTrayDesktop'].IsChecked -or $ui['chkTrayStart'].IsChecked -or $ui['chkTrayAuto'].IsChecked) { $steps += 'tray' }
+
+    # 虚拟屏分辨率
+    $script:Vw = 0; $script:Vh = 0
+    $wTxt = '{0}' -f $ui['txtWidth'].Text; $hTxt = '{0}' -f $ui['txtHeight'].Text
+    if ($wTxt -match '^\s*(\d{3,5})\s*$') { $script:Vw = [int]$Matches[1] }
+    if ($hTxt -match '^\s*(\d{3,5})\s*$') { $script:Vh = [int]$Matches[1] }
+    if (($script:Vw -lt 320) -or ($script:Vh -lt 240) -or ($script:Vw -gt 7680) -or ($script:Vh -gt 4320)) {
+        $script:Vw = 0; $script:Vh = 0
+        Write-Log "跳过: 虚拟屏分辨率输入无效 [$wTxt x $hTxt]，沿用现有配置"
+    } else {
+        Write-Log "虚拟屏分辨率: $($script:Vw) x $($script:Vh)"
+    }
+
+    # 端口分配
+    $pMain = $ui['txtPortMain'].Text.Trim()
+    $pGame = $ui['txtPortGame'].Text.Trim()
+    if ($pMain -eq '') { $pMain = '48100' }
+    if ($pGame -eq '') { $pGame = '48200' }
+    $portMain = 0; $portGame = 0
+    if (-not [int]::TryParse($pMain, [ref]$portMain) -or $portMain -lt 1024 -or $portMain -gt 65520) {
+        [void][System.Windows.MessageBox]::Show($window, '主会话端口须为 1024 至 65520 的整数。', '端口无效',
+            [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Warning)
+        $ui['txtPortMain'].Focus()
+        return
+    }
+    if (-not [int]::TryParse($pGame, [ref]$portGame) -or $portGame -lt 1024 -or $portGame -gt 65520) {
+        [void][System.Windows.MessageBox]::Show($window, '游戏会话端口须为 1024 至 65520 的整数。', '端口无效',
+            [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Warning)
+        $ui['txtPortGame'].Focus()
+        return
+    }
+    if ([math]::Abs($portGame - $portMain) -lt 20) {
+        [void][System.Windows.MessageBox]::Show($window, '两个端口须相距至少 20。', '端口冲突',
+            [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Warning)
+        $ui['txtPortGame'].Focus()
+        return
+    }
+    $script:PortMain = $portMain
+    $script:PortGame = $portGame
+
+    $script:DisplayMode = 'mirror'
+    if ($ui['svOnly'].IsChecked)        { $script:DisplayMode = 'only' }
+    elseif ($ui['svExtend'].IsChecked)  { $script:DisplayMode = 'extend' }
+    # 选中的虚拟屏分辨率（未选中则取第一条）
+    $script:SudovdaRes = ''
+    $selIdx = $ui['svResList'].SelectedIndex
+    if ($selIdx -ge 0) { $script:SudovdaRes = [string]$ui['svResList'].Items[$selIdx] }
+    elseif ($ui['svResList'].Items.Count -gt 0) { $script:SudovdaRes = [string]$ui['svResList'].Items[0] }
+    $script:SudovdaResList = @($ui['svResList'].Items | ForEach-Object { [string]$_ })
+    if ($script:DisplayMode -ne 'mirror') {
+        Write-Log "显示模式: $script:DisplayMode（虚拟屏 $script:SudovdaRes）"
+    }
+
+    $labels = @{
+        conf     = '写入 Sunshine 配置文件'
+        gpuaccel = '会话 GPU 加速策略'
+        firewall = '防火墙放行 Sunshine'
+        gamepad  = 'ViGEmBus 虚拟手柄驱动'
+        rdpwrap  = 'RDP Wrapper 并发解锁'
+        wsguard  = 'WSGuard 守护服务与开机自启'
+        sudovda  = 'SudoVDA 虚拟显示驱动'
+        gamemgr  = 'GameManager 游戏菜单'
+        tray     = 'Sunshine-Duo 托盘与快捷方式'
+        reset    = '解绑已配对设备'
+    }
+    $opts = @{
+        Mode        = 'Install'
+        Steps       = $steps
+        Labels      = $labels
+        Adapter     = $Adapter
+        User        = $User
+        Password    = $Password
+        WebUser       = $WebUser
+        WebUiPassword = $WebUiPassword
+        Vw          = $script:Vw
+        Vh          = $script:Vh
+        AutoLogon   = [bool]$ui['chkAutoLogon'].IsChecked
+        PortMain    = $script:PortMain
+        PortGame    = $script:PortGame
+        DisplayMode = $script:DisplayMode
+        DisplayExclusive = ($script:DisplayMode -eq 'only')
+        SudovdaRes     = $script:SudovdaRes
+        SudovdaResList = $script:SudovdaResList
+        TrayDesktop = [bool]$ui['chkTrayDesktop'].IsChecked
+        TrayStart   = [bool]$ui['chkTrayStart'].IsChecked
+        TrayAuto    = [bool]$ui['chkTrayAuto'].IsChecked
+    }
+    $script:InstallOpts = $opts
+    Show-Page r
+    Start-RunBackground $opts
+}
 
 # ---- 动画辅助 ----
 function Start-Sheen {
@@ -2138,92 +3086,62 @@ $ui['btnInstall'].Add_Click({
             [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
         return
     }
-    $user = $script:CurUser
-    if (-not $user) {
-        [void][System.Windows.MessageBox]::Show($window, '无法获取当前用户名，请重试。', '错误',
-            [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Error)
+    $user = $ui['txtStreamUser'].Text.Trim()
+    if ([string]::IsNullOrEmpty($user)) {
+        [void][System.Windows.MessageBox]::Show($window, '请先选择安装的串流用户（默认是当前登录用户）。', '提示',
+            [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
         return
     }
-    # 密码：非空则验证 / 留空沿用现有 rdp.cred
+    # 后台账号（独立页）：用户名必填，密码必填且两次一致
+    $webUser = $ui['txtWebUser'].Text.Trim()
+    $webPw = $ui['pwdWebUi'].Password
+    $webPw2 = $ui['pwdWebUi2'].Password
+    if ([string]::IsNullOrEmpty($webUser)) {
+        [void][System.Windows.MessageBox]::Show($window, '请填写后台用户名。', '后台账号',
+            [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Warning)
+        $ui['txtWebUser'].Focus()
+        return
+    }
+    if ([string]::IsNullOrEmpty($webPw)) {
+        [void][System.Windows.MessageBox]::Show($window, '请填写后台密码。', '后台账号',
+            [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Warning)
+        $ui['pwdWebUi'].Focus()
+        return
+    }
+    if ($webPw -cne $webPw2) {
+        $ui['lblWebPwState'].Text = '两次密码不一致'
+        $ui['lblWebPwState'].Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#F87171')
+        [void][System.Windows.MessageBox]::Show($window, '两次密码不一致，请重新输入。', '后台账号',
+            [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Warning)
+        return
+    }
+    $ui['lblWebPwState'].Text = '密码一致'
+    $ui['lblWebPwState'].Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#22C55E')
+    # RDP 密码：非空则验证 / 留空沿用现有 rdp.cred
     $pw = $ui['pwdRdp'].Password
     if (-not [string]::IsNullOrEmpty($pw)) {
-        Write-Log "验证用户 $user 的登录密码..."
-        if (-not (Test-UserPassword -User $user -Password $pw)) {
-            [void][System.Windows.MessageBox]::Show($window, '密码不正确，请重新输入后再安装。', '密码验证失败',
-                [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Error)
+        if ($script:PwVerified -and "$user`:$pw" -eq $script:PwVerifiedFor) {
+            # 上一步已经明文验证过（同一轮窗口）：直接沿用，不走 LogonUser
+            Write-Log "OK: 沿用上一步的密码验证结果（用户 $user）"
+        } else {
+            Write-Log "验证用户 $user 的登录密码..."
+            $ui['lblPwState'].Text = '验证中...'
+            $ui['lblPwState'].Foreground = [System.Windows.Media.Brushes]::Gray
+            $ui['btnInstall'].IsEnabled = $false
+            # 挂到独立 Runspace；验证结果回来后再查阅 → 继续安装
+            Start-PasswordVerification -User $user -Password $pw -Label $ui['lblPwState'] -Btn $ui['btnInstall'] -OnDone {
+                param($ok)
+                if ($ok) { Start-InstallRun -User $user -Password $pw -Adapter $adapter -WebUser $webUser -WebUiPassword $webPw }
+            }
             return
         }
-        $script:PwVerified = $true
-        $ui['lblPwState'].Text = '密码正确'
-        $ui['lblPwState'].Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#22C55E')
-        Write-Log 'OK: 密码验证通过'
     } elseif (-not (Test-Path $WgCredPath)) {
         [void][System.Windows.MessageBox]::Show($window, '请先输入登录密码并点「验证」，或已保存过密码可留空。', '需要密码',
             [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
         return
     }
-    if (-not (Get-LocalUser -Name $user -ErrorAction SilentlyContinue)) {
-        [void][System.Windows.MessageBox]::Show($window, "本机不存在用户「$user」，请检查用户名。", '错误',
-            [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Error)
-        return
-    }
-    # 解绑已配对设备：二次确认
-    if ($ui['chkReset'].IsChecked) {
-        $r = [System.Windows.MessageBox]::Show($window,
-            "确定解绑所有已配对设备吗？`n解绑后所有 Moonlight 客户端都需要重新配对。", '确认',
-            [System.Windows.MessageBoxButton]::YesNo, [System.Windows.MessageBoxImage]::Warning)
-        if ($r -ne [System.Windows.MessageBoxResult]::Yes) {
-            $ui['chkReset'].IsChecked = $false
-            Write-Log '用户取消：跳过状态与日志清理'
-        }
-    }
-    $resetOk = -not $ui['chkReset'].IsChecked
-
-    # 步骤编排（gpuaccel 与 firewall 等顺序：conf → gpuaccel → firewall → gamepad → rdpwrap → wsguard → gamemgr → reset）
-    $steps = @('conf')
-    if ($ui['chkGpuAccel'].IsChecked) { $steps += 'gpuaccel' }
-    $steps += 'firewall'
-    if ($ui['chkGamepad'].IsChecked)  { $steps += 'gamepad' }
-    $steps += 'rdpwrap'
-    $steps += 'wsguard'
-    if ($ui['chkGameMgr'].IsChecked)  { $steps += 'gamemgr' }
-    if ($ui['chkReset'].IsChecked)    { $steps += 'reset' }
-
-    # 虚拟屏分辨率
-    $script:Vw = 0; $script:Vh = 0
-    $wTxt = '{0}' -f $ui['txtWidth'].Text; $hTxt = '{0}' -f $ui['txtHeight'].Text
-    if ($wTxt -match '^\s*(\d{3,5})\s*$') { $script:Vw = [int]$Matches[1] }
-    if ($hTxt -match '^\s*(\d{3,5})\s*$') { $script:Vh = [int]$Matches[1] }
-    if (($script:Vw -lt 320) -or ($script:Vh -lt 240) -or ($script:Vw -gt 7680) -or ($script:Vh -gt 4320)) {
-        $script:Vw = 0; $script:Vh = 0
-        Write-Log "跳过: 虚拟屏分辨率输入无效 [$wTxt x $hTxt]，沿用现有配置"
-    } else {
-        Write-Log "虚拟屏分辨率: $($script:Vw) x $($script:Vh)"
-    }
-
-    $labels = @{
-        conf     = '写入 Sunshine 配置文件'
-        gpuaccel = '会话 GPU 加速策略'
-        firewall = '防火墙放行 Sunshine'
-        gamepad  = 'ViGEmBus 虚拟手柄驱动'
-        rdpwrap  = 'RDP Wrapper 并发解锁'
-        wsguard  = 'WSGuard 守护服务与开机自启'
-        gamemgr  = 'GameManager 游戏菜单'
-        reset    = '解绑已配对设备'
-    }
-    $opts = @{
-        Mode     = 'Install'
-        Steps    = $steps
-        Labels   = $labels
-        Adapter  = $adapter
-        User     = $user
-        Password = $pw
-        Vw       = $script:Vw
-        Vh       = $script:Vh
-        AutoLogon = [bool]$ui['chkAutoLogon'].IsChecked
-    }
-    Show-Page r
-    Start-RunBackground $opts
+    # 在 UI 线程执行：检查用户 / 解绑确认 / 整理参数 / 页面 / 启动
+    Start-InstallRun -User $user -Password $pw -Adapter $adapter -WebUser $webUser -WebUiPassword $webPw
 })
 
 # ---- 卸载启动 ----
@@ -2235,7 +3153,9 @@ $ui['btnUninstallStart'].Add_Click({
     if ($ui['chkURdpWrap'].IsChecked)  { $steps += 'rdpwrap' }
     if ($ui['chkUGpuAccel'].IsChecked) { $steps += 'gpuaccel' }
     if ($ui['chkUWsguard'].IsChecked)  { $steps += 'wsguard' }
+    if ($ui['chkUSudovda'].IsChecked)  { $steps += 'sudovda' }
     if ($ui['chkUGameMgr'].IsChecked)  { $steps += 'gamemgr' }
+    if ($ui['chkUTray'].IsChecked)     { $steps += 'trayapp' }
     if (-not $steps) {
         [void][System.Windows.MessageBox]::Show($window, '请至少勾选一个卸载项。', '提示',
             [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
@@ -2252,7 +3172,9 @@ $ui['btnUninstallStart'].Add_Click({
         rdpwrap  = '卸载 RDP Wrapper'
         gpuaccel = '删除会话 GPU 加速策略'
         wsguard  = '卸载守护服务并取消自启'
+        sudovda  = '卸载 SudoVDA 虚拟显示驱动'
         gamemgr  = '卸载 GameManager'
+        trayapp  = '卸载托盘与快捷方式'
     }
     $opts = @{
         Mode   = 'Uninstall'
@@ -2392,6 +3314,22 @@ $timer.Add_Tick({
         } else {
             '部分步骤未成功，请查看日志排查。失败项不影响其他已成功项。'
         })
+        # 安装模式下展示 WebUI 后台登录信息：装完即可直接进后台
+        if ($script:Phase -eq 'Install' -and -not $aborted) {
+            $wu = $script:InstallOpts
+            $wuUser = [string]$wu.WebUser
+            $wuPw = [string]$wu.WebUiPassword
+            $lines = @("用户名：$wuUser")
+            if (-not [string]::IsNullOrEmpty($wuPw)) { $lines += "密码：$wuPw" }
+            $lines += '控制台会话后台：https://localhost:' + ([int]$wu.PortMain + 1)
+            if ([int]$wu.PortGame -gt 0) {
+                $lines += '游戏会话后台：https://localhost:' + ([int]$wu.PortGame + 1)
+            }
+            $lines += 'Moonlight 主机：主会话（控制台）/ 游戏会话（游戏）'
+            $lines += '（两处凭证相同，配对各自独立；证书不受信任时浏览器会提示，继续访问即可）'
+            $ui['lblWebUiInfo'].Text = ($lines -join "`n")
+            $ui['cardWebUi'].Visibility = 'Visible'
+        }
         Show-Page f
     }
 })
