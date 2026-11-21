@@ -20,7 +20,7 @@
 
 ## 二、wsguard 运行库（`wsguard\_internal\`，PyInstaller 打包的 PyPI 依赖）
 
-以 `pip install --target` 安装后打包（清单见 `wsguard\src\requirements-rdp.txt`），版本固定：
+以 `pip install --target` 安装后打包（清单见 `src\wsguard\requirements-rdp.txt`），版本固定：
 
 | 包 | 版本 | 许可证 |
 | --- | --- | --- |
@@ -49,7 +49,8 @@
 
 其中 aardwolf / asn1crypto / asyauth / asysocks / cryptography / minikerberos / oscrypto / tqdm / unicrypto 的 LICENSE 文件已随 `wsguard\_internal\<包名>.dist-info\` 一并分发；其余包的许可声明以本文件清单为准，原文见各包 PyPI 页面。Python 3.12 运行时以 PyInstaller onedir 方式嵌入，Python 本体采用 PSF License。
 
-## 三、构建期依赖（不入库，`pip install` 安装到 `.wsguard-build\`）
+## 三、构建期依赖（不入库，`pip install` 安装到 `src\wsguard\.wsguard-build\`）
+
 
 | 包 | 版本 | 许可证 |
 | --- | --- | --- |

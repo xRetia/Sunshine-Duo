@@ -17,10 +17,12 @@ import ctypes
 import glob
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
 import time
+from collections import deque
 from ctypes import wintypes
 
 _advapi32 = ctypes.WinDLL('advapi32', use_last_error=True)
@@ -157,6 +159,11 @@ DEFAULT_CONFIG = {
     # exceeds log_max_kb; the newest log_keep archives are retained.
     'log_max_kb': 100,
     'log_keep': 4,
+    # pair event watcher: tailed Apollo logs are the passive signal for new
+    # devices (unpaired client certs fail TLS verification), the tray polls
+    # events over the ctrl pipe and auto-opens the pairing dialog
+    'pair_watch': True,
+    'pair_watch_interval': 2,
     # log_level: 'info' = every tick (verbose), 'warn' = warnings and errors
     # only (default), 'error' = errors only. Hot-reloaded every tick.
     'log_level': 'warn',
@@ -380,7 +387,17 @@ _user32.SetDisplayConfig.argtypes = [ctypes.c_uint32, ctypes.c_void_p,
                                      ctypes.c_uint32, ctypes.c_void_p, ctypes.c_uint32]
 SDC_TOPOLOGY_INTERNAL = 0x00000001
 SDC_TOPOLOGY_EXTEND = 0x00000004
+SDC_TOPOLOGY_CLONE = 0x00000002
+SDC_TOPOLOGY_EXTERNAL = 0x00000008
 SDC_APPLY = 0x00000080
+SDC_USE_SUPPLIED_DISPLAY_CONFIG = 0x00000020
+SDC_ALLOW_CHANGES = 0x00000400
+QDC_ALL_PATHS = 0x00000001
+QDC_ONLY_ACTIVE_PATHS = 0x00000002
+DISPLAYCONFIG_PATH_ACTIVE = 0x00000001
+DISPLAYCONFIG_PATH_UPDATE = 0x00000004
+DISPLAYCONFIG_PATH_MODE_IDX_INVALID = 0xFFFFFFFF
+DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME = 0x00000001
 
 SUDOVDA_ADAPTER = 'SudoMaker Virtual Display Adapter'
 ENUM_CURRENT_SETTINGS = -1
@@ -396,6 +413,102 @@ CDS_NORESET = 0x10000000
 DISP_CHANGE_SUCCESSFUL = 0
 ENUM_STABLE_SECS = 2.0      # topology must stay in one state this long before acting
 ENUM_RECHECK_SECS = 2.0     # cool-down after an apply
+
+
+class _LUID(ctypes.Structure):
+    _fields_ = [('LowPart', wintypes.DWORD), ('HighPart', ctypes.c_long)]
+
+
+class _RATIONAL(ctypes.Structure):
+    _fields_ = [('numerator', wintypes.DWORD), ('denominator', wintypes.DWORD)]
+
+
+class _2DREGION(ctypes.Structure):
+    _fields_ = [('cx', ctypes.c_long), ('cy', ctypes.c_long)]
+
+
+class _VIDEO_SIGNAL_INFO(ctypes.Structure):
+    _fields_ = [('pixelRate', ctypes.c_ulonglong),
+                ('hSyncFreq', _RATIONAL),
+                ('vSyncFreq', _RATIONAL),
+                ('activeSize', _2DREGION),
+                ('totalSize', _2DREGION),
+                ('videoStandard', wintypes.DWORD),
+                ('scanLineOrdering', wintypes.DWORD)]
+
+
+class _SOURCE_MODE(ctypes.Structure):
+    _fields_ = [('positionX', ctypes.c_long), ('positionY', ctypes.c_long),
+                ('width', wintypes.DWORD), ('height', wintypes.DWORD),
+                ('pixelFormat', wintypes.DWORD)]
+
+
+class _TARGET_MODE(ctypes.Structure):
+    _fields_ = [('videoSignalInfo', _VIDEO_SIGNAL_INFO)]
+
+
+class _DESKTOP_IMAGE_INFO(ctypes.Structure):
+    _fields_ = [('sourcePointX', ctypes.c_long), ('sourcePointY', ctypes.c_long),
+                ('targetWidth', wintypes.DWORD), ('targetHeight', wintypes.DWORD),
+                ('imageLeft', ctypes.c_long), ('imageTop', ctypes.c_long),
+                ('imageRight', ctypes.c_long), ('imageBottom', ctypes.c_long)]
+
+
+class _MODE_INFO_UNION(ctypes.Union):
+    _fields_ = [('sourceMode', _SOURCE_MODE),
+                ('targetMode', _TARGET_MODE),
+                ('desktopImageInfo', _DESKTOP_IMAGE_INFO),
+                ('raw', ctypes.c_ubyte * 48)]
+
+
+class _MODE_INFO(ctypes.Structure):
+    _fields_ = [('infoType', wintypes.DWORD), ('id', wintypes.DWORD),
+                ('adapterId', _LUID), ('modeInfo', _MODE_INFO_UNION)]
+
+
+class _PATH_SOURCE_INFO(ctypes.Structure):
+    _fields_ = [('adapterId', _LUID), ('id', wintypes.DWORD),
+                ('modeInfoIdx', wintypes.DWORD), ('statusFlags', wintypes.DWORD)]
+
+
+class _PATH_TARGET_INFO(ctypes.Structure):
+    _fields_ = [('adapterId', _LUID), ('id', wintypes.DWORD),
+                ('modeInfoIdx', wintypes.DWORD), ('widgetId', wintypes.DWORD),
+                ('outputTechnology', wintypes.DWORD), ('rotation', wintypes.DWORD),
+                ('scaling', wintypes.DWORD), ('refreshRate', _RATIONAL),
+                ('scanLineOrdering', wintypes.DWORD), ('targetAvailable', wintypes.BOOL),
+                ('statusFlags', wintypes.DWORD)]
+
+
+class _PATH_INFO(ctypes.Structure):
+    _fields_ = [('sourceInfo', _PATH_SOURCE_INFO),
+                ('targetInfo', _PATH_TARGET_INFO),
+                ('flags', wintypes.DWORD)]
+
+
+class _DEVICE_INFO_HEADER(ctypes.Structure):
+    _fields_ = [('type', wintypes.DWORD), ('size', wintypes.DWORD),
+                ('adapterId', _LUID), ('id', wintypes.DWORD)]
+
+
+class _SOURCE_DEVICE_NAME(ctypes.Structure):
+    _fields_ = [('header', _DEVICE_INFO_HEADER),
+                ('viewGdiDeviceName', wintypes.WCHAR * 32)]
+
+
+_user32.GetDisplayConfigBufferSizes.restype = ctypes.c_long
+_user32.GetDisplayConfigBufferSizes.argtypes = [wintypes.DWORD,
+                                                ctypes.POINTER(wintypes.DWORD),
+                                                ctypes.POINTER(wintypes.DWORD)]
+_user32.QueryDisplayConfig.restype = ctypes.c_long
+_user32.QueryDisplayConfig.argtypes = [wintypes.DWORD,
+                                       ctypes.POINTER(wintypes.DWORD),
+                                       ctypes.POINTER(_PATH_INFO),
+                                       ctypes.POINTER(wintypes.DWORD),
+                                       ctypes.POINTER(_MODE_INFO),
+                                       wintypes.DWORD]
+_user32.DisplayConfigGetDeviceInfo.restype = ctypes.c_long
+_user32.DisplayConfigGetDeviceInfo.argtypes = [ctypes.c_void_p]
 
 
 class DEVMODEW(ctypes.Structure):
@@ -458,6 +571,100 @@ def _display_sources():
         else:
             others.append(dev.DeviceName)
     return vda, others
+
+
+def _query_display_paths():
+    count = wintypes.DWORD()
+    mode_count = wintypes.DWORD()
+    r = _user32.GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, ctypes.byref(count),
+                                            ctypes.byref(mode_count))
+    if r != 0:
+        log_warn('display topology: GetDisplayConfigBufferSizes returned %d' % r)
+        return [], []
+    paths = (_PATH_INFO * count.value)()
+    modes = (_MODE_INFO * mode_count.value)()
+    r = _user32.QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS, ctypes.byref(count), paths,
+                                   ctypes.byref(mode_count), modes, 0)
+    if r != 0:
+        log_warn('display topology: QueryDisplayConfig returned %d' % r)
+        return [], []
+    return list(paths), list(modes)
+
+
+def _path_source_name(path):
+    info = _SOURCE_DEVICE_NAME()
+    info.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME
+    info.header.size = ctypes.sizeof(info)
+    info.header.adapterId = path.sourceInfo.adapterId
+    info.header.id = path.sourceInfo.id
+    if _user32.DisplayConfigGetDeviceInfo(ctypes.byref(info)) != 0:
+        return ''
+    return info.viewGdiDeviceName
+
+
+def _source_mode_of(path, modes):
+    idx = path.sourceInfo.modeInfoIdx & 0xFFFF
+    if idx == DISPLAYCONFIG_PATH_MODE_IDX_INVALID or idx >= len(modes):
+        return None
+    return modes[idx].modeInfo.sourceMode
+
+
+def _apply_display_topology(mode):
+    """Apply the projection topology via CCD/SetDisplayConfig, the same API
+    Win+P uses. The VDA is only selectable while Apollo has it attached."""
+    if mode not in ('mirror', 'only', 'extend'):
+        return False, 'unknown mode: %s' % mode
+    vda, others = _display_sources()
+    if mode == 'only' and not vda:
+        return False, 'virtual display not attached'
+    paths, modes = _query_display_paths()
+    if not paths:
+        return False, 'QueryDisplayConfig failed'
+    names = [_path_source_name(p) for p in paths]
+    vda_set, phys_set = set(vda), set(others)
+    changed = False
+    if mode == 'mirror':
+        for p, name in zip(paths, names):
+            if name in vda_set and (p.flags & DISPLAYCONFIG_PATH_ACTIVE):
+                p.flags = (p.flags & ~DISPLAYCONFIG_PATH_ACTIVE) | DISPLAYCONFIG_PATH_UPDATE
+                changed = True
+    elif mode == 'only':
+        for p, name in zip(paths, names):
+            if name in phys_set and (p.flags & DISPLAYCONFIG_PATH_ACTIVE):
+                p.flags = (p.flags & ~DISPLAYCONFIG_PATH_ACTIVE) | DISPLAYCONFIG_PATH_UPDATE
+                changed = True
+            elif (name in vda_set and not (p.flags & DISPLAYCONFIG_PATH_ACTIVE)
+                  and p.targetInfo.targetAvailable):
+                p.flags |= DISPLAYCONFIG_PATH_ACTIVE | DISPLAYCONFIG_PATH_UPDATE
+                changed = True
+    else:
+        wanted = vda_set | phys_set
+        for p, name in zip(paths, names):
+            if (name in wanted and not (p.flags & DISPLAYCONFIG_PATH_ACTIVE)
+                    and p.targetInfo.targetAvailable):
+                p.flags |= DISPLAYCONFIG_PATH_ACTIVE | DISPLAYCONFIG_PATH_UPDATE
+                changed = True
+        right = 0
+        for p, name in zip(paths, names):
+            if name in phys_set and (p.flags & DISPLAYCONFIG_PATH_ACTIVE):
+                sm = _source_mode_of(p, modes)
+                if sm is not None:
+                    right = max(right, sm.positionX + int(sm.width))
+        for p, name in zip(paths, names):
+            if name in vda_set and (p.flags & DISPLAYCONFIG_PATH_ACTIVE):
+                sm = _source_mode_of(p, modes)
+                if sm is not None and sm.positionX != right:
+                    sm.positionX = right
+                    sm.positionY = 0
+                    p.flags |= DISPLAYCONFIG_PATH_UPDATE
+                    changed = True
+    if not changed:
+        return True, 'topology already matches %s' % mode
+    flags = SDC_USE_SUPPLIED_DISPLAY_CONFIG | SDC_ALLOW_CHANGES | SDC_APPLY
+    r = _user32.SetDisplayConfig(len(paths), paths, len(modes), modes, flags)
+    if r != 0:
+        return False, 'SetDisplayConfig returned %d' % r
+    return True, 'applied %s topology' % mode
 
 
 def _devmode_of(device_name, enum_index=ENUM_CURRENT_SETTINGS):
@@ -524,7 +731,41 @@ class DisplayExclusive:
         self._last_mode = ''        # display mode the state was seen under
         self._log_off = 0           # console log tail offset
         self._streaming = False     # a Moonlight client is actually streaming
+        self._last_mode_req_id = None
         self._load_disabled()
+
+    def apply_mode_request(self):
+        try:
+            with open(_MODE_REQ, 'r', encoding='utf-8') as f:
+                req = json.load(f)
+        except (OSError, ValueError):
+            return
+        rid = str(req.get('id', ''))
+        if not rid or rid == self._last_mode_req_id:
+            return
+        self._last_mode_req_id = rid
+        mode = str(req.get('mode', '')).strip().lower()
+        if mode == self._last_mode:
+            ok, detail = True, 'already %s' % mode
+        else:
+            if self.disabled and self._reattach_via_topology():
+                self.disabled.clear()
+                self._save_disabled()
+                log('display mode: reattached physical displays before %s switch' % mode)
+            ok, detail = _apply_display_topology(mode)
+        if ok:
+            self._last_mode = mode
+            self._last_state = ''
+            self._armed_since = None
+            self._restore_since = None
+        line = 'display mode request %s: %s (%s)' % (mode, 'ok' if ok else 'failed', detail)
+        if ok:
+            log(line)
+        else:
+            log_warn(line)
+        _write_json_atomic(_MODE_RES, {
+            'id': rid, 'mode': mode, 'ok': ok, 'detail': detail, 'ts': time.time(),
+        })
 
     def _console_log_path(self, cfg):
         conf = cfg.get('console_conf_path')
@@ -647,9 +888,9 @@ class DisplayExclusive:
                 elif others and now - self._armed_since >= ENUM_STABLE_SECS:
                     self._last_action = now
                     self._detach_vda(vda, 'mirror streaming')
-        elif state == 'vda-only' and mode == 'extend' and others:
-            # restore any physical displays detached earlier, then the regular
-            # mixed-stream branch places the VDA next to them
+        elif state == 'vda-only' and self.disabled and mode != 'only':
+            # physical displays detached by a previous 'only' session must come
+            # back for both mirror and extend, not just extend
             if self._restore_since is None:
                 self._restore_since = now
             elif now - self._restore_since >= ENUM_STABLE_SECS:
@@ -827,6 +1068,18 @@ _dx = DisplayExclusive()
 
 _WORKER_HB = os.path.join(SVC_DIR, 'display-worker.json')
 _WORKER_STOP = os.path.join(SVC_DIR, 'display-worker.stop')
+_MODE_REQ = os.path.join(SVC_DIR, 'display-mode-request.json')
+_MODE_RES = os.path.join(SVC_DIR, 'display-mode-result.json')
+
+
+def _write_json_atomic(path, data):
+    tmp = path + '.tmp'
+    try:
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump(data, f)
+        os.replace(tmp, path)
+    except Exception as e:
+        log_warn('cannot write %s: %r' % (os.path.basename(path), e))
 
 
 def _write_worker_hb():
@@ -867,6 +1120,7 @@ def run_display_worker():
             log('display worker: stop signaled, exiting')
             break
         try:
+            _dx.apply_mode_request()
             _dx.poll(load_config())
             _write_worker_hb()
         except Exception as e:
@@ -1141,6 +1395,153 @@ def state_path_for_conf(conf):
     elif not os.path.isabs(state):
         state = os.path.join(os.path.dirname(conf), state)
     return os.path.abspath(state)
+
+
+# ----------------------------------------------------------------------------
+# pair event watcher (passive)
+# A new Moonlight device reaching Apollo for the first time presents a cert
+# that is not in the state file's device list, so TLS verification fails and
+# Apollo logs a 'SSL Verification error :: ...' line (Warning level, always
+# emitted at the default log config). The watcher only tails the local log
+# files - Apollo is never probed - and queues one event per line; the trayapp
+# polls the queue over the ctrl pipe and auto-opens the pairing dialog.
+
+_pair_events = deque(maxlen=16)
+_pair_lock = threading.Lock()
+_pair_seen = {}          # marker line -> monotonic timestamp (dedup)
+_pair_seen_max = 128
+_pair_offsets = {}       # target -> (log_path, offset)
+_pair_last_push = {}     # target -> monotonic time of last queued event
+_PAIR_COOLDOWN = 15.0    # one notification per target per connect burst
+_PAIR_EVENT_TTL = 600.0  # drop undelivered events older than 10 minutes
+
+# match the log prefix while tolerating GBK-mangled bytes: the message text
+# after the level is pure ASCII ('Warning: SSL Verification error :: ...')
+_PAIR_TS = re.compile(rb'^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\.\d+\]:\s*\w+:\s*(.*)$')
+
+# marker -> payload shown in the pairing dialog title
+_PAIR_PATTERNS = (
+    (re.compile(rb'SSL Verification error'), '新设备'),
+    (re.compile(rb'\[SSL\] unknown -- denied'), '新设备'),
+)
+
+
+def _apollo_log_path(conf):
+    """Path of an Apollo instance's log file, from its conf's log_path."""
+    if not conf:
+        return None
+    try:
+        with open(conf, 'r', encoding='utf-8-sig') as f:
+            for line in f:
+                name, sep, value = line.partition('=')
+                if sep and name.strip() == 'log_path':
+                    path = value.strip().strip('"\'')
+                    if path and not os.path.isabs(path):
+                        path = os.path.join(os.path.dirname(conf), path)
+                    return os.path.abspath(path) if path else None
+    except Exception:
+        pass
+    return None
+
+
+def _pair_marker(line):
+    """True when a raw log line is a passive new-device signal."""
+    for pat, _payload in _PAIR_PATTERNS:
+        if pat.search(line):
+            return True
+    return False
+
+
+def _pair_push(target, stamp, payload):
+    """Queue one pairing event. Deduped by (target, timestamp) so a re-read
+    of the same log region cannot re-notify, and rate-limited per target so a
+    single connect burst (several handshake retry lines within seconds) raises
+    exactly one dialog."""
+    with _pair_lock:
+        now = time.monotonic()
+        last = _pair_last_push.get(target)
+        if last is not None and now - last < _PAIR_COOLDOWN:
+            return
+        key = (target, stamp)
+        seen = _pair_seen.get(key)
+        if seen is not None and now - seen < 3600:
+            return
+        if len(_pair_seen) >= _pair_seen_max:
+            # drop the oldest entry (dicts keep insertion order)
+            _pair_seen.pop(next(iter(_pair_seen)), None)
+        _pair_seen[key] = now
+        _pair_last_push[target] = now
+        _pair_events.append({'target': target, 'payload': payload,
+                             'ts': time.time()})
+
+
+def _drain_pair_events():
+    """Pop-and-clear: each event is delivered to the tray exactly once.
+    Undelivered events older than the TTL are dropped, so restarting the tray
+    hours later cannot raise phantom dialogs for long-gone connections."""
+    with _pair_lock:
+        now = time.time()
+        fresh = [e for e in _pair_events
+                 if now - e.get('ts', 0) < _PAIR_EVENT_TTL]
+        _pair_events.clear()
+        return fresh
+
+
+def pair_watch_loop():
+    while True:
+        try:
+            cfg = load_config()
+            if cfg.get('pair_watch'):
+                interval = max(0.5, float(cfg.get('pair_watch_interval', 2)))
+                for target, key in (('console', 'console_conf_path'),
+                                    ('game', 'game_conf_path')):
+                    path = _apollo_log_path(cfg.get(key))
+                    if path:
+                        _pair_poll_file(target, path)
+            else:
+                interval = 10.0
+            time.sleep(interval)
+        except Exception as e:
+            log_err('pair watch error: %r' % e)
+            time.sleep(10)
+
+
+def _pair_poll_file(target, path):
+    try:
+        size = os.path.getsize(path)
+    except OSError:
+        return
+    prev_path, off = _pair_offsets.get(target, (None, 0))
+    if prev_path != path or size < off:
+        # first sight, or log truncated/recreated (Apollo restart): start from
+        # the tail so startup noise can never raise phantom pairing dialogs
+        off = size
+        _pair_offsets[target] = (path, off)
+        return
+    if size == off:
+        return
+    try:
+        with open(path, 'rb') as f:
+            f.seek(off)
+            data = f.read()
+            _pair_offsets[target] = (path, f.tell())
+    except OSError:
+        return
+    payload = '新设备'
+    for raw in data.splitlines():
+        if not _pair_marker(raw):
+            continue
+        m = _PAIR_TS.match(raw)
+        stamp = m.group(1) if m else raw[:19]
+        # prefer the message text (ASCII after the level tag) for the dialog
+        msg = m.group(2).strip() if m else b''
+        if msg:
+            payload = msg.decode('ascii', 'replace') or '新设备'
+        _pair_push(target, stamp.decode('ascii', 'replace'), payload)
+
+
+def start_pair_watch():
+    threading.Thread(target=pair_watch_loop, daemon=True, name='pair-watch').start()
 
 
 def set_apollo_virtual_display(cfg, want, conf_key='console'):
@@ -1538,7 +1939,9 @@ def tick():
 #        (bypasses the 20s launch rate limit), no wait for the next tick.
 #   {"cmd":"set_display_mode","mode":"mirror"|"only"|"extend"}
 #     -> persists the display topology choice into config.json (hot-reloaded),
-#        then runs one tick so the change takes effect immediately.
+#        queues a CCD/SetDisplayConfig topology request for the console-session
+#        display worker, then runs one tick so Apollo's virtual-display flag and
+#        the worker are updated immediately.
 # Local-only pipe; SDDL grants generic access to Everyone+SYSTEM so the
 # non-elevated tray app can connect. Commands are restart-only, which is
 # acceptable exposure for this home tool.
@@ -1670,12 +2073,15 @@ def _ctrl_dispatch(req):
     if cmd == 'set_display_mode':
         mode = str(req.get('mode', 'mirror')).strip().lower()
         ok = save_config_display_mode(mode)
+        rid = ''
         if ok:
+            rid = str(time.time_ns())
+            _write_json_atomic(_MODE_REQ, {'id': rid, 'mode': mode, 'ts': time.time()})
             try:
                 tick()
             except Exception as e:
                 log_err('set_display_mode tick error: %r' % e)
-        return {'ok': ok, 'cmd': 'set_display_mode', 'mode': mode}
+        return {'ok': ok, 'cmd': 'set_display_mode', 'mode': mode, 'request': rid}
     if cmd == 'set_resolution':
         raw = req.get('resolutions')
         resolutions = [r for r in raw if isinstance(r, str)] if isinstance(raw, list) else None
@@ -1686,6 +2092,9 @@ def _ctrl_dispatch(req):
             except Exception as e:
                 log_err('set_resolution tick error: %r' % e)
         return {'ok': ok, 'cmd': 'set_resolution'}
+    if cmd == 'poll_pair_events':
+        # drain the passive new-device queue (trayapp auto-opens the PIN dialog)
+        return {'ok': True, 'events': _drain_pair_events()}
     return {'ok': False, 'error': 'unknown cmd'}
 
 
@@ -1828,6 +2237,10 @@ def _service_main(argc, argv):
         start_ctrl_pipe()
     except Exception as e:
         log_err('service: ctrl pipe start error: %r' % e)
+    try:
+        start_pair_watch()
+    except Exception as e:
+        log_err('service: pair watch start error: %r' % e)
     _clear_worker_stop()
     # display exclusivity runs in a worker inside the console session
     # (see ensure_display_worker), not in this session-0 process.
@@ -1988,6 +2401,7 @@ def main():
         _clear_worker_stop()
         ka.start()
         start_ctrl_pipe()
+        start_pair_watch()
         try:
             while True:
                 tick()

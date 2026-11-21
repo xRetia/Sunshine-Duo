@@ -60,11 +60,11 @@
 
 | | 🖥️ Console 会话 | 🕹️ 游戏会话 |
 | --- | --- | --- |
-| 谁在用 | 本机键鼠 / 远控 | Moonlight 客户端（手机/平板/电视/PC） |
-| 看哪块屏 | 物理显示器 / SudoVDA 虚拟屏（可配置） | RDP 虚拟显示驱动 |
+| 谁在用 | 本机键鼠；也可用 Moonlight 等客户端连接 | Moonlight 客户端（手机/平板/电视/PC） |
+| 看哪块屏 | 物理显示器（也可配虚拟屏） | 串流用的虚拟显示器 |
 | 输入设备 | 本机键鼠 | 串流手柄，虚拟成 Xbox 360 手柄 |
-| 守护进程 | SYSTEM  Apollo（可处理 UAC） | 提升令牌 Apollo（RDP） |
-| 串流端口 | 端口族 A（默认 48100） | 端口族 B（默认 48200） |
+| 谁在后台看着会话 | 系统级服务，电脑前会话更稳 | 跟着游戏用户走，游戏会话更稳 |
+| 串流端口 | 主会话端口（默认 48100） | 游戏会话端口（默认 48200） |
 | 互相干扰 | ❌ 完全隔离 | ❌ 完全隔离 |
 
 **典型场景**：你在书房写文档查资料，家人在客厅用电视连着手柄打《原神》——同一台电脑、同一个系统，两边同时进行，谁也踢不掉谁。
@@ -75,21 +75,21 @@
 
 | 亮点 | 说明 |
 | --- | --- |
-| 👥 **双 Apollo 守卫** | 两个 Apollo 同时在线，主 Apollo（SYSTEM）接管 Console，次 Apollo（用户令牌）接管游戏 RDP |
+| 👥 **两个会话都有守护** | 有守护进程分别照看“主会话”和“游戏会话”，掉线能自动恢复 |
 | 🖥️ **SudoVDA 虚拟显示器** | 支持物理显示器 / 仅虚拟显示器 / 克隆 / 扩展四种显示模式，仅 Console 会话使用 |
-| 🌐 **双端口族** | 主/游戏会话各用一套专用端口（读写 `sunshine.conf`/`sunshine-game.conf`） |
+| 🌐 **两套独立端口** | 两个会话各用一套端口，互不重叠、互不干扰 |
 | 👥 **双会话隔离** | 键鼠、手柄、画面、声音各归各的会话，不打架、不抢焦点 |
-| 🤝 **与网易 UU 远程兼容** | UU 远程管 console 会话做日常远控，Sunshine-Duo 管游戏会话；两边可同时连一台机器，互不冲突 |
+| 💼 **主会话也能远程办公** | Console 会话由本工具自己接管，不装别的远程软件，在外面也能操作电脑 |
 | 🎮 **手柄即插即用** | 串流手柄虚拟成 Xbox 360 手柄——兼容性最好的一档，支持多手柄，还不影响本机键鼠 |
-| 🔐 **能启动要管理员权限的游戏** | 自带游戏菜单（GameManager），串流端直接开游戏，不用先跑回电脑前点 UAC |
-| 🌙 **断流即回屏** | 断开串流后虚拟屏自动关闭、物理显示器秒回桌面；下次连接自动重建虚拟屏 |
+| 🔐 **能启动要管理员权限的游戏** | 自带游戏菜单，在手机上就能启动这类游戏，不用先回到电脑前手动授权 |
+| 🌙 **断流即回屏** | 断开串流后，虚拟屏自动关闭、电脑回到真实桌面；下次连接自动重建 |
 | 🧰 **一键安装卸载** | 图形界面，全中文；整个目录可任意移动，卸载不删配置和已配对设备 |
 
 ## 🚀 三步开玩
 
 > ⚠️ **安装前先做一件事：暂时关闭杀毒软件**（或直接把解压出的文件夹加入信任区 / 白名单）。原因见上方蓝底说明——装后台服务、驱动这些行为容易被误报拦截，导致安装失败。装完后可以再打开。
 
-1. **解压并安装**——解压到任意目录（D 盘 E 盘都行），双击 **`setup.bat`**；弹出蓝色 UAC 授权窗口时点 **「是」**（安装需要管理员权限，不点它没法装服务、驱动和防火墙规则）
+1. **解压并安装**——解压到任意目录（D 盘 E 盘都行），双击 **`setup.bat`**；弹出 UAC 授权窗口时点 **「是」**（安装需要管理员权限，不点它没法装服务、驱动和防火墙规则）
 2. **按向导走完**——选串流用的显卡 → 确认 **Console 主用户（默认当前登录用户）** → 填写 **游戏用户（RDP 串流）的用户名和密码** → 选择显示模式（物理/虚拟/克隆/扩展）和两个会话的串流端口，点「开始安装」等完成
 
 > ⚠️ **注意**：SudoVDA 虚拟显示器（仅 Console 会话）与 RDP 显示驱动（仅游戏会话）各管各的，**不冲突**；两个会话共享 `config\` 下的应用列表与证书，但各自有独立的配对状态，Moonlight 里显示为 **主会话** 和 **游戏会话** 两台主机。
@@ -115,7 +115,7 @@
 | `scripts\` | 向导 + 驱动/网关/防火墙安装脚本（`install-sudovda.bat` / `uninstall-sudovda.bat`） |
 | `wsguard\` | 串流会话守护服务（保活虚拟屏、拉起两个 Apollo） |
 | `drivers\` | SudoVDA 虚拟显示驱动 |
-| `config\sunshine-game.conf` | 游戏会话（次 Apollo）专用配置文件 |
+| `config\` | 运行时配置（安装时生成；应用列表 `apps.json` 随项目分发） |
 | `tools\` | RDP 解锁、游戏菜单等工具 |
 | `Links\` | 🎮 放你的游戏快捷方式，串流端一键启动 |
 | `assets\` | 资源图片与项目介绍视频（`sunshine-duo-video.html`） |
@@ -126,11 +126,11 @@
 需要 **Python 3.12（x64）与 pip**。构建依赖不随仓库分发，首次构建自动 pip 安装到 `.wsguard-build\`：
 
 ```powershell
-cd wsguard\src
+cd src\wsguard
 powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -Deploy
 ```
 
-依赖清单：`wsguard\src\requirements-build.txt`（PyInstaller 工具链）、`requirements-rdp.txt`（aardwolf RDP 运行库）。
+依赖清单：`src\wsguard\requirements-build.txt`（PyInstaller 工具链）、`requirements-rdp.txt`（aardwolf RDP 运行库）。
 
 </details>
 
@@ -160,6 +160,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -STA -File scripts\sunshine-setup.
 | SudoVDA 虚拟显示驱动 | https://github.com/SudoMaker/SudoVDA | MIT |
 | nefcon | https://github.com/nefarius/nefcon | MIT |
 | zlib | https://zlib.net | zlib License |
-| wsguard 的 Python 依赖（aardwolf 等） | https://pypi.org（清单见 wsguard\src\requirements-rdp.txt） | MIT / BSD / Apache-2.0 / MPL-2.0 / PSF 等 |
+| wsguard 的 Python 依赖（aardwolf 等） | https://pypi.org（清单见 src\wsguard\requirements-rdp.txt） | MIT / BSD / Apache-2.0 / MPL-2.0 / PSF 等 |
 
 完整清单、版本号与许可证全文见 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) 与 [licenses\](licenses) 目录。

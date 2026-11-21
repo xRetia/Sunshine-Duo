@@ -1,4 +1,6 @@
-built=2026-11-21 00:14:27
-source=wsguard/src/wsguard.py
-payload=PS_GUARD_B64 injected
-pil=system-deps+copied-pyd
+{
+    "service_name":  "WSGuard",
+    "display_name":  "Game Windows Session Guard",
+    "style":  "dynamic-path",
+    "built":  "2026-11-21T09:42:50"
+}
