@@ -627,12 +627,23 @@ function Install-SudoVDA {
     Write-Log '执行 scripts\install-sudovda.bat（安装 SudoVDA 虚拟显示驱动）...'
     $p = Start-Process -FilePath $bat -WindowStyle Hidden -PassThru -Wait
     if ($p.ExitCode -ne 0) { throw "install-sudovda.bat 返回码 $($p.ExitCode)（证书=1 / 建设备节点=2 / 装驱动=3）" }
-    Start-Sleep -Seconds 1
-    $dev = @(Get-PnpDevice | Where-Object {
-        ($_.InstanceId -match 'sudovda') -or ((@($_.HardwareID) -join ';') -match 'sudovda')
-    })
-    if ($dev.Count -eq 0 -or $dev[0].Status -ne 'OK') {
-        throw 'SudoVDA 设备未在设备管理器中出现（root\sudomaker\sudovda），安装未生效'
+    # PnP 枚举与就绪可能滞后，「需重启生效」是合法状态：出现即成功，只有始终不出现才算失败
+    $dev = @()
+    $deadline = (Get-Date).AddSeconds(10)
+    while ((Get-Date) -lt $deadline) {
+        Start-Sleep -Milliseconds 500
+        $dev = @(Get-PnpDevice | Where-Object {
+            $_.Present -and
+            (($_.InstanceId -match 'sudovda') -or ((@($_.HardwareID) -join ';') -match 'sudovda'))
+        })
+        if ($dev.Count -gt 0 -and $dev[0].Status -eq 'OK') { break }
+    }
+    if ($dev.Count -eq 0) {
+        throw 'SudoVDA 设备 10 秒内未出现（root\sudomaker\sudovda）；若设备管理器已有此设备但提示需重启，重启电脑即生效'
+    }
+    if ($dev[0].Status -ne 'OK') {
+        Write-Log ('注意: SudoVDA 设备已出现，状态 {0}（{1}）；若设备管理器提示需重启，重启电脑后生效' -f $dev[0].Status, $dev[0].Problem)
+        return
     }
     Write-Log "OK: SudoVDA 虚拟显示驱动已就绪（$($dev[0].FriendlyName)，Status=$($dev[0].Status)）"
 }
@@ -642,7 +653,22 @@ function Uninstall-SudoVDA {
     Write-Log '执行 scripts\uninstall-sudovda.bat（卸载 SudoVDA 虚拟显示驱动）...'
     $p = Start-Process -FilePath $bat -WindowStyle Hidden -PassThru -Wait
     if ($p.ExitCode -ne 0) { throw "uninstall-sudovda.bat 返回码 $($p.ExitCode)" }
-    Write-Log 'OK: SudoVDA 虚拟显示驱动卸载流程已执行'
+    # remove-device-node 自身吞掉非零码，只以设备是否还在为准；移除同样可能滞后，轮询确认
+    $dev = @()
+    $deadline = (Get-Date).AddSeconds(10)
+    while ((Get-Date) -lt $deadline) {
+        Start-Sleep -Milliseconds 500
+        $dev = @(Get-PnpDevice | Where-Object {
+            $_.Present -and
+            (($_.InstanceId -match 'sudovda') -or ((@($_.HardwareID) -join ';') -match 'sudovda'))
+        })
+        if ($dev.Count -eq 0) { break }
+    }
+    if ($dev.Count -gt 0) {
+        Write-Log "注意: SudoVDA 设备仍在（$($dev[0].InstanceId)，Status=$($dev[0].Status)）；remove-device-node 未生效，重启电脑后再卸载一次即可移除"
+        return
+    }
+    Write-Log 'OK: SudoVDA 虚拟显示驱动已卸载'
 }
 
 # ============================================================================
