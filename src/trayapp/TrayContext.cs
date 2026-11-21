@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Text.Json;
+using Microsoft.Win32;
 
 namespace SunshineDuoTray;
 
@@ -13,9 +14,11 @@ public class TrayContext : ApplicationContext
     private readonly ToolStripMenuItem _mGameStatus;
     private readonly ToolStripMenuItem _mMirror, _mOnly, _mExtend;
     private readonly System.Windows.Forms.Timer _timer;
+    private readonly System.Windows.Forms.Timer _eventTimer;
     private bool _polling;
     private bool _consoleUp;
     private bool _gameUp;
+    private bool _pairDialogOpen;
 
     public TrayContext()
     {
@@ -57,6 +60,10 @@ public class TrayContext : ApplicationContext
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(M("退出", Exit));
 
+        // 右键菜单跟随系统深色/浅色主题
+        var light = IsSystemLightTheme();
+        ApplyThemeToMenu(menu, light);
+
         _tray = new NotifyIcon
         {
             Icon = TrayIcons.Get(TrayState.Offline),
@@ -70,6 +77,11 @@ public class TrayContext : ApplicationContext
         _timer.Tick += async (_, _) => await PollAsync();
         _timer.Start();
         _ = PollAsync();
+
+        // wsguard 配对事件轮询：不碰 Apollo，只走本地控制管道（wsguard 自己监听通知/日志）
+        _eventTimer = new System.Windows.Forms.Timer { Interval = 1500 };
+        _eventTimer.Tick += async (_, _) => await PollPairEvents();
+        _eventTimer.Start();
     }
 
     private static ToolStripMenuItem M(string text, Action onClick)
@@ -77,6 +89,122 @@ public class TrayContext : ApplicationContext
         var item = new ToolStripMenuItem(text);
         item.Click += (_, _) => onClick();
         return item;
+    }
+
+    // 系统深色/浅色主题检测：读注册表 AppsUseLightTheme
+    private static bool IsSystemLightTheme()
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(
+                @"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
+            if (key == null) return false;
+            var v = key.GetValue("AppsUseLightTheme");
+            if (v is int i) return i == 1;
+        }
+        catch { }
+        return false;
+    }
+
+    // 把右键菜单的渲染色设为跟随系统主题（浅色/深色）
+    private static void ApplyThemeToMenu(ContextMenuStrip menu, bool light)
+    {
+        var colors = new ThemeColors(light);
+        menu.BackColor = light ? Color.White : Color.FromArgb(24, 26, 30);
+        menu.ForeColor = light ? Color.Black : Color.FromArgb(240, 242, 245);
+        menu.Renderer = new MenuRenderer(light, colors);
+        foreach (ToolStripItem it in menu.Items)
+            ApplyThemeToItem(it, light);
+    }
+
+    private static void ApplyThemeToItem(ToolStripItem item, bool light)
+    {
+        var back = light ? Color.White : Color.FromArgb(24, 26, 30);
+        var fore = light ? Color.Black : Color.FromArgb(240, 242, 245);
+        item.BackColor = back;
+        item.ForeColor = fore;
+        if (item is ToolStripMenuItem mi)
+        {
+            mi.DropDown.BackColor = back;
+            mi.DropDown.ForeColor = fore;
+            foreach (ToolStripItem sub in mi.DropDownItems)
+                ApplyThemeToItem(sub, light);
+        }
+    }
+
+    private sealed class MenuRenderer : ToolStripProfessionalRenderer
+    {
+        private readonly bool _light;
+
+        public MenuRenderer(bool light, ProfessionalColorTable colors) : base(colors)
+            => _light = light;
+
+        protected override void OnRenderImageMargin(ToolStripRenderEventArgs e)
+        {
+            var back = e.ToolStrip.BackColor.IsEmpty
+                ? (_light ? Color.White : Color.FromArgb(24, 26, 30))
+                : e.ToolStrip.BackColor;
+            using var brush = new SolidBrush(back);
+            e.Graphics.FillRectangle(brush, e.AffectedBounds);
+        }
+
+        protected override void OnRenderSeparator(ToolStripSeparatorRenderEventArgs e)
+        {
+            var back = e.Item.BackColor.IsEmpty
+                ? (_light ? Color.White : Color.FromArgb(24, 26, 30))
+                : e.Item.BackColor;
+            using (var brush = new SolidBrush(back))
+                e.Graphics.FillRectangle(brush, e.Item.Bounds);
+            var lineColor = back.GetBrightness() > 0.5f
+                ? Color.FromArgb(226, 230, 236)
+                : Color.FromArgb(55, 60, 68);
+            using var pen = new Pen(lineColor);
+            var r = e.Item.ContentRectangle;
+            if (r.Width <= 0 || r.Height <= 0)
+                r = e.Item.Bounds;
+            if (e.Vertical)
+            {
+                var x = r.Left + r.Width / 2;
+                e.Graphics.DrawLine(pen, x, r.Top + 2, x, Math.Max(r.Top + 2, r.Bottom - 2));
+            }
+            else
+            {
+                var y = r.Top + r.Height / 2;
+                e.Graphics.DrawLine(pen, r.Left + 1, y, Math.Max(r.Left + 1, r.Right - 1), y);
+            }
+        }
+
+        protected override void OnRenderArrow(ToolStripArrowRenderEventArgs e)
+        {
+            if (e.Item is not { } item) return;
+            e.ArrowColor = item.Enabled
+                ? item.ForeColor
+                : (_light ? SystemColors.GrayText : Color.FromArgb(110, 115, 124));
+            base.OnRenderArrow(e);
+        }
+    }
+
+    // 专用颜色表：让 ToolStripProfessionalRenderer 按系统主题渲染
+    private sealed class ThemeColors : ProfessionalColorTable
+    {
+        private readonly bool _light;
+        public ThemeColors(bool light) => _light = light;
+        public override Color MenuItemSelected => _light
+            ? Color.FromArgb(230, 235, 240)
+            : Color.FromArgb(50, 54, 61);
+        public override Color MenuItemSelectedGradientBegin => MenuItemSelected;
+        public override Color MenuItemSelectedGradientEnd => MenuItemSelected;
+        public override Color MenuBorder => _light
+            ? Color.FromArgb(200, 200, 200)
+            : Color.FromArgb(70, 75, 84);
+        public override Color MenuItemBorder => MenuBorder;
+        // 图标栏与菜单底色一致，否则浅色主题下左侧会出现一条灰带
+        public override Color ImageMarginGradientBegin => ToolStripDropDownBackground;
+        public override Color ImageMarginGradientEnd => ToolStripDropDownBackground;
+        public override Color ImageMarginGradientMiddle => ToolStripDropDownBackground;
+        public override Color ToolStripDropDownBackground => _light
+            ? Color.White
+            : Color.FromArgb(24, 26, 30);
     }
 
     private ApolloClient Client(bool console)
@@ -107,6 +235,30 @@ public class TrayContext : ApplicationContext
         finally
         {
             _polling = false;
+        }
+    }
+
+    // 被动配对事件：wsguard 监听两个会话的 Apollo 通知/日志并压入事件队列，
+    // trayapp 只轮询本地命名管道（不向 Apollo 发任何请求），拿到事件即弹出配对窗。
+    // 弹窗打开期间跳过轮询（事件留在 wsguard 队列，关窗后下个周期再取），
+    // 同一批事件按会话合并，避免一次连接突发弹出多个窗。
+    private async Task PollPairEvents()
+    {
+        if (_pairDialogOpen) return;
+        var events = await GuardPipe.PollEvents();
+        if (events == null || events.Count == 0) return;
+        var latest = new Dictionary<bool, GuardPipe.PairEvent>();
+        foreach (var ev in events)
+            latest[ev.Target != "game"] = ev;
+        _pairDialogOpen = true;
+        try
+        {
+            foreach (var kv in latest)
+                ShowPairFormPreset(kv.Key, kv.Value.Payload);
+        }
+        finally
+        {
+            _pairDialogOpen = false;
         }
     }
 
@@ -222,6 +374,15 @@ public class TrayContext : ApplicationContext
         catch { }
     }
 
+    private void ShowPairFormPreset(bool console, string deviceName)
+    {
+        // WinForms Timer 的 Tick 在 UI 线程触发，这里天然在 UI 线程
+        using var f = new PairForm(_cfg, console);
+        f.Text = $"设备配对 — {deviceName}";
+        f.ShowDialog();
+        _ = PollAsync();
+    }
+
     private void ShowPairForm()
     {
         using var f = new PairForm(_cfg);
@@ -267,6 +428,7 @@ public class TrayContext : ApplicationContext
     private void Exit()
     {
         _timer.Stop();
+        _eventTimer.Stop();
         _tray.Visible = false;
         _tray.Dispose();
         Application.Exit();

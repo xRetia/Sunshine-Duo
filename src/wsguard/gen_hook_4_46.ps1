@@ -1,6 +1,6 @@
 # Build the GameViewer 4.46 hook. The 4.0 generator and binary remain unchanged.
 $ErrorActionPreference = 'Stop'
-$root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+$root = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
 $tmp = Join-Path $root '.temp'
 if (-not (Test-Path -LiteralPath $tmp)) { throw "Missing temporary directory: $tmp" }
 $asm = Join-Path $tmp 'gv_hook_4_46.s'

@@ -1,15 +1,16 @@
 ﻿# build.ps1 - wsguard 一键重打包（PyInstaller onedir）
 # 用法（在管理员/普通 PowerShell 均可，仅打包不部署）：
 #   powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1
-#   powershell ... -File .\build.ps1 -Deploy   # 打包后自动部署到 ..\（wsguard 主目录）
+#   powershell ... -File .\build.ps1 -Deploy   # 打包后自动部署到 仓库根\wsguard（运行时主目录）
 param([switch]$Deploy, [string]$Python)
 
 $ErrorActionPreference = 'Stop'
 
 # ---- 路径推导 ----
 $SrcDir   = $PSScriptRoot                       # src 正本目录
-$WgDir    = Split-Path -Parent $SrcDir          # wsguard 主目录（部署目标）
-$BuildRoot = Join-Path (Split-Path -Parent $WgDir) '.wsguard-build'   # Sunshine 根目录\.wsguard-build
+$RepoRoot = Split-Path -Parent (Split-Path -Parent $SrcDir)   # 仓库根（src 的父目录）
+$WgDir    = Join-Path $RepoRoot 'wsguard'       # wsguard 运行时主目录（部署目标）
+$BuildRoot = Join-Path $SrcDir '.wsguard-build'   # src\wsguard\.wsguard-build（构建现场）
 if (-not $Python) { $Python = 'python' }   # 默认取 PATH 上的 python（需 3.12 x64），可用 -Python 指定完整路径
 
 # 构建依赖库（PyInstaller 与 aardwolf 运行库），不随仓库分发：
@@ -68,7 +69,7 @@ $exeSize = (Get-Item (Join-Path $dist 'wsguard_final.exe')).Length
 $files = (Get-ChildItem $dist -Recurse -File).Count
 Write-Host "打包完成: $dist （exe $exeSize 字节，共 $files 个文件）"
 
-# ---- 部署（可选）：exe 改名 + _internal 镜像同步，不动 rdp.cred/config.json/gv_hook.dll/src ----
+# ---- 部署（可选）：exe 改名 + _internal 镜像同步，不动 rdp.cred/config.json/gv_hook.dll ----
 if ($Deploy) {
     # Stopped 状态下文件未锁定可直接覆盖（binPath 为动态路径推导，注册信息不受影响）；
     # 仅当 wsguard 进程仍在运行时才阻止部署

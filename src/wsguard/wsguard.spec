@@ -32,6 +32,14 @@ for pkg in ['aardwolf', 'asysocks', 'asyauth', 'unicomm', 'unicrypto',
 hiddenimports += ['PIL._imaging', 'PIL._imagingcms', 'PIL._imagingft',
                   'PIL._imagingmath', 'PIL._avif']
 
+# PIL's C extensions (.pyd) are NOT collected by collect_all/collect_dynamic_libs
+# (no package hooks are loaded: see hookspath=[] below); ship them explicitly so
+# the keepalive thread can import PIL._imaging at runtime.
+_PIL_DIR = os.path.abspath('rdp-lib/PIL')
+for _name in os.listdir(_PIL_DIR):
+    if _name.lower().endswith('.pyd'):
+        binaries.append((os.path.join(_PIL_DIR, _name), 'PIL'))
+
 # ship Cryptodome verbatim (PyInstaller hook mis-collects .py files)
 import os
 _extra = os.path.abspath('rdp-lib/Cryptodome')

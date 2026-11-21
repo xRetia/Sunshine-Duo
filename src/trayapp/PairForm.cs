@@ -23,10 +23,11 @@ public class PairForm : Form
     [DllImport("user32.dll")] private static extern bool ReleaseCapture();
     [DllImport("user32.dll")] private static extern int SendMessage(IntPtr hWnd, int msg, int wParam, int lParam);
 
-    public PairForm(AppConfig cfg)
+    public PairForm(AppConfig cfg, bool? presetConsole = null)
     {
         _cfg = cfg;
         Text = "设备配对";
+        if (presetConsole.HasValue) _console = presetConsole.Value;
         FormBorderStyle = FormBorderStyle.None;
         StartPosition = FormStartPosition.CenterScreen;
         ClientSize = new Size(480, 300);

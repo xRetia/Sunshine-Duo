@@ -1,40 +1,42 @@
-# ---- 日志 ----
+# ============================================================
+# Sunshine-Duo .gitignore
+# 原则：只提交源码(src\)、运行时载荷与模板；本机生成的文件一律忽略。
+# ============================================================
+
+# ---- 日志（含轮转备份）----
 *.log
 *.log.backup
 tools/install-log.txt
 
+# ---- Sunshine 运行配置（仅允许 config/apps.json 入库，其余全部本机生成）----
+config/*
+!config/apps.json
+
 # ---- 密钥与凭据（本机生成，严禁入库）----
 config/credentials/
-config/sunshine_state.json
-config/sunshine_state-console.json
-config/sunshine_state-game.json
 wsguard/rdp.cred
 
-# ---- wsguard 构建现场（pip 依赖见 wsguard/src/requirements-build.txt / requirements-rdp.txt）----
-.wsguard-build/
+# ---- wsguard 本机运行状态（服务/显示工作进程自写）----
+wsguard/config.json
+wsguard/display-worker.json
+wsguard/display-disabled.json
 
-# ---- 临时文件与缓存 ----
+# ---- 本机生成的工具配置（安装时按本机路径重写）----
+tools/GameManager.json
+
+# ---- 构建现场与临时缓存 ----
+src/wsguard/.wsguard-build/
 .temp/
 __pycache__/
 *.pyc
 
+# ---- SunshineDuoTray 托盘构建产物与本机配置（源码在 src\trayapp）----
+src/trayapp/bin/
+src/trayapp/obj/
+src/trayapp/publish/
+src/trayapp/trayapp.json
+tools/SunshineDuoTray/
+
 # ---- 游戏快捷方式（指向本机游戏，别人机器无效；目录本身靠 README.md 占位入库）----
 Links/*
 !Links/README.md
-
-# ---- 本机生成的运行配置（安装时按本机路径/硬件重写，不入库）----
-config/sunshine.conf
-config/sunshine-game.conf
-wsguard/config.json
-tools/GameManager.json
-
-# ---- wsguard 运行期状态（服务/显示工作进程自写）----
-wsguard/display-worker.json
-wsguard/display-disabled.json
-
-# ---- SunshineDuoTray 托盘构建产物与本机配置 ----
-tools/trayapp/bin/
-tools/trayapp/obj/
-tools/trayapp/publish/
-tools/trayapp/trayapp.json
-tools/SunshineDuoTray/

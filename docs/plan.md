@@ -175,7 +175,7 @@ function Install-SudoVDA {
 | 路径 | 角色 | 改动 |
 | --- | --- | --- |
 | `scripts/sunshine-setup.ps1` | **重写** | 向导 + 安装 + 卸载 + 托盘 + Apollo 配置 + 凭证 + 端口 + 显示模式 |
-| `wsguard/src/wsguard.py` | 核心服务 | 双 Apollo 守卫 + 双 conf 路径 + Console 会话日志 |
+| `src/wsguard/wsguard.py` | 核心服务 | 双 Apollo 守卫 + 双 conf 路径 + Console 会话日志 |
 | `wsguard/config.json` | 配置 | 新增：`guard_apollo_console`, `console_conf_path`, `game_conf_path`, `console_port`, `game_port`, `install_sudovda`, `default_display_mode` |
 | `config/sunshine.conf` | 主 Apollo 配置 | 新增 `port`（由 setup 写） |
 | `config/sunshine-game.conf` | 次 Apollo 配置 | 新增 `port` |

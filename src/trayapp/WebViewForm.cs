@@ -1,6 +1,7 @@
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 using System.Text.Json;
+using Microsoft.Win32;
 
 namespace SunshineDuoTray;
 
@@ -29,13 +30,31 @@ public class WebViewForm : Form
         Shown += async (_, _) => await InitAsync();
     }
 
+    // 系统深色/浅色主题检测
+    private static bool IsSystemLightTheme()
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(
+                @"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
+            if (key == null) return false;
+            var v = key.GetValue("AppsUseLightTheme");
+            if (v is int i) return i == 1;
+        }
+        catch { }
+        return false;
+    }
+
     private async Task InitAsync()
     {
         if (_bootstrapped) return;
         _bootstrapped = true;
         try
         {
-            var options = new CoreWebView2EnvironmentOptions("--ignore-certificate-errors --allow-insecure-localhost");
+            var light = IsSystemLightTheme();
+            var args = "--ignore-certificate-errors --allow-insecure-localhost";
+            if (!light) args += " --force-dark-mode";
+            var options = new CoreWebView2EnvironmentOptions(args);
             var env = await CoreWebView2Environment.CreateAsync(null, null, options);
             await _view.EnsureCoreWebView2Async(env);
 

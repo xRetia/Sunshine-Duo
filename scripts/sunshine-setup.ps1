@@ -819,9 +819,9 @@ function Get-ConsoleUserInfo {
 
 function Find-TrayAppExe {
     $cands = @(
-        (Join-Path $Root 'tools\trayapp\bin\Release\net9.0-windows\win-x64\publish\SunshineDuoTray.exe'),
-        (Join-Path $Root 'tools\trayapp\SunshineDuoTray.exe'),
-        (Join-Path $Root 'tools\trayapp\publish\SunshineDuoTray.exe'),
+        (Join-Path $Root 'src\trayapp\bin\Release\net9.0-windows\win-x64\publish\SunshineDuoTray.exe'),
+        (Join-Path $Root 'src\trayapp\SunshineDuoTray.exe'),
+        (Join-Path $Root 'src\trayapp\publish\SunshineDuoTray.exe'),
         (Join-Path $Root 'tools\SunshineDuoTray\SunshineDuoTray.exe')
     )
     foreach ($c in $cands) { if (Test-Path -LiteralPath $c) { return $c } }
@@ -835,7 +835,7 @@ function Install-TrayApp {
     $deployExe = Join-Path $deployDir 'SunshineDuoTray.exe'
     $src = Find-TrayAppExe
     if (-not $src) {
-        Write-Log '警告: 未找到 SunshineDuoTray.exe（先在 tools\trayapp 运行 dotnet publish），已跳过托盘部署'
+        Write-Log '警告: 未找到 SunshineDuoTray.exe（先在 src\trayapp 运行 dotnet publish），已跳过托盘部署'
         return
     }
     Get-Process -Name 'SunshineDuoTray' -ErrorAction SilentlyContinue |
