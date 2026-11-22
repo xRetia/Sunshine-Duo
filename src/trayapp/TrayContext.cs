@@ -27,11 +27,18 @@ public class TrayContext : ApplicationContext
         _mConsoleStatus = new ToolStripMenuItem($"主会话 [检测中] [https://*:{_cfg.ConsolePort + 1}]") { Enabled = false };
         _mGameStatus = new ToolStripMenuItem($"游戏会话 [检测中] [https://*:{_cfg.GamePort + 1}]") { Enabled = false };
 
-        _mMirror = new ToolStripMenuItem("镜像 · 串流物理主屏") { Tag = "mirror", CheckOnClick = true };
-        _mOnly = new ToolStripMenuItem("独占 · 仅虚拟显示器") { Tag = "only", CheckOnClick = true };
-        _mExtend = new ToolStripMenuItem("扩展 · 物理屏 + 虚拟屏") { Tag = "extend", CheckOnClick = true };
+        _mMirror = new ToolStripMenuItem("镜像 · 串流物理主屏") { Tag = "mirror" };
+        _mOnly = new ToolStripMenuItem("独占 · 仅虚拟显示器") { Tag = "only" };
+        _mExtend = new ToolStripMenuItem("扩展 · 物理屏 + 虚拟屏") { Tag = "extend" };
         foreach (var it in new[] { _mMirror, _mOnly, _mExtend })
-            it.Click += async (_, _) => await SetDisplayMode((string)it.Tag!);
+        {
+            var mode = (string)it.Tag!;
+            it.Click += async (_, _) =>
+            {
+                SetCheckedMode(mode); // 三个模式互斥单选，点击先立即更新勾选态
+                await SetDisplayMode(mode);
+            };
+        }
 
         var displayMenu = new ToolStripMenuItem("显示模式");
         displayMenu.DropDownItems.Add(_mMirror);
@@ -341,7 +348,10 @@ public class TrayContext : ApplicationContext
         };
         if (MessageBox.Show($"切换显示模式为「{name}」？（由 Sunshine Duo 核心服务运行期执行，串流中会立即切换拓扑）",
                 "显示模式", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK)
+        {
+            UpdateDisplayCheckmarks(); // 用户取消：勾选态恢复为配置里的模式
             return;
+        }
         _tray.ShowBalloonTip(4000, "显示模式", $"正在切换为「{name}」…", ToolTipIcon.Info);
         string? err;
         try
@@ -358,6 +368,13 @@ public class TrayContext : ApplicationContext
         UpdateDisplayCheckmarks();
     }
 
+    private void SetCheckedMode(string mode)
+    {
+        _mMirror.Checked = mode == "mirror";
+        _mOnly.Checked = mode == "only";
+        _mExtend.Checked = mode == "extend";
+    }
+
     private void UpdateDisplayCheckmarks()
     {
         try
@@ -366,10 +383,7 @@ public class TrayContext : ApplicationContext
             if (!File.Exists(cfg)) return;
             using var doc = JsonDocument.Parse(File.ReadAllText(cfg));
             if (!doc.RootElement.TryGetProperty("default_display_mode", out var v)) return;
-            var mode = v.GetString() ?? "mirror";
-            _mMirror.Checked = mode == "mirror";
-            _mOnly.Checked = mode == "only";
-            _mExtend.Checked = mode == "extend";
+            SetCheckedMode(v.GetString() ?? "mirror");
         }
         catch { }
     }

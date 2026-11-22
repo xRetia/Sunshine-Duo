@@ -556,14 +556,17 @@ class _DISPLAY_DEVICEW(ctypes.Structure):
                 ('DeviceKey', wintypes.WCHAR * 128)]
 
 
-def _display_sources():
+def _display_sources(refresh=False):
     """Return (sudovda, others) lists of ACTIVE source device names (StateFlags
     & ATTACHED_TO_DESKTOP). DeviceString selects the SudoMaker virtual adapter.
     EnumDisplayDevices is moderately expensive; the resweep cap keeps the fast
-    poll cheap while still catching attach/detach within a second."""
+    poll cheap while still catching attach/detach within a second. refresh=True
+    skips the cache (used right after a topology apply, where the previous
+    answer is stale by definition)."""
     now = time.time()
     cache = _display_sources._cache
-    if cache is not None and now < _display_sources._next and now - cache[2] < ENUM_RESWEEP_SECS:
+    if (not refresh and cache is not None and now < _display_sources._next
+            and now - cache[2] < ENUM_RESWEEP_SECS):
         return cache[0], cache[1]
     vda, others = [], []
     dev = _DISPLAY_DEVICEW()
@@ -585,6 +588,25 @@ def _display_sources():
 
 _display_sources._cache = None
 _display_sources._next = 0.0
+
+
+def _vda_devices_any():
+    """All SudoMaker VDA monitors known to this session, attached or not.
+    A CDS-detached VDA keeps its EnumDisplayDevices entry (it only loses the
+    ATTACHED_TO_DESKTOP flag), so this distinguishes 'VDA exists but is
+    switched off' (re-attachable) from 'Apollo removed the VDA' (gone until
+    the next stream creates it)."""
+    out = []
+    dev = _DISPLAY_DEVICEW()
+    i = 0
+    while True:
+        dev.cb = ctypes.sizeof(_DISPLAY_DEVICEW)
+        if not _user32.EnumDisplayDevicesW(None, i, ctypes.byref(dev), 0):
+            break
+        i += 1
+        if dev.DeviceString == SUDOVDA_ADAPTER:
+            out.append(dev.DeviceName)
+    return out
 
 
 def _query_display_paths():
@@ -648,14 +670,34 @@ def _activate_vda_external():
     return True, 'fired EXTERNAL topology'
 
 
-def _apply_display_topology(mode):
+def _apply_display_topology(mode, reattach_names=()):
     """Apply the projection topology via CCD/SetDisplayConfig, the same API
-    Win+P uses. The VDA is only selectable while Apollo has it attached."""
+    Win+P uses. The VDA is only selectable while Apollo has it attached.
+    reattach_names: VDA sources this worker detached itself (mirror mode);
+    only those may be revived - the session can also hold stale SudoVDA
+    monitors (probe leftovers) that must never be dragged back in."""
     if mode not in ('mirror', 'only', 'extend'):
         return False, 'unknown mode: %s' % mode
     vda, others = _display_sources()
-    if mode == 'only' and not vda:
-        return False, 'virtual display not attached'
+    reattach = set(reattach_names or ()) & set(_vda_devices_any())
+    if mode in ('only', 'extend') and not vda:
+        # A mirror session detaches the VDA via CDS, which drops it from the
+        # active-path set while the device itself is still known to the
+        # session - re-activate it with the EXTERNAL projection (the only CCD
+        # preset that activates a SudoVDA target here) before flipping paths.
+        if not reattach:
+            return False, 'virtual display not attached'
+        r = _user32.SetDisplayConfig(0, None, 0, None, SDC_TOPOLOGY_EXTERNAL | SDC_APPLY)
+        if r != 0:
+            return False, 'SetDisplayConfig(EXTERNAL) returned %d' % r
+        deadline = time.time() + 1.5
+        while time.time() < deadline:
+            time.sleep(0.05)
+            vda, others = _display_sources(refresh=True)
+            if set(vda) & reattach:
+                break
+        if not (set(vda) & reattach):
+            return False, 'virtual display re-attach timed out'
     paths, modes = _query_display_paths()
     if not paths:
         return False, 'QueryDisplayConfig failed'
@@ -668,11 +710,17 @@ def _apply_display_topology(mode):
                 p.flags = (p.flags & ~DISPLAYCONFIG_PATH_ACTIVE) | DISPLAYCONFIG_PATH_UPDATE
                 changed = True
     elif mode == 'only':
+        keep = (vda_set & reattach) if reattach else vda_set
         for p, name in zip(paths, names):
             if name in phys_set and (p.flags & DISPLAYCONFIG_PATH_ACTIVE):
                 p.flags = (p.flags & ~DISPLAYCONFIG_PATH_ACTIVE) | DISPLAYCONFIG_PATH_UPDATE
                 changed = True
-            elif (name in vda_set and not (p.flags & DISPLAYCONFIG_PATH_ACTIVE)
+            elif (name in vda_set and (p.flags & DISPLAYCONFIG_PATH_ACTIVE)
+                  and name not in keep):
+                # orphan virtual display dragged in by the EXTERNAL re-attach
+                p.flags = (p.flags & ~DISPLAYCONFIG_PATH_ACTIVE) | DISPLAYCONFIG_PATH_UPDATE
+                changed = True
+            elif (name in keep and not (p.flags & DISPLAYCONFIG_PATH_ACTIVE)
                   and p.targetInfo.targetAvailable):
                 p.flags |= DISPLAYCONFIG_PATH_ACTIVE | DISPLAYCONFIG_PATH_UPDATE
                 changed = True
@@ -764,6 +812,7 @@ class DisplayExclusive:
 
     def __init__(self):
         self.disabled = {}          # device name -> saved mode dict
+        self.detached_vda = set()   # VDA sources this worker detached (mirror)
         self._file = os.path.join(SVC_DIR, 'display-disabled.json')
         self._armed_since = None    # "needs a topology change" first seen at
         self._restore_since = None  # "needs restore" first seen at
@@ -797,8 +846,10 @@ class DisplayExclusive:
                 self.disabled.clear()
                 self._save_disabled()
                 log('display mode: reattached physical displays before %s switch' % mode)
-            ok, detail = _apply_display_topology(mode)
+            ok, detail = _apply_display_topology(mode, reattach_names=self.detached_vda)
         if ok:
+            if mode in ('only', 'extend'):
+                self.detached_vda.clear()
             self._last_mode = mode
             self._last_state = ''
             self._armed_since = None
@@ -951,7 +1002,7 @@ class DisplayExclusive:
                     self._armed_since = now
                 elif others and now - self._armed_since >= ENUM_STABLE_SECS:
                     self._last_action = now
-                    self._detach_vda(vda, 'mirror streaming')
+                    self.detached_vda = set(self._detach_vda(vda, 'mirror streaming'))
         elif state == 'vda-only' and self.disabled and mode != 'only':
             # physical displays detached by a previous 'only' session must come
             # back for both mirror and extend, not just extend
@@ -991,6 +1042,7 @@ class DisplayExclusive:
             log_warn('display: idle cleanup - topology restore failed, will retry')
             return
         self.disabled.clear()
+        self.detached_vda.clear()
         self._save_disabled()
         changes = []
         for name in vda:
@@ -1032,11 +1084,12 @@ class DisplayExclusive:
             detach.dmPelsHeight = 0
             changes.append((name, detach))
         if not changes:
-            return
+            return []
         if _cds_batch(changes):
             log('display: %s - detached %d virtual display(s)' % (why, len(changes)))
         else:
             log_warn('display: %s - detach incomplete' % why)
+        return [c[0] for c in changes]
 
     def _place_extend(self, vda, others):
         """Extend mode: put the virtual display right of the rightmost physical
@@ -1290,6 +1343,7 @@ def run_display_worker():
         try:
             _dx.apply_mode_request()
             cfg = load_config()
+            _apply_log_cfg(cfg)
             mode = _display_mode(cfg)
             if mode == 'mirror' or not _dx._fast_pass(mode, *_display_sources()):
                 _dx.poll(cfg)
@@ -1880,8 +1934,8 @@ def launch_apollo(session_id, config_path=None, system_token=False, force=False,
                                                 CREATE_UNICODE_ENV_FLAG, env,
                                                 os.path.dirname(exe), ctypes.byref(si), ctypes.byref(pi))
             if ok:
-                log('apollo guard: launched sunshine.exe pid=%d session=%d (system=%s)' % (
-                    pi.dwProcessId, session_id, system_token))
+                log('apollo guard: launched %s pid=%d session=%d (system=%s)' % (
+                    os.path.basename(exe), pi.dwProcessId, session_id, system_token))
                 _kernel32.CloseHandle(pi.hThread)
                 _kernel32.CloseHandle(pi.hProcess)
                 return pi.dwProcessId
@@ -2020,15 +2074,22 @@ ka = Keepalive()
 # ----------------------------------------------------------------------------
 # main control tick
 
-def tick():
+def _apply_log_cfg(cfg):
+    """Hot-reload the logging knobs; used by the service tick and by the
+    display worker (a separate process that would otherwise keep the default
+    level forever and silently drop its info logs)."""
     global _LOG_MAX_KB, _LOG_KEEP, _LOG_LEVEL
-    cfg = load_config()
     try:
         _LOG_MAX_KB = max(10, int(cfg.get('log_max_kb', 100)))
         _LOG_KEEP = max(1, int(cfg.get('log_keep', 4)))
         _LOG_LEVEL = _LOG_LEVELS.get(str(cfg.get('log_level', 'warn')).lower(), _LOG_LEVEL)
     except Exception:
         pass
+
+
+def tick():
+    cfg = load_config()
+    _apply_log_cfg(cfg)
 
     if cfg.get('guard_apollo') or cfg.get('guard_apollo_console'):
         normalize_state_types(cfg)
