@@ -889,6 +889,7 @@ class DisplayExclusive:
         self._vda_created = False   # Apollo logged "Virtual Display created at"
         self._vda_failed = False    # Apollo logged the creation-failed warning
         self._last_mode_req_id = None
+        self._last_fp_detail = None
         self._load_disabled()
 
     def apply_mode_request(self):
@@ -953,6 +954,7 @@ class DisplayExclusive:
         if not path:
             self._streaming = False
             return
+        was_streaming = self._streaming
         try:
             size = os.path.getsize(path)
             if size < self._log_off:
@@ -986,6 +988,8 @@ class DisplayExclusive:
             elif b'Virtual Display removed successfully' in line:
                 self._vda_created = False
                 self._vda_failed = False
+        if self._streaming and not was_streaming:
+            self._last_fp_detail = None  # new race: log its progress again
 
     def _state(self, vda, others):
         if vda and others:
@@ -1245,23 +1249,32 @@ class DisplayExclusive:
     def _fast_pass(self, mode, vda, others):
         """Sub-second pass racing Apollo's virtual-display naming window
         (~1.3s after the client requests a mode). Windows never auto-activates
-        a freshly added SudoVDA monitor (measured live: it stays out of the
-        active path set until a topology apply), so we fire the EXTERNAL
-        projection the moment the driver attaches the source. After Apollo
-        reports a failed naming attempt, rescue the capture target instead:
+        a freshly added SudoVDA monitor while a physical display is active
+        (measured live: the target stays out of the active path set until a
+        topology apply, and it does not even show up as GDI-attached before
+        that), so fire the EXTERNAL projection on every poll while the race is
+        open - the moment the driver registers the new target it joins the
+        active set and Apollo's name lookup succeeds. After Apollo reports a
+        failed naming attempt, rescue the capture target instead:
         only -> detach physicals (capture reinit lands on the lone VDA),
         extend -> make the VDA primary. Mirror never activates the VDA."""
-        if not vda or not self._streaming:
-            return False
-        if mode == 'mirror':
-            return False
-        if self._vda_created:
+        if not self._streaming or mode == 'mirror' or self._vda_created:
             return False
         if not self._vda_failed:
-            ok, detail = _activate_vda_external()
-            if ok and detail != 'vda already active':
-                log('display fast-pass: %s' % detail)
+            if vda:
+                ok, detail = _activate_vda_external()
+            else:
+                # VDA not GDI-visible yet: push the preset anyway so the
+                # target activates the instant the driver registers it.
+                ok = _set_topology_preset(SDC_TOPOLOGY_EXTERNAL)
+                detail = 'fired EXTERNAL topology (proactive)' if ok \
+                    else 'EXTERNAL push failed'
+            if detail != self._last_fp_detail:
+                self._last_fp_detail = detail
+                (log if ok else log_warn)('display fast-pass: %s' % detail)
             return True  # race still open: keep polling fast
+        if not vda:
+            return False  # Apollo gave up and no VDA exists - it streams the physical
         # Apollo already gave up on the name - rescue the capture target once.
         if mode == 'only':
             log_warn('display fast-pass: Apollo lost the naming race, detaching '
