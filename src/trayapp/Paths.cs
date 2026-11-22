@@ -4,7 +4,7 @@ using System.Text.Json;
 namespace SunshineDuoTray;
 
 // 部署目录发现：从 exe 向上找包含 sunshine.exe 的目录作为仓库/安装根，
-// 再从 wsguard/config.json 读取两个 Apollo 的 conf 路径（单一事实来源）。
+// 再从 SunshineDuoCore/config.json 读取两个 Apollo 的 conf 路径（单一事实来源）。
 public static class Paths
 {
     public static string Root { get; } = FindRoot();
@@ -19,7 +19,7 @@ public static class Paths
         GameConf = Path.Combine(Root, "config", "sunshine-game.conf");
         try
         {
-            var wcfg = Path.Combine(Root, "wsguard", "config.json");
+            var wcfg = Path.Combine(Root, "SunshineDuoCore", "config.json");
             if (File.Exists(wcfg))
             {
                 using var doc = JsonDocument.Parse(File.ReadAllText(wcfg));

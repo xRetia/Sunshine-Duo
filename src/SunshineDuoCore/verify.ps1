@@ -1,5 +1,5 @@
 # verify.ps1 - 手动验证 gv_hook 注入状态与 GameViewerServer 会话位置（调试用）
-# 路径基于本脚本位置推导：src\verify.ps1 -> 上两级即 wsguard 主目录
+# 路径基于本脚本位置推导：src\verify.ps1 -> 上两级即 SunshineDuoCore 主目录
 $ErrorActionPreference = 'Continue'
 $wgDir = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $log = Join-Path $wgDir 'verify.log'

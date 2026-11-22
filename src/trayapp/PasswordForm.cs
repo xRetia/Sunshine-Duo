@@ -2,7 +2,7 @@ using System.Drawing.Drawing2D;
 using System.Runtime.InteropServices;
 
 // 修改 WebUI 账号密码：不走 Apollo API，直接 sunshine.exe --creds 离线写入
-// 两个 conf 的 state，然后经 wsguard 管道重启两个 Apollo 使其生效。
+// 两个 conf 的 state，然后经 SunshineDuoCore 管道重启两个 Apollo 使其生效。
 namespace SunshineDuoTray;
 
 public class PasswordForm : Form

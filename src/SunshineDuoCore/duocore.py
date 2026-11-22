@@ -1,4 +1,4 @@
-﻿# wsguard - single-file Windows service (pure Python, PyInstaller-packaged)
+﻿# SunshineDuoCore - single-file Windows service (pure Python, PyInstaller-packaged)
 # Combines:
 #   1. SCM service plumbing (raw ctypes, no pywin32 dependency)
 #   2. RDP keepalive for the Game user's session via aardwolf (headless RDP
@@ -213,7 +213,8 @@ def save_config_display_mode(mode):
 
 def save_config_resolution(width, height, resolutions=None):
     """Persist virtual-display resolution (width x height) to config.json.
-    Hot-reloaded by every tick; consumed as wsguard's width/height for the
+    Hot-reloaded by every tick; consumed by the display topology logic for
+    width/height for the
     RDP keepalive and SudoVDA video mode. An optional resolutions list is
     stored as sudovda_resolutions (candidate resolutions kept for the setup
     wizard / future driver panes)."""
@@ -367,7 +368,7 @@ def display_keep(on):
 # transition), and the 5s retry it schedules is immediately cancelled by the
 # unconditional display_device::reset_persistence() that follows in
 # process.cpp. Net effect: ensure_only_display never takes effect for virtual
-# display sessions and the physical monitor stays extended. WSGuard owns the
+# display sessions and the physical monitor stays extended. SunshineDuoCore owns the
 # topology instead: whenever a SudoMaker virtual display is active, every
 # other active source is detached; when it disappears, everything is restored.
 # The virtual display only exists while a streaming session runs (Apollo
@@ -398,7 +399,6 @@ DISPLAYCONFIG_PATH_ACTIVE = 0x00000001
 DISPLAYCONFIG_PATH_UPDATE = 0x00000004
 DISPLAYCONFIG_PATH_MODE_IDX_INVALID = 0xFFFFFFFF
 DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME = 0x00000001
-
 SUDOVDA_ADAPTER = 'SudoMaker Virtual Display Adapter'
 ENUM_CURRENT_SETTINGS = -1
 ENUM_REGISTRY_SETTINGS = -2
@@ -410,9 +410,12 @@ DM_DISPLAYFLAGS = 0x00200000
 DM_DISPLAYFREQUENCY = 0x00400000
 CDS_UPDATEREGISTRY = 0x00000001
 CDS_NORESET = 0x10000000
+CDS_SET_PRIMARY = 0x00000010
 DISP_CHANGE_SUCCESSFUL = 0
 ENUM_STABLE_SECS = 2.0      # topology must stay in one state this long before acting
 ENUM_RECHECK_SECS = 2.0     # cool-down after an apply
+ENUM_FAST_SECS = 0.25       # cool-down while a stream races the VDA naming window
+ENUM_RESWEEP_SECS = 60.0    # re-sweep stale EnumDisplayDevices index cache
 
 
 class _LUID(ctypes.Structure):
@@ -555,7 +558,13 @@ class _DISPLAY_DEVICEW(ctypes.Structure):
 
 def _display_sources():
     """Return (sudovda, others) lists of ACTIVE source device names (StateFlags
-    & ATTACHED_TO_DESKTOP). DeviceString selects the SudoMaker virtual adapter."""
+    & ATTACHED_TO_DESKTOP). DeviceString selects the SudoMaker virtual adapter.
+    EnumDisplayDevices is moderately expensive; the resweep cap keeps the fast
+    poll cheap while still catching attach/detach within a second."""
+    now = time.time()
+    cache = _display_sources._cache
+    if cache is not None and now < _display_sources._next and now - cache[2] < ENUM_RESWEEP_SECS:
+        return cache[0], cache[1]
     vda, others = [], []
     dev = _DISPLAY_DEVICEW()
     i = 0
@@ -570,10 +579,18 @@ def _display_sources():
             vda.append(dev.DeviceName)
         else:
             others.append(dev.DeviceName)
+    _display_sources._cache = (vda, others, now)
+    _display_sources._next = now + 0.8
     return vda, others
+
+_display_sources._cache = None
+_display_sources._next = 0.0
 
 
 def _query_display_paths():
+    """Returns (paths, modes) as raw ctypes arrays (SetDisplayConfig needs the
+    native buffers, not Python lists). Each element is an _PATH_INFO/_MODE_INFO
+    view - indexable and iterable as usual."""
     count = wintypes.DWORD()
     mode_count = wintypes.DWORD()
     r = _user32.GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, ctypes.byref(count),
@@ -588,7 +605,7 @@ def _query_display_paths():
     if r != 0:
         log_warn('display topology: QueryDisplayConfig returned %d' % r)
         return [], []
-    return list(paths), list(modes)
+    return paths, modes
 
 
 def _path_source_name(path):
@@ -607,6 +624,28 @@ def _source_mode_of(path, modes):
     if idx == DISPLAYCONFIG_PATH_MODE_IDX_INVALID or idx >= len(modes):
         return None
     return modes[idx].modeInfo.sourceMode
+
+
+def _activate_vda_external():
+    """Put every attachable display into the EXTERNAL projection topology, the
+    only CCD preset that activates a freshly created SudoVDA monitor on this
+    machine (EXTEND leaves it inactive - measured live). Fires only when a
+    SudoVDA source is GDI-attached but not yet in the active path set."""
+    vda, others = _display_sources()
+    if not vda:
+        return False, 'no VDA attached'
+    paths, modes = _query_display_paths()
+    if not paths:
+        return False, 'QueryDisplayConfig failed'
+    names = [_path_source_name(p) for p in paths]
+    vda_set = set(vda)
+    vda_active = any(name in vda_set for name in names)
+    if vda_active:
+        return True, 'vda already active'
+    r = _user32.SetDisplayConfig(0, None, 0, None, SDC_TOPOLOGY_EXTERNAL | SDC_APPLY)
+    if r != 0:
+        return False, 'SetDisplayConfig(EXTERNAL) returned %d' % r
+    return True, 'fired EXTERNAL topology'
 
 
 def _apply_display_topology(mode):
@@ -661,7 +700,9 @@ def _apply_display_topology(mode):
     if not changed:
         return True, 'topology already matches %s' % mode
     flags = SDC_USE_SUPPLIED_DISPLAY_CONFIG | SDC_ALLOW_CHANGES | SDC_APPLY
-    r = _user32.SetDisplayConfig(len(paths), paths, len(modes), modes, flags)
+    p_buf = ctypes.cast(paths, ctypes.c_void_p) if len(paths) else None
+    m_buf = ctypes.cast(modes, ctypes.c_void_p) if len(modes) else None
+    r = _user32.SetDisplayConfig(len(paths), p_buf, len(modes), m_buf, flags)
     if r != 0:
         return False, 'SetDisplayConfig returned %d' % r
     return True, 'applied %s topology' % mode
@@ -731,6 +772,8 @@ class DisplayExclusive:
         self._last_mode = ''        # display mode the state was seen under
         self._log_off = 0           # console log tail offset
         self._streaming = False     # a Moonlight client is actually streaming
+        self._vda_created = False   # Apollo logged "Virtual Display created at"
+        self._vda_failed = False    # Apollo logged the creation-failed warning
         self._last_mode_req_id = None
         self._load_disabled()
 
@@ -745,6 +788,8 @@ class DisplayExclusive:
             return
         self._last_mode_req_id = rid
         mode = str(req.get('mode', '')).strip().lower()
+        if mode not in ('mirror', 'only', 'extend'):
+            mode = 'mirror'
         if mode == self._last_mode:
             ok, detail = True, 'already %s' % mode
         else:
@@ -814,6 +859,17 @@ class DisplayExclusive:
                   or b'Session pausing for app' in line
                   or b'Virtual Display removed successfully' in line):
                 self._streaming = False
+            elif b'Display mode for client' in line and b'requested' in line:
+                self._streaming = True  # session setup starts before CONNECTED
+            if b'Virtual Display created at' in line:
+                self._vda_created = True
+                self._vda_failed = False
+            elif b'Virtual Display creation failed' in line:
+                self._vda_failed = True
+                self._vda_created = False
+            elif b'Virtual Display removed successfully' in line:
+                self._vda_created = False
+                self._vda_failed = False
 
     def _state(self, vda, others):
         if vda and others:
@@ -837,9 +893,14 @@ class DisplayExclusive:
             self._last_mode = mode
             self._armed_since = None
             self._restore_since = None
+            # The VDA naming race is over once the state settles; fall back to
+            # the slow cadence when the stream is over.
+            self._last_action = time.time()
             return
         now = time.time()
-        if now - self._last_action < ENUM_RECHECK_SECS:
+        streaming = state.endswith('-stream') or state == 'vda-only'
+        cool = ENUM_FAST_SECS if streaming and self._vda_race_active(vda) else ENUM_RECHECK_SECS
+        if now - self._last_action < cool:
             return
         # ---- idle cleanup: virtual display must be OFF when no client ----
         # The physical displays are re-enabled (SetDisplayConfig) BEFORE the
@@ -871,15 +932,18 @@ class DisplayExclusive:
             if mode == 'only':
                 if self._armed_since is None:
                     self._armed_since = now
-                elif now - self._armed_since >= ENUM_STABLE_SECS:
+                elif now - self._armed_since >= ENUM_FAST_SECS:
                     self._last_action = now
                     self._disable_others(vda, others)
             elif mode == 'extend':
-                if self._armed_since is None:
-                    self._armed_since = now
-                elif now - self._armed_since >= ENUM_STABLE_SECS:
-                    self._last_action = now
-                    self._place_extend(vda, others)
+                if not self._extend_placed(vda, others):
+                    if self._armed_since is None:
+                        self._armed_since = now
+                    elif now - self._armed_since >= ENUM_FAST_SECS:
+                        self._last_action = now
+                        self._place_extend(vda, others)
+                else:
+                    self._armed_since = None
             else:  # mirror: stream captures the physical primary - drop the VDA
                 # only when physical displays are actually present; a lone VDA
                 # means the stream itself runs on it - detaching would kill it
@@ -896,6 +960,27 @@ class DisplayExclusive:
             elif now - self._restore_since >= ENUM_STABLE_SECS:
                 self._last_action = now
                 self._restore()
+
+    def _vda_race_active(self, vda):
+        """True while Apollo's ~1.3s name-wait window may still be open: the VDA
+        just appeared and we have not yet seen the created/failed log marker."""
+        return bool(vda) and self._streaming and not (self._vda_created or self._vda_failed)
+
+    def _extend_placed(self, vda, others):
+        """True when every active VDA source sits right of all physical ones."""
+        right = 0
+        for name in others:
+            dm = _devmode_of(name)
+            if dm is None or not (dm.dmPelsWidth or dm.dmPelsHeight):
+                continue
+            right = max(right, dm.dmPositionX + dm.dmPelsWidth)
+        for name in vda:
+            dm = _devmode_of(name)
+            if dm is None or not (dm.dmPelsWidth or dm.dmPelsHeight):
+                continue
+            if dm.dmPositionX < right:
+                return False
+        return True
 
     def _idle_cleanup(self, vda):
         """Idle (no streaming client): re-enable the physical displays and
@@ -988,6 +1073,87 @@ class DisplayExclusive:
                     % (vda[0], right, len(others)))
         except Exception as e:
             log_warn('display extend: placement error %r' % e)
+
+    def _set_primary(self, name):
+        """Make `name` the primary display via ChangeDisplaySettingsEx
+        (CDS_SET_PRIMARY), shifting the other sources so the new primary sits
+        at (0,0). Used as the extend-mode rescue when Apollo lost the VDA
+        naming race: capture reinit then lands on the primary virtual screen."""
+        target = _devmode_of(name)
+        if target is None:
+            return False
+        ox, oy = target.dmPositionX, target.dmPositionY
+        _, others = _display_sources()
+        changes = []
+        for other in others:
+            if other == name:
+                continue
+            dm = _devmode_of(other)
+            if dm is None or not (dm.dmPelsWidth or dm.dmPelsHeight):
+                continue
+            shifted = DEVMODEW()
+            shifted.dmSize = ctypes.sizeof(DEVMODEW)
+            shifted.dmFields = DM_POSITION
+            shifted.dmPositionX = dm.dmPositionX - ox
+            shifted.dmPositionY = dm.dmPositionY - oy
+            changes.append((other, shifted))
+        primary = DEVMODEW()
+        primary.dmSize = ctypes.sizeof(DEVMODEW)
+        primary.dmFields = DM_POSITION
+        primary.dmPositionX = 0
+        primary.dmPositionY = 0
+        ok = True
+        for other, dm in changes:
+            r = _user32.ChangeDisplaySettingsExW(other, ctypes.byref(dm), None,
+                                                 CDS_UPDATEREGISTRY | CDS_NORESET, None)
+            if r != DISP_CHANGE_SUCCESSFUL:
+                log_warn('display extend rescue: shift %s returned %d' % (other, r))
+                ok = False
+        r = _user32.ChangeDisplaySettingsExW(name, ctypes.byref(primary), None,
+                                             CDS_UPDATEREGISTRY | CDS_NORESET | CDS_SET_PRIMARY, None)
+        if r != DISP_CHANGE_SUCCESSFUL:
+            log_warn('display extend rescue: set primary %s returned %d' % (name, r))
+            ok = False
+        r = _user32.ChangeDisplaySettingsExW(None, None, None, 0, None)
+        if r != DISP_CHANGE_SUCCESSFUL:
+            log_warn('display extend rescue: apply returned %d' % r)
+            ok = False
+        if ok:
+            log('display extend rescue: %s is now primary at (0,0)' % name)
+        return ok
+
+    def _fast_pass(self, mode, vda, others):
+        """Sub-second pass racing Apollo's virtual-display naming window
+        (~1.3s after the client requests a mode). Windows never auto-activates
+        a freshly added SudoVDA monitor (measured live: it stays out of the
+        active path set until a topology apply), so we fire the EXTERNAL
+        projection the moment the driver attaches the source. After Apollo
+        reports a failed naming attempt, rescue the capture target instead:
+        only -> detach physicals (capture reinit lands on the lone VDA),
+        extend -> make the VDA primary. Mirror never activates the VDA."""
+        if not vda or not self._streaming:
+            return False
+        if mode == 'mirror':
+            return False
+        if self._vda_created:
+            return False
+        if not self._vda_failed:
+            ok, detail = _activate_vda_external()
+            if ok and detail != 'vda already active':
+                log('display fast-pass: %s' % detail)
+            return True  # race still open: keep polling fast
+        # Apollo already gave up on the name - rescue the capture target once.
+        if mode == 'only':
+            log_warn('display fast-pass: Apollo lost the naming race, detaching '
+                     'physical displays so capture lands on the VDA')
+            self._last_action = time.time()
+            self._disable_others(vda, others)
+            return False
+        log_warn('display fast-pass: Apollo lost the naming race, forcing %s primary '
+                 'so capture lands on the VDA' % vda[0])
+        self._last_action = time.time()
+        self._set_primary(vda[0])
+        return False
 
     def _disable_others(self, vda, others):
         changes = []
@@ -1113,7 +1279,9 @@ def run_display_worker():
     desktop, so the poller cannot live in the session-0 service (it sees no
     attached displays there and never acts). The service launches this worker
     into the console session with its SYSTEM token; the worker polls, applies
-    exclusivity and keeps a heartbeat the service checks every tick."""
+    exclusivity and keeps a heartbeat the service checks every tick.
+    Cadence: ~120ms while a VDA naming race may be open (sub-second topology
+    work), 1s otherwise."""
     log('display worker: started pid=%d' % os.getpid())
     while True:
         if os.path.exists(_WORKER_STOP):
@@ -1121,11 +1289,14 @@ def run_display_worker():
             break
         try:
             _dx.apply_mode_request()
-            _dx.poll(load_config())
+            cfg = load_config()
+            mode = _display_mode(cfg)
+            if mode == 'mirror' or not _dx._fast_pass(mode, *_display_sources()):
+                _dx.poll(cfg)
             _write_worker_hb()
         except Exception as e:
             log_err('display worker poll error: %r' % e)
-        time.sleep(1)
+        time.sleep(0.12)
 
 
 def _worker_alive():
@@ -1178,6 +1349,8 @@ def run_displaycheck():
     print('active SudoVDA sources: %s' % vda)
     print('active other sources:   %s' % others)
     print('disabled (pending restore): %s' % _dx.disabled)
+    print('streaming=%s vda_created=%s vda_failed=%s' % (
+        _dx._streaming, _dx._vda_created, _dx._vda_failed))
     state = _dx._state(vda, others)
     print('state: %s' % state)
     if state == 'mixed-stream':
@@ -1884,7 +2057,7 @@ def tick():
             ka.desired = ka.connected
         elif state == -1:
             # no Game session exists at all (fresh boot, logged off): by
-            # default wsguard never logs a user in - stay idle. With
+            # default SunshineDuoCore never logs a user in - stay idle. With
             # auto_logon the keepalive RDPs in itself, which creates the
             # session; the next tick then sees it and everything follows.
             ka.desired = bool(cfg.get('auto_logon'))
@@ -1929,7 +2102,7 @@ def tick():
 
 # ----------------------------------------------------------------------------
 # control pipe: trayapp (or any local tool) sends one JSON line per connection
-# over \\.\pipe\wsguard-ctrl and gets a JSON line back. Commands:
+# over \\.\pipe\SunshineDuoCore-ctrl and gets a JSON line back. Commands:
 #   {"cmd":"ping"}                         -> {"ok":true}
 #   {"cmd":"tick"}                         -> run one guard tick immediately
 #     (used by the installer right after the service starts, so both Apollos
@@ -1946,7 +2119,7 @@ def tick():
 # non-elevated tray app can connect. Commands are restart-only, which is
 # acceptable exposure for this home tool.
 
-PIPE_NAME = r'\\.\pipe\wsguard-ctrl'
+PIPE_NAME = r'\\.\pipe\SunshineDuoCore-ctrl'
 PIPE_ACCESS_DUPLEX = 3
 PIPE_UNLIMITED_INSTANCES = 255
 ERROR_PIPE_CONNECTED = 535
@@ -2151,7 +2324,7 @@ def start_ctrl_pipe():
 # ----------------------------------------------------------------------------
 # SCM service plumbing (raw ctypes - no pywin32, nothing to collect at build)
 
-SERVICE_NAME = 'WSGuard'
+SERVICE_NAME = 'SunshineDuoCore'
 SERVICE_WIN32_OWN_PROCESS = 0x00000010
 SERVICE_ACCEPT_STOP = 0x00000001
 SERVICE_RUNNING = 4
@@ -2267,7 +2440,7 @@ def _service_main(argc, argv):
 def run_service():
     argv1 = sys.argv[1] if len(sys.argv) > 1 else ''
     if argv1 == '' or argv1 == SERVICE_NAME:
-        # launched by SCM (argv = [exe, 'WSGuard']) or a bare console run
+        # launched by SCM (argv = [exe, 'SunshineDuoCore']) or a bare console run
         table = (SERVICE_TABLE_ENTRYW * 2)(
             SERVICE_TABLE_ENTRYW(SERVICE_NAME, ctypes.cast(_service_main, ctypes.c_void_p).value),
             SERVICE_TABLE_ENTRYW(None, None))
@@ -2277,7 +2450,7 @@ def run_service():
             raise SystemExit(ERROR_FAILED_SERVICE_CONTROLLER_CONNECT)
     else:
         print('unknown argument: %s' % argv1)
-        print('usage: wsguard.exe [--console | --setup | --test]')
+        print('usage: SunshineDuoCore.exe [--console | --setup | --test]')
         raise SystemExit(2)
 
 

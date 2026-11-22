@@ -1,6 +1,6 @@
 # 第三方组件许可声明（THIRD-PARTY-NOTICES）
 
-本仓库自有代码（`scripts\`、`wsguard\`、`tools\GameManager.exe` 等）以 **GPL-3.0** 授权，全文见根目录 [LICENSE](LICENSE)。
+本仓库自有代码（`scripts\`、`SunshineDuoCore\`、`tools\GameManager.exe` 等）以 **GPL-3.0** 授权，全文见根目录 [LICENSE](LICENSE)。
 
 本仓库捆绑/调用的第三方组件各自保留其原始许可证，汇总如下。许可证全文存放于 [licenses\](licenses) 目录或组件自身目录，均为上游官方原文。
 
@@ -18,9 +18,9 @@
 
 对应全文：GPL-3.0 → [LICENSE](LICENSE)；Apache-2.0 → [licenses\apache-2.0.txt](licenses/apache-2.0.txt)；BSD-3-Clause → [licenses\bsd-3-clause_vigembus.txt](licenses/bsd-3-clause_vigembus.txt)；SudoVDA 上游 MIT → [licenses\mit_virtual-display-driver.txt](licenses/mit_virtual-display-driver.txt)；nefcon MIT → [licenses\mit_nefcon.txt](licenses/mit_nefcon.txt)；zlib → [licenses\zlib.txt](licenses/zlib.txt)。
 
-## 二、wsguard 运行库（`wsguard\_internal\`，PyInstaller 打包的 PyPI 依赖）
+## 二、SunshineDuoCore 运行库（目录 `SunshineDuoCore\_internal\`，PyInstaller 打包的 PyPI 依赖）
 
-以 `pip install --target` 安装后打包（清单见 `src\wsguard\requirements-rdp.txt`），版本固定：
+以 `pip install --target` 安装后打包（清单见 `src\SunshineDuoCore\requirements-rdp.txt`），版本固定：
 
 | 包 | 版本 | 许可证 |
 | --- | --- | --- |
@@ -47,9 +47,9 @@
 | six | 1.17.0 | MIT |
 | tqdm | 4.70.1 | MPL-2.0 AND MIT |
 
-其中 aardwolf / asn1crypto / asyauth / asysocks / cryptography / minikerberos / oscrypto / tqdm / unicrypto 的 LICENSE 文件已随 `wsguard\_internal\<包名>.dist-info\` 一并分发；其余包的许可声明以本文件清单为准，原文见各包 PyPI 页面。Python 3.12 运行时以 PyInstaller onedir 方式嵌入，Python 本体采用 PSF License。
+其中 aardwolf / asn1crypto / asyauth / asysocks / cryptography / minikerberos / oscrypto / tqdm / unicrypto 的 LICENSE 文件已随 `SunshineDuoCore\_internal\<包名>.dist-info\` 一并分发；其余包的许可声明以本文件清单为准，原文见各包 PyPI 页面。Python 3.12 运行时以 PyInstaller onedir 方式嵌入，Python 本体采用 PSF License。
 
-## 三、构建期依赖（不入库，`pip install` 安装到 `src\wsguard\.wsguard-build\`）
+## 三、构建期依赖（不入库，`pip install` 安装到 `src\SunshineDuoCore\.duocore-build\`）
 
 
 | 包 | 版本 | 许可证 |
@@ -68,4 +68,4 @@ PyInstaller 许可证原文：https://github.com/pyinstaller/pyinstaller/blob/de
 
 - 本仓库按 GPL-3.0 分发 Apollo（未修改的官方发行版），对应源代码见上游仓库；Apollo 及其附属工具的 GPL-3.0 义务（附许可证文本、指明源代码获取方式）通过本文件与 `LICENSE` 履行。
 - `tools\GameManager.exe` 来自开源项目 https://github.com/xRetia/game-manager （GPL-3.0），随本仓库一并授权。
-- 网易 UU 远程（GameViewer）**不包含**在本仓库中，wsguard 仅在运行时与其本机已安装的服务交互，不涉及该软件的再分发。
+- 网易 UU 远程（GameViewer）**不包含**在本仓库中，SunshineDuoCore 仅在运行时与其本机已安装的服务交互，不涉及该软件的再分发。

@@ -1,7 +1,7 @@
-﻿# build.ps1 - wsguard 一键重打包（PyInstaller onedir）
+﻿# build.ps1 - SunshineDuoCore 一键重打包（PyInstaller onedir）
 # 用法（在管理员/普通 PowerShell 均可，仅打包不部署）：
 #   powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1
-#   powershell ... -File .\build.ps1 -Deploy   # 打包后自动部署到 仓库根\wsguard（运行时主目录）
+#   powershell ... -File .\build.ps1 -Deploy   # 打包后自动部署到 仓库根\SunshineDuoCore（运行时主目录）
 param([switch]$Deploy, [string]$Python)
 
 $ErrorActionPreference = 'Stop'
@@ -9,12 +9,12 @@ $ErrorActionPreference = 'Stop'
 # ---- 路径推导 ----
 $SrcDir   = $PSScriptRoot                       # src 正本目录
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $SrcDir)   # 仓库根（src 的父目录）
-$WgDir    = Join-Path $RepoRoot 'wsguard'       # wsguard 运行时主目录（部署目标）
-$BuildRoot = Join-Path $SrcDir '.wsguard-build'   # src\wsguard\.wsguard-build（构建现场）
+$WgDir    = Join-Path $RepoRoot 'SunshineDuoCore'       # SunshineDuoCore 运行时主目录（部署目标）
+$BuildRoot = Join-Path $SrcDir '.duocore-build'   # src\SunshineDuoCore\.duocore-build（构建现场）
 if (-not $Python) { $Python = 'python' }   # 默认取 PATH 上的 python（需 3.12 x64），可用 -Python 指定完整路径
 
 # 构建依赖库（PyInstaller 与 aardwolf 运行库），不随仓库分发：
-#   1) .wsguard-build 已就绪 → 直接用；
+#   1) .duocore-build 已就绪 → 直接用；
 #   2) 缺失 → pip 安装（依赖清单见 src\requirements-build.txt / requirements-rdp.txt）
 New-Item -ItemType Directory -Path $BuildRoot -Force | Out-Null
 if (-not (Test-Path (Join-Path $BuildRoot 'build-tools\PyInstaller'))) {
@@ -30,26 +30,26 @@ if (-not (Test-Path (Join-Path $BuildRoot 'rdp-lib\aardwolf'))) {
 $BuildTools = Join-Path $BuildRoot 'build-tools'
 $RdpLib     = Join-Path $BuildRoot 'rdp-lib'
 
-foreach ($f in @('wsguard.py', 'wsguard.spec', 'hook-runtime-cryptodome.py', 'inject_watch.ps1')) {
+foreach ($f in @('duocore.py', 'duocore.spec', 'hook-runtime-cryptodome.py', 'inject_watch.ps1')) {
     if (-not (Test-Path (Join-Path $SrcDir $f))) { throw "源文件缺失: $SrcDir\$f" }
 }
 
 # ---- 准备构建目录 ----
 New-Item -ItemType Directory -Path $BuildRoot -Force | Out-Null
-$workSpec = Join-Path $BuildRoot 'wsguard.spec'
-$workPy   = Join-Path $BuildRoot 'wsguard_final.py'
+$workSpec = Join-Path $BuildRoot 'duocore.spec'
+$workPy   = Join-Path $BuildRoot 'duocore_final.py'
 $workRth  = Join-Path $BuildRoot 'hook-runtime-cryptodome.py'
-Copy-Item (Join-Path $SrcDir 'wsguard.spec') $workSpec -Force
+Copy-Item (Join-Path $SrcDir 'duocore.spec') $workSpec -Force
 Copy-Item (Join-Path $SrcDir 'hook-runtime-cryptodome.py') $workRth -Force
 
-# ---- 生成 wsguard_final.py：注入 PS 守护脚本（UTF-16LE base64）----
-$py = [IO.File]::ReadAllText((Join-Path $SrcDir 'wsguard.py'))
+# ---- 生成 duocore_final.py：注入 PS 守护脚本（UTF-16LE base64）----
+$py = [IO.File]::ReadAllText((Join-Path $SrcDir 'duocore.py'))
 $ps = [IO.File]::ReadAllText((Join-Path $SrcDir 'inject_watch.ps1'))
 $psB64 = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($ps))  # Unicode = UTF-16LE
-if ($py -notmatch "__PS_B64__") { throw 'wsguard.py 中未找到 __PS_B64__ 占位符' }
+if ($py -notmatch "__PS_B64__") { throw 'duocore.py 中未找到 __PS_B64__ 占位符' }
 $py = $py.Replace("PS_GUARD_B64 = '__PS_B64__'", "PS_GUARD_B64 = '$psB64'")
 [IO.File]::WriteAllText($workPy, $py, (New-Object Text.UTF8Encoding($true)))
-Write-Host "wsguard_final.py 已生成（PS 守护脚本注入 $($psB64.Length) 字符）"
+Write-Host "duocore_final.py 已生成（PS 守护脚本注入 $($psB64.Length) 字符）"
 
 # ---- 按 GameViewer 版本选择的 hook（部署目录必须保留两代二进制）----
 foreach ($name in @('gv_hook.4.0.dll', 'gv_hook.4.46.dll')) {
@@ -63,32 +63,32 @@ Set-Location $BuildRoot
 & $Python -m PyInstaller $workSpec --noconfirm --distpath (Join-Path $BuildRoot 'dist') --workpath (Join-Path $BuildRoot 'build')
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller 打包失败（exit=$LASTEXITCODE）" }
 
-$dist = Join-Path $BuildRoot 'dist\wsguard_final'
-if (-not (Test-Path (Join-Path $dist 'wsguard_final.exe'))) { throw '打包产物缺失' }
-$exeSize = (Get-Item (Join-Path $dist 'wsguard_final.exe')).Length
+$dist = Join-Path $BuildRoot 'dist\duocore_final'
+if (-not (Test-Path (Join-Path $dist 'duocore_final.exe'))) { throw '打包产物缺失' }
+$exeSize = (Get-Item (Join-Path $dist 'duocore_final.exe')).Length
 $files = (Get-ChildItem $dist -Recurse -File).Count
 Write-Host "打包完成: $dist （exe $exeSize 字节，共 $files 个文件）"
 
 # ---- 部署（可选）：exe 改名 + _internal 镜像同步，不动 rdp.cred/config.json/gv_hook.dll ----
 if ($Deploy) {
     # Stopped 状态下文件未锁定可直接覆盖（binPath 为动态路径推导，注册信息不受影响）；
-    # 仅当 wsguard 进程仍在运行时才阻止部署
-    if (Get-Process -Name 'wsguard' -ErrorAction SilentlyContinue) {
-        throw 'wsguard.exe 正在运行（服务 Running），请先 sc stop WSGuard 再部署'
+    # 仅当 SunshineDuoCore 进程仍在运行时才阻止部署
+    if (Get-Process -Name 'SunshineDuoCore' -ErrorAction SilentlyContinue) {
+        throw 'SunshineDuoCore.exe 正在运行（服务 Running），请先 sc stop SunshineDuoCore 再部署'
     }
-    Copy-Item (Join-Path $dist 'wsguard_final.exe') (Join-Path $WgDir 'wsguard.exe') -Force
+    Copy-Item (Join-Path $dist 'duocore_final.exe') (Join-Path $WgDir 'SunshineDuoCore.exe') -Force
     $internal = Join-Path $WgDir '_internal'
     robocopy (Join-Path $dist '_internal') $internal /MIR /NFL /NDL /NJH /NJS | Out-Null
     if ($LASTEXITCODE -ge 8) { throw "robocopy 同步 _internal 失败（exit=$LASTEXITCODE）" }
-    Write-Host "部署完成: $WgDir\wsguard.exe（服务未注册状态方可覆盖）"
+    Write-Host "部署完成: $WgDir\SunshineDuoCore.exe（服务未注册状态方可覆盖）"
 } else {
     Write-Host "产物位于 $dist；加 -Deploy 参数可自动部署到 $WgDir"
 }
 
 # ---- 版本标记（sunshine-setup.ps1 据此识别新版本）----
 $buildInfo = [ordered]@{
-    service_name = 'WSGuard'
-    display_name = 'Game Windows Session Guard'
+    service_name = 'SunshineDuoCore'
+    display_name = 'Sunshine Duo 核心服务'
     style        = 'dynamic-path'
     built        = (Get-Date -Format 'yyyy-MM-ddTHH:mm:ss')
 }
@@ -98,5 +98,5 @@ if ($Deploy) {
     Copy-Item $infoPath (Join-Path $WgDir 'build.info') -Force
     Write-Host "已写入 $WgDir\build.info（版本标记）"
 } else {
-    Write-Host "已写入 $infoPath（版本标记；部署时随 -Deploy 写入 wsguard 目录）"
+    Write-Host "已写入 $infoPath（版本标记；部署时随 -Deploy 写入 SunshineDuoCore 目录）"
 }

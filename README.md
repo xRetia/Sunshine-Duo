@@ -113,7 +113,7 @@
 | `setup.bat` | 一键安装入口（双击它） |
 | `sunshine.exe` | Sunshine 本体（Apollo） |
 | `scripts\` | 向导 + 驱动/网关/防火墙安装脚本（`install-sudovda.bat` / `uninstall-sudovda.bat`） |
-| `wsguard\` | 串流会话守护服务（保活虚拟屏、拉起两个 Apollo） |
+| `SunshineDuoCore\` | SunshineDuoCore 守护服务（保活串流会话、拉起两个 Apollo） |
 | `drivers\` | SudoVDA 虚拟显示驱动 |
 | `config\` | 运行时配置（安装时生成；应用列表 `apps.json` 随项目分发） |
 | `tools\` | RDP 解锁、游戏菜单等工具 |
@@ -121,16 +121,16 @@
 | `assets\` | 资源图片与项目介绍视频（`sunshine-duo-video.html`） |
 
 <details>
-<summary><b>🔧 进阶：重新打包 wsguard</b>（一般用不着）</summary>
+<summary><b>🔧 进阶：重新打包 SunshineDuoCore</b>（一般用不着）</summary>
 
-需要 **Python 3.12（x64）与 pip**。构建依赖不随仓库分发，首次构建自动 pip 安装到 `.wsguard-build\`：
+需要 **Python 3.12（x64）与 pip**。构建依赖不随仓库分发，首次构建自动 pip 安装到 `.duocore-build\`（`src\SunshineDuoCore` 的构建现场）：
 
 ```powershell
-cd src\wsguard
+cd src\SunshineDuoCore
 powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -Deploy
 ```
 
-依赖清单：`src\wsguard\requirements-build.txt`（PyInstaller 工具链）、`requirements-rdp.txt`（aardwolf RDP 运行库）。
+依赖清单：`src\SunshineDuoCore\requirements-build.txt`（PyInstaller 工具链）、`requirements-rdp.txt`（aardwolf RDP 运行库）。
 
 </details>
 
@@ -147,7 +147,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -STA -File scripts\sunshine-setup.
 
 ## ⚖️ 开源许可
 
-本仓库自有代码（安装脚本、wsguard、GameManager 等）以 **GPL-3.0** 授权，全文见 [LICENSE](LICENSE)。
+本仓库自有代码（安装脚本、SunshineDuoCore、GameManager 等）以 **GPL-3.0** 授权，全文见 [LICENSE](LICENSE)。
 
 仓库内捆绑的第三方组件各自保留原始许可证：
 
@@ -160,6 +160,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -STA -File scripts\sunshine-setup.
 | SudoVDA 虚拟显示驱动 | https://github.com/SudoMaker/SudoVDA | MIT |
 | nefcon | https://github.com/nefarius/nefcon | MIT |
 | zlib | https://zlib.net | zlib License |
-| wsguard 的 Python 依赖（aardwolf 等） | https://pypi.org（清单见 src\wsguard\requirements-rdp.txt） | MIT / BSD / Apache-2.0 / MPL-2.0 / PSF 等 |
+| SunshineDuoCore 的 Python 依赖（aardwolf 等，源码在 `src\SunshineDuoCore`） | https://pypi.org（清单见 src\SunshineDuoCore\requirements-rdp.txt） | MIT / BSD / Apache-2.0 / MPL-2.0 / PSF 等 |
 
 完整清单、版本号与许可证全文见 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) 与 [licenses\](licenses) 目录。

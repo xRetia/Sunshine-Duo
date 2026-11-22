@@ -50,7 +50,7 @@ _rth = os.path.abspath('hook-runtime-cryptodome.py')
 assert os.path.exists(_rth), 'runtime hook missing'
 
 a = Analysis(
-    ['wsguard_final.py'],
+    ['duocore_final.py'],
     pathex=[],
     binaries=binaries,
     datas=datas,
@@ -68,7 +68,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='wsguard_final',
+    name='duocore_final',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -81,5 +81,5 @@ coll = COLLECT(
     a.datas,
     strip=False,
     upx=False,
-    name='wsguard_final',
+    name='duocore_final',
 )

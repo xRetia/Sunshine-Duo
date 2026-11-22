@@ -25,11 +25,11 @@
          RDP 型会话改用物理显卡渲染 + AVC444 + 硬件编码。
     3 · 串流会话守护服务（必装，登录信息在密码卡片）：
        - 游戏用户作为串流用户，密码经 LogonUser 验证；含“开机自动登录”选项
-         （无会话时 wsguard 自动 RDP 拉起会话，auto_logon）与虚拟屏分辨率。
-       - 注册 wsguard 服务 WSGuard / 显示名 Game Windows Session Guard；密码经 DPAPI
-         （本机作用域）加密为 rdp.cred，供 wsguard 在串流断开后自动连接 127.0.0.2
+         （无会话时 SunshineDuoCore 自动 RDP 拉起会话，auto_logon）与虚拟屏分辨率。
+       - 注册 SunshineDuoCore 服务 / 显示名 Sunshine Duo 核心服务；密码经 DPAPI
+         （本机作用域）加密为 rdp.cred，供 SunshineDuoCore 在串流断开后自动连接 127.0.0.2
          保持 RDP 虚拟显卡会话活跃。
-       - Sunshine 自启 = wsguard Apollo 守卫：写 config.json 的 guard_apollo，tick 检测到
+       - Sunshine 自启 = SunshineDuoCore Apollo 守卫：写 config.json 的 guard_apollo，tick 检测到
          会话无 sunshine.exe 时以提升令牌（WTSQueryUserToken + TokenLinkedToken +
          CreateProcessAsUserW）在会话内拉起；提升运行可向高完整性窗口/游戏注入输入，
          由 SYSTEM 服务直接创建不进任何 Job（CREATE_BREAKAWAY_FROM_JOB 拉起 steam://、
@@ -43,7 +43,7 @@
   卸载：与安装分组一一对应的反注册操作（不删除程序文件、配置与凭据）：
         移除防火墙规则（scripts\delete-firewall-rule.bat）、卸载手柄驱动
         （scripts\uninstall-gamepad.ps1）、卸载 RdpWrapper、删除会话 GPU 加速策略、
-        关闭 Apollo 守卫并删除 WSGuard 服务、卸载 GameManager；同步清理旧名任务
+        关闭 Apollo 守卫并删除 SunshineDuoCore 服务、卸载 GameManager；同步清理旧名任务
         「Sunshine Autostart (Game)」与旧服务 GameViewerSessionHook。
   路径全部由脚本所在目录（scripts\ 的父目录）推导，Sunshine 目录可整体移动。
 
@@ -63,8 +63,8 @@ param([switch]$SelfTest)
 $Root         = Split-Path -Parent $PSScriptRoot          # Sunshine 根目录
 $TaskName     = 'Sunshine Autostart'                      # 旧计划任务名（仅迁移清理用）
 $RunValueName = 'Sunshine'                                # 旧 HKCU Run 键值名（仅迁移清理用）
-$SvcName      = 'WSGuard'                                 # wsguard 服务名（与 exe 内嵌一致）
-$SvcDispName  = 'Game Windows Session Guard'              # wsguard 服务显示名
+$SvcName      = 'SunshineDuoCore'                                 # 核心服务名（与 exe 内嵌一致）
+$SvcDispName  = 'Sunshine Duo 核心服务'              # 核心服务显示名
 $LegacySvc    = 'GameViewerSessionHook'                   # 旧服务名（迁移清理用）
 $LegacyTask   = 'Sunshine Autostart (Game)'               # 旧任务名（迁移清理用）
 $GmSvcName    = 'GameManagerService'                      # GameManager 服务名
@@ -81,8 +81,8 @@ $TsPolicyKey  = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services'
 $TsGpuAccelValues = @('bEnumerateHWBeforeSW', 'bAVC444Mode', 'AVCHardwareEncodePreferred')
 $RdpWrapExe   = Join-Path $Root 'tools\rdpWrapper.exe'
 $GmExe        = Join-Path $Root 'tools\GameManager.exe'
-$WgDir        = Join-Path $Root 'wsguard'
-$WgExe        = Join-Path $WgDir 'wsguard.exe'
+$WgDir        = Join-Path $Root 'SunshineDuoCore'
+$WgExe        = Join-Path $WgDir 'SunshineDuoCore.exe'
 $WgCredPath   = Join-Path $WgDir 'rdp.cred'
 $WgCfgPath    = Join-Path $WgDir 'config.json'
 $GameConfPath = Join-Path $Root 'config\sunshine-game.conf'
@@ -172,22 +172,22 @@ function Get-PhysicalGpus {
 # 安装操作（函数按界面分组标注：1 Sunshine 服务 / 2 远程桌面解锁 / 3 守护服务 / 4 可选）
 # ============================================================================
 
-# 3 · Sunshine 开机自启 = wsguard Apollo 守卫：写 config.json 的 guard_apollo，
-#     并清理旧自启机制（Run 键 / 计划任务）。Apollo 由 wsguard 服务以提升令牌拉起。
+# 3 · Sunshine 开机自启 = SunshineDuoCore Apollo 守卫：写 config.json 的 guard_apollo，
+#     并清理旧自启机制（Run 键 / 计划任务）。Apollo 由 SunshineDuoCore 服务以提升令牌拉起。
 function Install-ApolloGuard {
     param([string]$User)
     if (-not (Test-Path (Join-Path $Root 'sunshine.exe'))) {
         throw "未找到 $($Root)\sunshine.exe，请确认脚本位于 Sunshine\scripts 目录"
     }
     if (-not (Test-Path $WgCfgPath)) {
-        throw "未找到 $WgCfgPath（wsguard 未安装？）"
+        throw "未找到 $WgCfgPath（SunshineDuoCore 未安装？）"
     }
 
     # config.json：设置 guard_apollo=true（保留其余字段，热重载生效）
     $cfg = Get-Content $WgCfgPath -Raw -Encoding UTF8 | ConvertFrom-Json
     $cfg | Add-Member -NotePropertyName guard_apollo -NotePropertyValue $true -Force
     [IO.File]::WriteAllText($WgCfgPath, ($cfg | ConvertTo-Json -Depth 5), (New-Object System.Text.UTF8Encoding($false)))
-    Write-Log "OK: wsguard config.json 已设置 guard_apollo=true（Apollo 守卫：提升令牌拉起 + 不进 Job）"
+    Write-Log "OK: SunshineDuoCore config.json 已设置 guard_apollo=true（Apollo 守卫：提升令牌拉起 + 不进 Job）"
 
     # 清理旧 Run 键（explorer 启动永不提升，且会与守卫双开冲突）
     $any = $false
@@ -212,7 +212,7 @@ function Install-ApolloGuard {
         }
     }
     if (-not $any) { Write-Log '提示: 未发现旧 Run 键/计划任务残留' }
-    Write-Log "提示: $User 用户会话就绪后由 wsguard 自动拉起 Sunshine（Game 会话存在 + sunshine.exe 不在时触发）"
+    Write-Log "提示: $User 用户会话就绪后由 SunshineDuoCore 自动拉起 Sunshine（Game 会话存在 + sunshine.exe 不在时触发）"
 }
 
 # 1 · 写入 sunshine.conf（必装：显卡 / 手柄 / UPnP 等默认配置）
@@ -238,8 +238,8 @@ function Write-SunshineConf {
     $lines += "log_path = $(Join-Path $confDir 'sunshine-console.log')"
     # 显示拓扑（虚拟屏独占/断开物理屏）不在配置阶段写死：Apollo 0.4.6 对 virtual
     # display 会话不应用 dd_configuration_option，且启动后的
-    # display_device::reset_persistence() 会取消退避重试。由 WSGuard 运行期
-    # 按"虚拟屏是否存在"自动执行（见 wsguard.py DisplayExclusive）。
+    # display_device::reset_persistence() 会取消退避重试。由 SunshineDuoCore 运行期
+    # 按"虚拟屏是否存在"自动执行（见 SunshineDuoCore 的 DisplayExclusive 逻辑）。
     [IO.File]::WriteAllLines($ConfPath, $lines, (New-Object System.Text.UTF8Encoding($false)))
     $portNote = if ($Port -gt 0) { ", port = $Port" } else { '' }
     $modeNote = switch ($DisplayMode) { 'only' { ', 独占虚拟屏' } 'extend' { ', 扩展虚拟屏' } default { ', 镜像物理屏' } }
@@ -448,8 +448,8 @@ function Install-GameManager {
     }
 }
 
-# 3 · wsguard 服务（必装，rdp.cred 由密码经 DPAPI 本机作用域加密生成）
-function Install-Wsguard {
+# 3 · SunshineDuoCore 服务（必装，rdp.cred 由密码经 DPAPI 本机作用域加密生成）
+function Install-SunshineDuoCore {
     param([string]$RdpUser, [string]$Password, [int]$Vw = 0, [int]$Vh = 0, [bool]$AutoLogon = $false,
           [string]$DisplayMode = 'mirror', [bool]$DisplayExclusive = $false, [int]$PortMain = 48100, [int]$PortGame = 48200,
           [string]$ConsoleConf = 'config\sunshine.conf', [string]$GameConf = 'config\sunshine-game.conf',
@@ -466,9 +466,9 @@ function Install-Wsguard {
         $null = & icacls.exe $WgCredPath /inheritance:r /grant 'SYSTEM:F' /grant 'Administrators:F' 2>&1
         Write-Log "OK: rdp.cred 已生成（$RdpUser 密码，DPAPI 本机加密，仅 SYSTEM/管理员可解）"
     } elseif (Test-Path $WgCredPath) {
-        Write-Log '密码留空: 沿用现有 wsguard\rdp.cred'
+        Write-Log '密码留空: 沿用现有 SunshineDuoCore\rdp.cred'
     } else {
-        throw '未提供密码且 rdp.cred 不存在，无法安装 wsguard'
+        throw '未提供密码且 rdp.cred 不存在，无法安装 SunshineDuoCore'
     }
 
     # config.json：不存在则生成默认配置；存在则同步 Apollo 守卫与显示模式/独占开关（热重载）
@@ -521,7 +521,7 @@ function Install-Wsguard {
         $json = $cfg | ConvertTo-Json
         [IO.File]::WriteAllText($WgCfgPath, $json, (New-Object System.Text.UTF8Encoding($false)))
         $alNote2 = if ($AutoLogon) { '开机自动登录开' } else { '开机自动登录关' }
-        Write-Log "OK: wsguard\config.json 已生成（默认参数：127.0.0.2 / ${w}x${h} / 30 分钟重建 / Apollo 守卫开 / $alNote2 / 日志仅警告与错误 / GameViewer 4.0.*、4.46.*）"
+        Write-Log "OK: SunshineDuoCore\config.json 已生成（默认参数：127.0.0.2 / ${w}x${h} / 30 分钟重建 / Apollo 守卫开 / $alNote2 / 日志仅警告与错误 / GameViewer 4.0.*、4.46.*）"
     }
 
     # 服务幂等注册
@@ -529,7 +529,7 @@ function Install-Wsguard {
         Write-Log "已存在服务 $SvcName，先移除再重建..."
         $null = & sc.exe stop $SvcName 2>&1
         Start-Sleep -Seconds 2
-        Get-Process -Name 'wsguard' -ErrorAction SilentlyContinue |
+        Get-Process -Name 'SunshineDuoCore' -ErrorAction SilentlyContinue |
             Stop-Process -Force -ErrorAction SilentlyContinue
         $null = & sc.exe delete $SvcName 2>&1
         Start-Sleep -Seconds 1
@@ -538,7 +538,7 @@ function Install-Wsguard {
     if ($LegacySvc -ne $SvcName -and (Get-Service -Name $LegacySvc -ErrorAction SilentlyContinue)) {
         $null = & sc.exe stop $LegacySvc 2>&1
         Start-Sleep -Seconds 2
-        Get-Process -Name 'wsguard' -ErrorAction SilentlyContinue |
+        Get-Process -Name 'SunshineDuoCore' -ErrorAction SilentlyContinue |
             Stop-Process -Force -ErrorAction SilentlyContinue
         $null = & sc.exe delete $LegacySvc 2>&1
         Start-Sleep -Seconds 1
@@ -556,7 +556,7 @@ function Install-Wsguard {
     if ($svc -and $svc.Status -eq 'Running') {
         Write-Log "OK: 服务 $SvcName 运行中（SYSTEM / 自启动 / 崩溃 1 分钟自重启）"
     } elseif ($svc) {
-        throw "服务已注册但状态为 $($svc.Status)，请查看 wsguard\watch.log"
+        throw "服务已注册但状态为 $($svc.Status)，请查看 SunshineDuoCore\watch.log"
     } else {
         throw "服务 $SvcName 注册失败"
     }
@@ -708,7 +708,7 @@ function Uninstall-Gamepad {
 }
 
 # 3 · 反向操作：关闭 Apollo 守卫自启（config.json guard_apollo=false，热重载生效），
-#     并清理旧自启机制残留（Run 键 / 计划任务）。wsguard 服务与显示保活功能不受影响。
+#     并清理旧自启机制残留（Run 键 / 计划任务）。SunshineDuoCore 服务与显示保活功能不受影响。
 function Uninstall-ApolloGuard {
     $any = $false
     if (Test-Path $WgCfgPath) {
@@ -747,29 +747,29 @@ function Uninstall-ApolloGuard {
     Write-Log '提示: 运行中的 sunshine.exe 不受影响，可手动关闭'
 }
 
-# 3 · 删除 wsguard 服务（程序文件与 rdp.cred 保留）
-function Uninstall-Wsguard {
+# 3 · 删除 SunshineDuoCore 服务（程序文件与 rdp.cred 保留）
+function Uninstall-SunshineDuoCore {
     $any = $false
     foreach ($n in @($SvcName, $LegacySvc)) {
         $svc = Get-Service -Name $n -ErrorAction SilentlyContinue
         if (-not $svc) { continue }
         $null = & sc.exe stop $n 2>&1
         for ($i = 0; $i -lt 10; $i++) {
-            if (-not (Get-Process -Name 'wsguard' -ErrorAction SilentlyContinue)) { break }
+            if (-not (Get-Process -Name 'SunshineDuoCore' -ErrorAction SilentlyContinue)) { break }
             Start-Sleep -Seconds 1
             Update-Ui
         }
-        Get-Process -Name 'wsguard' -ErrorAction SilentlyContinue |
+        Get-Process -Name 'SunshineDuoCore' -ErrorAction SilentlyContinue |
             Stop-Process -Force -ErrorAction SilentlyContinue
         $null = & sc.exe delete $n 2>&1
         if (Get-Service -Name $n -ErrorAction SilentlyContinue) {
             Write-Log "警告: sc delete $n 失败，请稍后手动执行: sc delete $n"
         } else {
-            Write-Log "OK: 服务 $n 已删除（wsguard 程序文件与 rdp.cred 均保留）"
+            Write-Log "OK: 服务 $n 已删除（SunshineDuoCore 程序文件与 rdp.cred 均保留）"
         }
         $any = $true
     }
-    if (-not $any) { Write-Log '跳过: wsguard 服务不存在（可能已卸载）' }
+    if (-not $any) { Write-Log '跳过: SunshineDuoCore 服务不存在（可能已卸载）' }
     Write-Log '提示: 与 UU 远程的会话兼容组件仍驻留内存，重启电脑或重启 UU 服务后彻底清除'
 }
 
@@ -984,8 +984,8 @@ function Uninstall-TrayApp {
     if (-not $any) { Write-Log '提示: 未发现 Sunshine-Duo 托盘残留' }
 }
 
-# 停止并结束 WSGuard / Sunshine(双 Apollo) / 托盘进程。
-# 安装与卸载都先走这里：wsguard 判断 Apollo 是否存活只看"会话里有没有 sunshine.exe"，
+# 停止并结束 SunshineDuoCore / Sunshine(双 Apollo) / 托盘进程。
+# 安装与卸载都先走这里：SunshineDuoCore 判断 Apollo 是否存活只看"会话里有没有 sunshine.exe"，
 # 不看它跑的是哪份 conf/端口；不清场的话，旧端口实例会被判为"仍在运行"，
 # 新配置的 Apollo 不会被拉起（表现为"装完 X 端口是 Main、Y 端口不在线"）。
 function Stop-StreamingProcesses {
@@ -996,7 +996,7 @@ function Stop-StreamingProcesses {
     }
     Start-Sleep -Seconds 1
     $killed = @()
-    foreach ($n in @('wsguard', 'sunshine', 'SunshineDuoTray')) {
+    foreach ($n in @('SunshineDuoCore', 'sunshine', 'SunshineDuoTray')) {
         $procs = @(Get-Process -Name $n -ErrorAction SilentlyContinue)
         if ($procs.Count -gt 0) {
             $procs | Stop-Process -Force -ErrorAction SilentlyContinue
@@ -1007,19 +1007,19 @@ function Stop-StreamingProcesses {
         Start-Sleep -Seconds 2
         Write-Log ("OK: 已停止旧进程（{0}）" -f ($killed -join '、'))
     } else {
-        Write-Log '提示: 无 WSGuard / Sunshine / 托盘进程在运行'
+        Write-Log '提示: 无 SunshineDuoCore / Sunshine / 托盘进程在运行'
     }
 }
 
-# 经 \\.\pipe\wsguard-ctrl 让 wsguard 立即执行一次 tick（不等 60s 周期），
+# 经 \\.\pipe\SunshineDuoCore-ctrl 让 SunshineDuoCore 立即执行一次 tick（不等 60s 周期），
 # 服务启动后数秒内即可把两个 Apollo 拉起来。
-function Send-WsguardTick {
+function Send-SunshineDuoCoreTick {
     param([int]$TimeoutSec = 30)
     $deadline = (Get-Date).AddSeconds($TimeoutSec)
     while ((Get-Date) -lt $deadline) {
         try {
             $pipe = New-Object System.IO.Pipes.NamedPipeClientStream(
-                '.', 'wsguard-ctrl', [System.IO.Pipes.PipeDirection]::InOut)
+                '.', 'SunshineDuoCore-ctrl', [System.IO.Pipes.PipeDirection]::InOut)
             $pipe.Connect(2000)
             try {
                 $writer = New-Object IO.StreamWriter($pipe)
@@ -1029,10 +1029,10 @@ function Send-WsguardTick {
                 $reader = New-Object IO.StreamReader($pipe)
                 $resp = $reader.ReadLine()
                 if ($resp -match '"ok"\s*:\s*true') {
-                    Write-Log 'OK: 已触发 WSGuard 立即拉起 Apollo'
+                    Write-Log 'OK: 已触发 SunshineDuoCore 立即拉起 Apollo'
                     return
                 }
-                Write-Log "警告: WSGuard tick 响应异常: $resp"
+                Write-Log "警告: SunshineDuoCore tick 响应异常: $resp"
                 return
             } finally {
                 $pipe.Dispose()
@@ -1041,7 +1041,7 @@ function Send-WsguardTick {
             Start-Sleep -Seconds 2
         }
     }
-    Write-Log '警告: 未能连接 wsguard 控制管道（服务可能未就绪），Apollo 将在下一个 tick 周期拉起'
+    Write-Log '警告: 未能连接 SunshineDuoCore 控制管道（服务可能未就绪），Apollo 将在下一个 tick 周期拉起'
 }
 
 # 等待两个 Apollo 的 WebUI 端口（conf 端口 +1）开始监听，装完页/后台立即可用
@@ -1065,7 +1065,7 @@ function Wait-ApolloWeb {
     }
     foreach ($p in @(@{ n = '控制台'; v = $PortMain }, @{ n = '游戏'; v = $PortGame })) {
         if (-not $up.ContainsKey($p.n)) {
-            Write-Log ("警告: {0} Apollo WebUI 端口 {1} 未就绪（该会话未登录或启动较慢，稍后由 WSGuard 自动拉起）" -f $p.n, $p.v)
+            Write-Log ("警告: {0} Apollo WebUI 端口 {1} 未就绪（该会话未登录或启动较慢，稍后由 SunshineDuoCore 自动拉起）" -f $p.n, $p.v)
         }
     }
 }
@@ -1087,20 +1087,20 @@ function Invoke-InstallRun {
         try {
             switch ($k) {
                 'conf'     { Write-SunshineConf -AdapterName $Opts.Adapter -Port $Opts.PortMain -DisplayMode $Opts.DisplayMode -SudovdaRes $Opts.SudovdaRes; Split-LegacySunshineState }
-                # note: Write-GameConf is performed by the wsguard step (dual Apollo ports)
+                # note: Write-GameConf is performed by the SunshineDuoCore step (dual Apollo ports)
                 'gpuaccel' { Install-GpuAcceleration }
                 'firewall' { Install-FirewallRule }
                 'gamepad'  { Install-Gamepad }
                 'rdpwrap'  { Install-RdpWrapper }
-                'wsguard'  {
+                'SunshineDuoCore'  {
                     Stop-StreamingProcesses
                     if ($Opts.PortGame -gt 0) { Write-GameConf -ConsoleConfPath $ConfPath -GameConfPath $GameConfPath -PortGame $Opts.PortGame -DisplayMode $Opts.DisplayMode -Vw $Opts.Vw -Vh $Opts.Vh }
                     # 先写两份 state 的凭证与主机身份，再启动服务；避免守卫拉起 Apollo 后回写覆盖
                     Set-WebUICredentials -User $Opts.WebUser -Password $Opts.WebUiPassword
                     Ensure-DistinctUniqueIds
-                    Install-Wsguard -RdpUser $Opts.User -Password $Opts.Password -Vw $Opts.Vw -Vh $Opts.Vh -AutoLogon $Opts.AutoLogon -DisplayMode $Opts.DisplayMode -DisplayExclusive ($Opts.DisplayMode -eq 'only') -PortMain $Opts.PortMain -PortGame $Opts.PortGame -SudovdaResList $Opts.SudovdaResList
+                    Install-SunshineDuoCore -RdpUser $Opts.User -Password $Opts.Password -Vw $Opts.Vw -Vh $Opts.Vh -AutoLogon $Opts.AutoLogon -DisplayMode $Opts.DisplayMode -DisplayExclusive ($Opts.DisplayMode -eq 'only') -PortMain $Opts.PortMain -PortGame $Opts.PortGame -SudovdaResList $Opts.SudovdaResList
                     # 服务就绪后立即触发 tick 拉起两个 Apollo，并等 WebUI 端口就绪
-                    Send-WsguardTick
+                    Send-SunshineDuoCoreTick
                     Wait-ApolloWeb -PortMain ($Opts.PortMain + 1) -PortGame ($Opts.PortGame + 1)
                     Install-ApolloGuard -User $Opts.User
                 }
@@ -1118,7 +1118,7 @@ function Invoke-InstallRun {
             [void]$results.Add(@{ Key = $k; Label = [string]$labels[$k]; Ok = $false })
         }
     }
-    if ((Get-Process -Name 'sunshine' -ErrorAction SilentlyContinue) -and -not $S.Prog.Steps['wsguard']) {
+    if ((Get-Process -Name 'sunshine' -ErrorAction SilentlyContinue) -and -not $S.Prog.Steps['SunshineDuoCore']) {
         Write-Log '提示: Sunshine 正在运行，需要重启 Sunshine 后新配置才生效'
     }
     $S.Prog.Results = @($results | ForEach-Object {
@@ -1129,7 +1129,7 @@ function Invoke-InstallRun {
 
 function Invoke-UninstallRun {
     param([hashtable]$Opts)
-    # 卸载一律先停服务并结束 WSGuard / Sunshine / 托盘进程，再执行反注册
+    # 卸载一律先停服务并结束 SunshineDuoCore / Sunshine / 托盘进程，再执行反注册
     Stop-StreamingProcesses
     $keys   = @($Opts.Steps)
     $labels = $Opts.Labels
@@ -1146,9 +1146,9 @@ function Invoke-UninstallRun {
                 'gamepad'  { Uninstall-Gamepad }
                 'rdpwrap'  { Uninstall-RdpWrapper }
                 'gpuaccel' { Uninstall-GpuAcceleration }
-                'wsguard'  {
+                'SunshineDuoCore'  {
                     Uninstall-ApolloGuard
-                    Uninstall-Wsguard
+                    Uninstall-SunshineDuoCore
                 }
                 'sudovda'  { Uninstall-SudoVDA }
                 'gamemgr'  { Uninstall-GameManager }
@@ -1564,7 +1564,7 @@ $xaml = @'
                       <ColumnDefinition Width="84"/>
                       <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
-                    <TextBlock Grid.Column="0" Text="WSGuard" Foreground="#94A3B8"/>
+                    <TextBlock Grid.Column="0" Text="SunshineDuoCore" Foreground="#94A3B8"/>
                     <TextBlock Grid.Column="1" x:Name="lblWelcomeWg" Foreground="#E2E8F0"
                                TextWrapping="Wrap"/>
                   </Grid>
@@ -1647,7 +1647,7 @@ $xaml = @'
                     <CheckBox x:Name="chkWsguard" IsChecked="True" IsEnabled="False" Margin="0,4,0,0"
                               Content="串流会话守护服务"/>
                     <TextBlock FontSize="11" Foreground="#94A3B8" Margin="20,2,0,0" TextWrapping="Wrap"
-                               Text="WSGuard：串流断开后维持虚拟显示输出；开机自动启动 Sunshine"/>
+                               Text="SunshineDuoCore：串流断开后维持虚拟显示输出；开机自动启动 Sunshine"/>
                   </StackPanel>
                 </Border>
                 <Border Style="{StaticResource Card}">
@@ -2036,7 +2036,7 @@ $xaml = @'
                   <StackPanel>
                     <TextBlock Text="3 · 串流会话守护服务" Foreground="#94A3B8" FontSize="11" Margin="0,0,0,6"/>
                     <CheckBox x:Name="chkUWsguard" IsChecked="True"
-                              Content="卸载 WSGuard 服务并取消 Sunshine 开机自启"/>
+                              Content="卸载 SunshineDuoCore 服务并取消 Sunshine 开机自启"/>
                     <TextBlock FontSize="11" Foreground="#94A3B8" Margin="20,2,0,0"
                                Text="保留密码与设置"/>
                     <CheckBox x:Name="chkUSudovda" IsChecked="False" Margin="0,4,0,0"
@@ -2120,7 +2120,7 @@ function Invoke-SelfTest {
     Check '根目录定位（sunshine.exe 存在）' { Test-Path (Join-Path $Root 'sunshine.exe') }
     Check 'tools\rdpWrapper.exe 存在'      { Test-Path $RdpWrapExe }
     Check 'tools\GameManager.exe 存在'     { Test-Path $GmExe }
-    Check 'wsguard\wsguard.exe 存在'       { Test-Path $WgExe }
+    Check 'SunshineDuoCore\SunshineDuoCore.exe 存在'       { Test-Path $WgExe }
     Check 'scripts\add-firewall-rule.bat 存在'    { Test-Path (Join-Path $PSScriptRoot 'add-firewall-rule.bat') }
     Check 'scripts\delete-firewall-rule.bat 存在' { Test-Path (Join-Path $PSScriptRoot 'delete-firewall-rule.bat') }
     Check 'scripts\install-gamepad.ps1 存在'      { Test-Path (Join-Path $PSScriptRoot 'install-gamepad.ps1') }
@@ -2149,7 +2149,7 @@ function Invoke-SelfTest {
         $ui.ContainsKey('chkAutoLogon') -and ([bool]$ui['chkAutoLogon'].IsChecked)
     }
 
-    # DPAPI roundtrip（LocalMachine 作用域，与 wsguard 解密方式兼容）
+    # DPAPI roundtrip（LocalMachine 作用域，与 SunshineDuoCore 解密方式兼容）
     Check 'DPAPI 加解密 roundtrip' {
         Add-Type -AssemblyName System.Security
         $plain = 'Test-Password-123'
@@ -2231,7 +2231,7 @@ public static class PwCheck {
     }
 
     # config.json 模板
-    Check 'wsguard config.json 模板' {
+    Check 'SunshineDuoCore config.json 模板' {
         $cfg = [ordered]@{
             username = 'Game'; password_mode = 'dpapi'; cred_path = $WgCredPath
             server = '127.0.0.2'; width = 1600; height = 720
@@ -2550,7 +2550,7 @@ function Set-WizardStep {
 # SudoVDA 显示方式说明文本（Set-WizardStep 与单选切换共用）
 function Update-SudovdaModeDesc {
     $desc = if ($ui['svOnly'].IsChecked) {
-        '独占模式：客户端串流时（含「桌面」App）自动只保留 SudoVDA 虚拟显示器、物理显示器断开（拓扑由 WSGuard 运行期执行）'
+        '独占模式：客户端串流时（含「桌面」App）自动只保留 SudoVDA 虚拟显示器、物理显示器断开（拓扑由 SunshineDuoCore 运行期执行）'
     } elseif ($ui['svExtend'].IsChecked) {
         '扩展模式：物理显示器照常保留，虚拟显示器作为扩展桌面用于串流（桌面/游戏均走虚拟屏）'
     } else {
@@ -2714,7 +2714,7 @@ if ($curAd) {
     if ($idx -ge 0) { $ui['cmbGpu'].SelectedIndex = $idx }
 }
 
-# 预填当前 wsguard config.json 里的虚拟屏分辨率与已保存的分辨率清单
+# 预填当前 SunshineDuoCore config.json 里的虚拟屏分辨率与已保存的分辨率清单
 try {
     $wg = Get-Content -LiteralPath $WgCfgPath -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json
     if ($wg.width)  { $ui['txtWidth'].Text  = [string][int]$wg.width }
@@ -2837,8 +2837,8 @@ function Start-PasswordVerification {
     $script:VerifyTimer.Start()
 }
 
-# wsguard 现在只有单一版本：显示固定状态，不做新/旧版判断
-$ui['lblWelcomeWg'].Text = '就绪（服务名 WSGuard / 动态路径）'
+# SunshineDuoCore 现在只有单一版本：显示固定状态，不做新/旧版判断
+$ui['lblWelcomeWg'].Text = '就绪（服务名 SunshineDuoCore / 动态路径）'
 
 # 取消失落的验证状态：密码再改、用户再换即失效
 $ui['pwdRdp'].Add_PasswordChanged({
@@ -2888,14 +2888,14 @@ function Start-InstallRun {
             Write-Log '用户取消：跳过状态与日志清理'
         }
     }
-    # 步骤编排（gpuaccel 与 firewall 等顺序：conf → gpuaccel → firewall → gamepad → rdpwrap → wsguard → sudovda → gamemgr → reset）
+    # 步骤编排（gpuaccel 与 firewall 等顺序：conf → gpuaccel → firewall → gamepad → rdpwrap → SunshineDuoCore → sudovda → gamemgr → reset）
     $steps = @('conf')
     if ($ui['chkReset'].IsChecked)    { $steps += 'reset' }
     if ($ui['chkGpuAccel'].IsChecked) { $steps += 'gpuaccel' }
     $steps += 'firewall'
     if ($ui['chkGamepad'].IsChecked)  { $steps += 'gamepad' }
     $steps += 'rdpwrap'
-    $steps += 'wsguard'
+    $steps += 'SunshineDuoCore'
     if ($ui['chkSudoVDA'].IsChecked) { $steps += 'sudovda' }
     if ($ui['chkGameMgr'].IsChecked)  { $steps += 'gamemgr' }
     if ($ui['chkTrayDesktop'].IsChecked -or $ui['chkTrayStart'].IsChecked -or $ui['chkTrayAuto'].IsChecked) { $steps += 'tray' }
@@ -2958,7 +2958,7 @@ function Start-InstallRun {
         firewall = '防火墙放行 Sunshine'
         gamepad  = 'ViGEmBus 虚拟手柄驱动'
         rdpwrap  = 'RDP Wrapper 并发解锁'
-        wsguard  = 'WSGuard 守护服务与开机自启'
+        SunshineDuoCore  = 'SunshineDuoCore 守护服务与开机自启'
         sudovda  = 'SudoVDA 虚拟显示驱动'
         gamemgr  = 'GameManager 游戏菜单'
         tray     = 'Sunshine-Duo 托盘与快捷方式'
@@ -3178,7 +3178,7 @@ $ui['btnUninstallStart'].Add_Click({
     if ($ui['chkUGamepad'].IsChecked)  { $steps += 'gamepad' }
     if ($ui['chkURdpWrap'].IsChecked)  { $steps += 'rdpwrap' }
     if ($ui['chkUGpuAccel'].IsChecked) { $steps += 'gpuaccel' }
-    if ($ui['chkUWsguard'].IsChecked)  { $steps += 'wsguard' }
+    if ($ui['chkUWsguard'].IsChecked)  { $steps += 'SunshineDuoCore' }
     if ($ui['chkUSudovda'].IsChecked)  { $steps += 'sudovda' }
     if ($ui['chkUGameMgr'].IsChecked)  { $steps += 'gamemgr' }
     if ($ui['chkUTray'].IsChecked)     { $steps += 'trayapp' }
@@ -3197,7 +3197,7 @@ $ui['btnUninstallStart'].Add_Click({
         gamepad  = '卸载 ViGEmBus 驱动'
         rdpwrap  = '卸载 RDP Wrapper'
         gpuaccel = '删除会话 GPU 加速策略'
-        wsguard  = '卸载守护服务并取消自启'
+        SunshineDuoCore  = '卸载 SunshineDuoCore 守护服务并取消自启'
         sudovda  = '卸载 SudoVDA 虚拟显示驱动'
         gamemgr  = '卸载 GameManager'
         trayapp  = '卸载托盘与快捷方式'

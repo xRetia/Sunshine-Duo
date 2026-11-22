@@ -78,7 +78,7 @@ public class TrayContext : ApplicationContext
         _timer.Start();
         _ = PollAsync();
 
-        // wsguard 配对事件轮询：不碰 Apollo，只走本地控制管道（wsguard 自己监听通知/日志）
+        // 核心服务配对事件轮询：不碰 Apollo，只走本地控制管道（SunshineDuoCore 自己监听通知/日志）
         _eventTimer = new System.Windows.Forms.Timer { Interval = 1500 };
         _eventTimer.Tick += async (_, _) => await PollPairEvents();
         _eventTimer.Start();
@@ -238,9 +238,9 @@ public class TrayContext : ApplicationContext
         }
     }
 
-    // 被动配对事件：wsguard 监听两个会话的 Apollo 通知/日志并压入事件队列，
+    // 被动配对事件：SunshineDuoCore 监听两个会话的 Apollo 通知/日志并压入事件队列，
     // trayapp 只轮询本地命名管道（不向 Apollo 发任何请求），拿到事件即弹出配对窗。
-    // 弹窗打开期间跳过轮询（事件留在 wsguard 队列，关窗后下个周期再取），
+    // 弹窗打开期间跳过轮询（事件留在 SunshineDuoCore 队列，关窗后下个周期再取），
     // 同一批事件按会话合并，避免一次连接突发弹出多个窗。
     private async Task PollPairEvents()
     {
@@ -362,7 +362,7 @@ public class TrayContext : ApplicationContext
     {
         try
         {
-            var cfg = Path.Combine(Paths.Root, "wsguard", "config.json");
+            var cfg = Path.Combine(Paths.Root, "SunshineDuoCore", "config.json");
             if (!File.Exists(cfg)) return;
             using var doc = JsonDocument.Parse(File.ReadAllText(cfg));
             if (!doc.RootElement.TryGetProperty("default_display_mode", out var v)) return;

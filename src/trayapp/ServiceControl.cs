@@ -2,14 +2,14 @@ using System.Diagnostics;
 
 namespace SunshineDuoTray;
 
-// wsguard 服务的查询与启停（sc.exe，启停需 UAC 提权）
+// SunshineDuoCore 服务的查询与启停（sc.exe，启停需 UAC 提权）
 public static class ServiceControl
 {
     public static string Query()
     {
         try
         {
-            var psi = new ProcessStartInfo("sc.exe", "query WSGuard")
+            var psi = new ProcessStartInfo("sc.exe", "query SunshineDuoCore")
             {
                 UseShellExecute = false,
                 CreateNoWindow = true,
@@ -35,7 +35,7 @@ public static class ServiceControl
         try
         {
             var arg = run ? "start" : "stop";
-            var psi = new ProcessStartInfo("sc.exe", $"{arg} WSGuard")
+            var psi = new ProcessStartInfo("sc.exe", $"{arg} SunshineDuoCore")
             {
                 UseShellExecute = true,
                 Verb = "runas",

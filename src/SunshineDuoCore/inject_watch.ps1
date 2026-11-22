@@ -1,13 +1,13 @@
-# inject_watch.ps1 - wsguard 内嵌 PS 守护脚本模板
-# __WG_DIR__ 占位符由 wsguard.exe 运行时替换为其自身所在目录（目录可自由移动）
-# 构建时以 UTF-16LE base64 编码嵌入 wsguard_final.py 的 PS_GUARD_B64
+# inject_watch.ps1 - SunshineDuoCore 内嵌 PS 守护脚本模板
+# __WG_DIR__ 占位符由 SunshineDuoCore.exe 运行时替换为其自身所在目录（目录可自由移动）
+# 构建时以 UTF-16LE base64 编码嵌入 duocore_final.py 的 PS_GUARD_B64
 $ErrorActionPreference = 'Continue'
 $wgDir = '__WG_DIR__'
 $log = Join-Path $wgDir 'watch.log'
 function TS { Get-Date -Format 'yyyy-MM-dd HH:mm:ss' }
-# 日志轮转由 wsguard.exe 统一负责（watch-YYYYMMDD_HHMMSS.log 归档 + 保留份数），
+# 日志轮转由 SunshineDuoCore.exe 统一负责（watch-YYYYMMDD_HHMMSS.log 归档 + 保留份数），
 # 此处不要再 Clear-Content，否则会和 Python 侧的轮转互相清掉对方刚写的内容。
-# 日志级别与 wsguard.exe 一致：config.json log_level='info' 输出全量，
+# 日志级别与 SunshineDuoCore.exe 一致：config.json log_level='info' 输出全量，
 # 'warn'（默认）只记警告/错误。LogWarn/LogErr 始终写入。
 $verbose = $false
 $allowed = @()

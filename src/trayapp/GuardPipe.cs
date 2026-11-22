@@ -5,8 +5,8 @@ namespace SunshineDuoTray;
 
 public static class GuardPipe
 {
-    // wsguard 控制管道：一条 JSON 命令 + 换行，返回一行 JSON
-    private const string PipeName = "wsguard-ctrl";
+    // SunshineDuoCore 控制管道：一条 JSON 命令 + 换行，返回一行 JSON
+    private const string PipeName = "SunshineDuoCore-ctrl";
 
     public class PairEvent
     {
@@ -39,7 +39,7 @@ public static class GuardPipe
         }
         catch (Exception e)
         {
-            return System.Text.Json.JsonSerializer.Serialize(new { ok = false, error = "wsguard 控制通道不可用: " + e.Message });
+            return System.Text.Json.JsonSerializer.Serialize(new { ok = false, error = "SunshineDuoCore 控制通道不可用: " + e.Message });
         }
     }
 
@@ -56,7 +56,7 @@ public static class GuardPipe
         }
     }
 
-    // 取走 wsguard 积累的配对事件（pop 即清除）；失败返回 null
+    // 取走 SunshineDuoCore 积累的配对事件（pop 即清除）；失败返回 null
     public static async Task<List<PairEvent>?> PollEvents()
     {
         using var doc = await SendForDocAsync("{\"cmd\":\"poll_pair_events\"}");
@@ -105,7 +105,7 @@ public static class GuardPipe
     private static async Task<string> SendAndCheckAsync(string json)
     {
         using var doc = await SendForDocAsync(json);
-        if (doc == null) return "wsguard 控制通道响应无法解析";
+        if (doc == null) return "SunshineDuoCore 控制通道响应无法解析";
         try
         {
             if (doc.RootElement.GetProperty("ok").GetBoolean()) return null!;
@@ -113,7 +113,7 @@ public static class GuardPipe
         }
         catch
         {
-            return "wsguard 控制通道响应缺少 ok 字段";
+            return "SunshineDuoCore 控制通道响应缺少 ok 字段";
         }
     }
 }

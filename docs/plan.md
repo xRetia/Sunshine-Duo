@@ -14,7 +14,7 @@
 
 ```
 ┌───────────────────────────────────────────────────────┐
-│  WSGuard (SYSTEM 服务)                                 │
+│  SunshineDuoCore (SYSTEM 服务)                              │
 │                                                       │
 │  ┌─────────────────────┐    ┌─────────────────────┐   │
 │  │ guard_apollo        │    │ guard_apollo_console│   │
@@ -23,7 +23,7 @@
 │  └───────────┬─────────┘    └─────────┬───────────┘   │
 │              │                        │               │
 │        Game user token         SYSTEM token           │
-│        (wsguard在Game会话拉起)   (wsguard在Console会话)  │
+│        (SunshineDuoCore在Game会话拉起)  (SunshineDuoCore在Console会话)  │
 │          ┌────▼───┐               ┌────▼───┐          │
 │          │Apollo  │               │Apollo  │           │
 │          │(次)    │               │(主)    │           │
@@ -46,7 +46,7 @@
 
 ## 2. 新增 Windows 服务守护模型
 
-### 2.1 WSGuard 替换旧守卫
+### 2.1 SunshineDuoCore 替换旧守卫
 
 从 "Game 会话 + Apollo + keepalive + UU hook" 修改为 **"双路 Apollo 守卫 + 双路配置"** 。
 
@@ -68,7 +68,7 @@
 ### 2.2 `launch_apollo(session_id, config, elevate=True)`
 
 - 利用 Apollo 自身语法 `sunshine.exe <conf-path>`（代码确认 `322220: [options] [/path/to/configuration_file]`），传入路径即可；
-- WSGuard 先在 tick 中检测对应会话中是否已运行 Apollo（通过 `EnumProcesses`+`ProcessIdToSessionId`+`endswith(\sunshine.exe)`）；
+- SunshineDuoCore 先在 tick 中检测对应会话中是否已运行 Apollo（通过 `EnumProcesses`+`ProcessIdToSessionId`+`endswith(\sunshine.exe)`）；
 - **无须用户介入**：服务通过 `CreateProcessAsUserW` 启动。
 
 ### 2.3 Console / Game 会话隔离
@@ -81,7 +81,7 @@
 
 ### 3.1 职责矩阵
 
-| 模块 | setup 负责 | 服务（WSGuard）负责 |
+| 模块 | setup 负责 | 服务（SunshineDuoCore）负责 |
 |------|-----------|-------------------|
 | 运行环境 | 驱动安装/卸载、防火墙、显卡、RDP Wrapper、ViGEmBus | 保活、拉起 |
 | Apollo 配置 | 生成两个 conf、端口族、WebUI 用户名密码（`--creds`）、共享 apps/证书、各自独立的 state 与 Moonlight 名称 | 读 conf 启动 |
@@ -108,7 +108,7 @@ Welcome
 
 在托盘菜单中提供：
 - 显示主窗口（恢复向导）
-- 守护服务开关（启动/停止 WSGuard）
+- 守护服务开关（启动/停止 SunshineDuoCore）
 - 主 Apollo / 次 Apollo 运行状态
 - 快速开启串流（清理桌面环境）
 - 退出（后台保留）
@@ -162,11 +162,11 @@ function Install-SudoVDA {
 四种模式的**意图**为：仅物理 / 仅虚拟 / 克隆 / 扩展；实际虚拟显示器由 Apollo 在客户端开串流时创建、断流删除，模式语义随之成立：
 
 - 仅物理（镜像）：抓物理主屏，桌面端设备不强制走虚拟屏；
-- 仅虚拟（独占）：客户端串流（含「桌面」App）时只保留 SudoVDA 虚拟显示器、物理显示器自动断开，断流后恢复——由 WSGuard 在运行期按虚拟屏存在与否执行（wsguard.py `DisplayExclusive`）；
+- 仅虚拟（独占）：客户端串流（含「桌面」App）时只保留 SudoVDA 虚拟显示器、物理显示器自动断开，断流后恢复——由 SunshineDuoCore 在运行期按虚拟屏存在与否执行（duocore.py `DisplayExclusive`）；
 - 扩展：物理显示器照常保留，虚拟显示器作为扩展桌面；
 - 克隆：语义并入物理主屏路径。
 
-要点：Apollo 0.4.6 对 virtual display 会话不应用 `dd_configuration_option`（且启动后的 `display_device::reset_persistence()` 会取消其退避重试），拓扑切换因此不再写进 `sunshine.conf`；桌面端设备记录 `always_use_virtual_display=true` 由 WSGuard 每轮强制（该标记在 Apollo 0.4.6 是 per-device 记录，不是 conf 键）。
+要点：Apollo 0.4.6 对 virtual display 会话不应用 `dd_configuration_option`（且启动后的 `display_device::reset_persistence()` 会取消其退避重试），拓扑切换因此不再写进 `sunshine.conf`；桌面端设备记录 `always_use_virtual_display=true` 由 SunshineDuoCore 每轮强制（该标记在 Apollo 0.4.6 是 per-device 记录，不是 conf 键）。
 
 ---
 
@@ -175,8 +175,8 @@ function Install-SudoVDA {
 | 路径 | 角色 | 改动 |
 | --- | --- | --- |
 | `scripts/sunshine-setup.ps1` | **重写** | 向导 + 安装 + 卸载 + 托盘 + Apollo 配置 + 凭证 + 端口 + 显示模式 |
-| `src/wsguard/wsguard.py` | 核心服务 | 双 Apollo 守卫 + 双 conf 路径 + Console 会话日志 |
-| `wsguard/config.json` | 配置 | 新增：`guard_apollo_console`, `console_conf_path`, `game_conf_path`, `console_port`, `game_port`, `install_sudovda`, `default_display_mode` |
+| `src/SunshineDuoCore/duocore.py` | 核心服务 | 双 Apollo 守卫 + 双 conf 路径 + Console 会话日志 |
+| `SunshineDuoCore/config.json` | 配置 | 新增：`guard_apollo_console`, `console_conf_path`, `game_conf_path`, `console_port`, `game_port`, `install_sudovda`, `default_display_mode` |
 | `config/sunshine.conf` | 主 Apollo 配置 | 新增 `port`（由 setup 写） |
 | `config/sunshine-game.conf` | 次 Apollo 配置 | 新增 `port` |
 | `drivers/sudovda/*` | 驱动 | 不变（新增 `install-sudovda.bat`/`uninstall-sudovda.bat` 调用 nefcon） |
@@ -193,7 +193,7 @@ function Install-SudoVDA {
 - **UAC 处理**：主 Apollo 作为 SYSTEM 执行，已经足够处理 UAC 会话的弹框；次 Apollo 无。
 - **显示多路**：如果 `SudoVDA` 驱动未安装，虚拟显示器不可用。setup 可在安装前检测。
 - **端口重叠**：需确定 Apollo 两个端口的扩展字段（最高 48100 ~ 48121 族）；建议两个端口差 ≥ 22。
-- **两个 Apollo 的 state 写锁**：`file_state` 已按实例拆开（Console / Game 各写各的），不再争同一 `sunshine_state.json`；WSGuard 在拉起前还会把两份 state 中被 Web UI 写成字符串的布尔/数字归一化回原生类型，避免 0.4.6 启动崩溃。
+- **两个 Apollo 的 state 写锁**：`file_state` 已按实例拆开（Console / Game 各写各的），不再争同一 `sunshine_state.json`；SunshineDuoCore 在拉起前还会把两份 state 中被 Web UI 写成字符串的布尔/数字归一化回原生类型，避免 0.4.6 启动崩溃。
 - **证书共享**：`credentials/cacert.pem/cakey.pem` 共用，但已配对设备记录在各自的 state 文件里；Moonlight 两台主机分别配对，名称由 `sunshine_name` 决定。
 - **防火墙**：需要在安装时放行两个端口族（不只是单个 Apollo 默认48100）；`add-firewall-rule.bat` 改为范围放行。
 - **托盘**：PowerShell 托盘需要用 WPF/WinForms，考虑兼容性问题。
@@ -203,7 +203,7 @@ function Install-SudoVDA {
 ## 6. 实施顺序建议
 
 1. **重写 `sunshine-setup.ps1`**（安装/卸载/配置/托盘）；逐步实现；
-2. **`wsguard.py`**（双 Apollo 守卫 + 双 conf）；
+2. **`duocore.py`**（双 Apollo 守卫 + 双 conf）；
 3. **两个 conf + 两种端口 + 两份 state** 写法和共享证书；
 4. **托盘功能 + WebUI 凭证**（`--creds`）；
 5. **说明文档 + README**。
@@ -222,10 +222,10 @@ function Install-SudoVDA {
 
 | 步骤 | 任务 | 状态 |
 | --- | --- | --- |
-| 1 | `wsguard.py`：Console Apollo SYSTEM 守卫 + `--config` conf 参数 | **已完成** |
+| 1 | `duocore.py`：Console Apollo SYSTEM 守卫 + `--config` conf 参数 | **已完成** |
 | 2 | SudoVDA 安装/卸载 batch 封装 | **已完成** |
 | 3 | `sunshine-setup.ps1` 重写（SudoVDA 开关、显示模式 4 选 1、双端口分配、游戏 conf） | **已完成** |
-| 4 | `wsguard/config.json` 新增双 Apollo 配置项 | **已完成** |
+| 4 | `SunshineDuoCore/config.json` 新增双 Apollo 配置项 | **已完成** |
 | 5 | 系统托盘（WPF NotifyIcon） | 待实现 |
 | 6 | WebUI 用户名密码 `--creds` 集成 | **已完成** |
 | 7 | 防火墙已为程序级规则，无需修改 | 已完成 |
