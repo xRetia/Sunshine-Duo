@@ -441,6 +441,8 @@ ENUM_RECHECK_SECS = 2.0     # cool-down after an apply
 ENUM_FAST_SECS = 0.25       # cool-down while a stream races the VDA naming window
 ENUM_RESWEEP_SECS = 60.0    # re-sweep stale EnumDisplayDevices index cache
 FP_RACE_WINDOW = 5.0        # proactive EXTERNAL push stays bound to the VDA naming race
+_FP_BACKOFF_BASE = 0.5       # first EXTERNAL retry backoff (s)
+_FP_BACKOFF_MAX = 4.0       # cap for EXTERNAL retry backoff (s)
 
 
 class _LUID(ctypes.Structure):
@@ -893,6 +895,8 @@ class DisplayExclusive:
         self._last_fp_detail = None
         self._fp_until = 0.0      # proactive EXTERNAL push window for the VDA
                                   # naming race, closed after this time
+        self._fp_fail = 0         # consecutive EXTERNAL push failures (backoff)
+        self._fp_backoff_until = 0.0
         self._load_disabled()
 
     def apply_mode_request(self):
@@ -994,7 +998,9 @@ class DisplayExclusive:
                 self._vda_created = False
                 self._vda_failed = False
         if self._streaming and not was_streaming:
-            self._last_fp_detail = None  # new race: log its progress again
+            self._last_fp_detail = None          # new race: log progress again
+            self._fp_fail = 0
+            self._fp_backoff_until = 0.0
 
     def _state(self, vda, others):
         if vda and others:
@@ -1268,14 +1274,28 @@ class DisplayExclusive:
         if not self._vda_failed:
             if vda:
                 ok, detail = _activate_vda_external()
+                self._fp_fail = 0
             elif time.time() < self._fp_until:
                 # VDA not GDI-visible yet: push the preset anyway so the
                 # target activates the instant the driver registers it.
                 # Bounded by the race window - pushing EXTERNAL with no
                 # virtual display at all would switch the physical panel off.
+                if time.time() < self._fp_backoff_until:
+                    return True  # in backoff - retry on the next cadence tick
                 ok = _set_topology_preset(SDC_TOPOLOGY_EXTERNAL)
-                detail = 'fired EXTERNAL topology (proactive)' if ok \
-                    else 'EXTERNAL push failed'
+                if ok:
+                    self._fp_fail = 0
+                    detail = 'fired EXTERNAL topology (proactive)'
+                else:
+                    self._fp_fail += 1
+                    n = self._fp_fail
+                    if n == 1 or n & (n - 1) == 0 or n % 16 == 0:
+                        log_warn('display fast-pass: EXTERNAL push failed (%d), '
+                                 'backing off up to %.0fs'
+                                 % (n, _FP_BACKOFF_MAX))
+                    self._fp_backoff_until = time.time() + min(
+                        _FP_BACKOFF_MAX, _FP_BACKOFF_BASE * (2 ** min(n - 1, 4)))
+                    detail = 'EXTERNAL push failed (%d)' % n
             else:
                 return False  # race window over, no VDA - Apollo streams physical
             if detail != self._last_fp_detail:
