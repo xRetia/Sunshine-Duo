@@ -609,6 +609,36 @@ def _vda_devices_any():
     return out
 
 
+def _physical_devices_any():
+    """True when at least one non-SudoVDA display device is known to this
+    session, attached or not. Used to tell 'physical display detached by a
+    previous only-session' (must restore) apart from a truly headless machine
+    (no physical display exists at all - keep the VDA)."""
+    dev = _DISPLAY_DEVICEW()
+    i = 0
+    while True:
+        dev.cb = ctypes.sizeof(_DISPLAY_DEVICEW)
+        if not _user32.EnumDisplayDevicesW(None, i, ctypes.byref(dev), 0):
+            break
+        i += 1
+        if dev.DeviceString != SUDOVDA_ADAPTER:
+            return True
+    return False
+
+
+def _set_topology_preset(flag):
+    """Apply a CCD topology preset (EXTEND/EXTERNAL/INTERNAL) via
+    SetDisplayConfig. Returns True on success. This is the only reliable way
+    to re-attach a fully detached source on this machine (ChangeDisplaySettingsEx
+    re-attach is rejected by the AMD driver with DISP_CHANGE_FAILED - observed
+    live), measured working for both physical and virtual sources."""
+    r = _user32.SetDisplayConfig(0, None, 0, None, flag | SDC_APPLY)
+    if r != 0:
+        log_warn('display: SetDisplayConfig(preset 0x%x) returned %d' % (flag, r))
+        return False
+    return True
+
+
 def _query_display_paths():
     """Returns (paths, modes) as raw ctypes arrays (SetDisplayConfig needs the
     native buffers, not Python lists). Each element is an _PATH_INFO/_MODE_INFO
@@ -679,6 +709,17 @@ def _apply_display_topology(mode, reattach_names=()):
     if mode not in ('mirror', 'only', 'extend'):
         return False, 'unknown mode: %s' % mode
     vda, others = _display_sources()
+    if mode in ('mirror', 'extend') and not others and _physical_devices_any():
+        # A previous 'only' session (or a service restart that lost the
+        # disabled-bookkeeping) can leave every physical source detached.
+        # Detached sources are invisible to both EnumDisplayDevices(ATTACHED)
+        # and QDC_ONLY_ACTIVE_PATHS, so the path flips below could never bring
+        # them back and mirror/extend would silently behave like 'only'.
+        # Re-attach via the EXTEND topology preset first (measured live: the
+        # CCD preset works where a CDS re-attach is rejected by the driver).
+        if not _set_topology_preset(SDC_TOPOLOGY_EXTEND):
+            return False, 'physical re-attach (EXTEND) failed'
+        vda, others = _display_sources(refresh=True)
     reattach = set(reattach_names or ()) & set(_vda_devices_any())
     if mode in ('only', 'extend') and not vda:
         # A mirror session detaches the VDA via CDS, which drops it from the
@@ -958,8 +999,9 @@ class DisplayExclusive:
         # virtual ones detach: Windows refuses a topology with zero active
         # sources, so detaching the last display first fails forever.
         if state in ('vda-idle', 'mixed-idle'):
-            if not others and not self.disabled:
-                pass  # headless: the VDA is the only source left, keep it
+            if (not others and not self.disabled
+                    and not _physical_devices_any()):
+                pass  # truly headless: no physical display exists, keep the VDA
             elif self._armed_since is None:
                 self._armed_since = now
             elif now - self._armed_since >= ENUM_STABLE_SECS:
@@ -1003,9 +1045,10 @@ class DisplayExclusive:
                 elif others and now - self._armed_since >= ENUM_STABLE_SECS:
                     self._last_action = now
                     self.detached_vda = set(self._detach_vda(vda, 'mirror streaming'))
-        elif state == 'vda-only' and self.disabled and mode != 'only':
-            # physical displays detached by a previous 'only' session must come
-            # back for both mirror and extend, not just extend
+        elif state == 'vda-only' and mode != 'only':
+            # physical displays detached by a previous 'only' session (or a
+            # restart that lost the bookkeeping) must come back for both
+            # mirror and extend while a stream runs on the lone VDA
             if self._restore_since is None:
                 self._restore_since = now
             elif now - self._restore_since >= ENUM_STABLE_SECS:
@@ -1247,16 +1290,14 @@ class DisplayExclusive:
         collapses the topology to the primary physical source, which also kicks
         orphaned virtual displays that refuse a CDS detach (e.g. a stale VDA
         left behind as primary by a crashed Apollo)."""
-        flag = SDC_TOPOLOGY_INTERNAL if internal else SDC_TOPOLOGY_EXTEND
-        r = _user32.SetDisplayConfig(0, None, 0, None, flag | SDC_APPLY)
-        if r != 0:
-            log_warn('display: SetDisplayConfig(%s) returned %d'
-                     % ('INTERNAL' if internal else 'EXTEND', r))
-            return False
-        return True
+        return _set_topology_preset(SDC_TOPOLOGY_INTERNAL if internal else SDC_TOPOLOGY_EXTEND)
 
     def _restore(self):
         if not self.disabled:
+            # Bookkeeping lost (e.g. service restart): the physical displays
+            # may still be detached - bring them back via the topology preset.
+            if _set_topology_preset(SDC_TOPOLOGY_EXTEND):
+                log('display: stream ended - physical displays re-enabled (extend topology)')
             return
         if self._reattach_via_topology():
             self.disabled.clear()
