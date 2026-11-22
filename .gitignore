@@ -20,6 +20,9 @@ bin/SunshineDuoCore/rdp.cred
 bin/SunshineDuoCore/config.json
 bin/SunshineDuoCore/display-worker.json
 bin/SunshineDuoCore/display-disabled.json
+bin/SunshineDuoCore/display-mode-request.json
+bin/SunshineDuoCore/display-mode-result.json
+bin/SunshineDuoCore/display-worker.stop
 
 # ---- 本机生成的工具配置（安装时按本机路径重写）----
 tools/GameManager.json
