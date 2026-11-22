@@ -440,6 +440,7 @@ ENUM_STABLE_SECS = 2.0      # topology must stay in one state this long before a
 ENUM_RECHECK_SECS = 2.0     # cool-down after an apply
 ENUM_FAST_SECS = 0.25       # cool-down while a stream races the VDA naming window
 ENUM_RESWEEP_SECS = 60.0    # re-sweep stale EnumDisplayDevices index cache
+FP_RACE_WINDOW = 5.0        # proactive EXTERNAL push stays bound to the VDA naming race
 
 
 class _LUID(ctypes.Structure):
@@ -890,6 +891,8 @@ class DisplayExclusive:
         self._vda_failed = False    # Apollo logged the creation-failed warning
         self._last_mode_req_id = None
         self._last_fp_detail = None
+        self._fp_until = 0.0      # proactive EXTERNAL push window for the VDA
+                                  # naming race, closed after this time
         self._load_disabled()
 
     def apply_mode_request(self):
@@ -973,12 +976,14 @@ class DisplayExclusive:
         for line in data.splitlines():
             if b'CLIENT CONNECTED' in line or b'New streaming session started' in line:
                 self._streaming = True
+                self._fp_until = time.time() + FP_RACE_WINDOW
             elif (b'CLIENT DISCONNECTED' in line
                   or b'Session pausing for app' in line
                   or b'Virtual Display removed successfully' in line):
                 self._streaming = False
             elif b'Display mode for client' in line and b'requested' in line:
                 self._streaming = True  # session setup starts before CONNECTED
+                self._fp_until = time.time() + FP_RACE_WINDOW
             if b'Virtual Display created at' in line:
                 self._vda_created = True
                 self._vda_failed = False
@@ -1263,12 +1268,16 @@ class DisplayExclusive:
         if not self._vda_failed:
             if vda:
                 ok, detail = _activate_vda_external()
-            else:
+            elif time.time() < self._fp_until:
                 # VDA not GDI-visible yet: push the preset anyway so the
                 # target activates the instant the driver registers it.
+                # Bounded by the race window - pushing EXTERNAL with no
+                # virtual display at all would switch the physical panel off.
                 ok = _set_topology_preset(SDC_TOPOLOGY_EXTERNAL)
                 detail = 'fired EXTERNAL topology (proactive)' if ok \
                     else 'EXTERNAL push failed'
+            else:
+                return False  # race window over, no VDA - Apollo streams physical
             if detail != self._last_fp_detail:
                 self._last_fp_detail = detail
                 (log if ok else log_warn)('display fast-pass: %s' % detail)
