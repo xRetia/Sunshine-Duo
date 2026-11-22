@@ -40,6 +40,30 @@ else:
 CONFIG_PATH = os.path.join(SVC_DIR, 'config.json')
 LOG_PATH = os.path.join(SVC_DIR, 'watch.log')
 CRED_PATH = os.path.join(SVC_DIR, 'rdp.cred')
+
+_repo_root_cache = None
+
+def repo_root():
+    """Runtime root = the directory holding sunshine.exe. Since the bin/
+    migration SVC_DIR is <root>\\bin\\SunshineDuoCore, so dirname(SVC_DIR) is
+    bin\\ and NOT the root - deriving conf/log paths from it silently broke
+    stream detection and state-file handling. Walk up to the exe instead;
+    works for the bin\\ layout, the src\\ tree and the pre-migration layout."""
+    global _repo_root_cache
+    if _repo_root_cache:
+        return _repo_root_cache
+    d = SVC_DIR
+    for _ in range(6):
+        if os.path.isfile(os.path.join(d, 'sunshine.exe')):
+            break
+        parent = os.path.dirname(d)
+        if parent == d:
+            d = os.path.dirname(os.path.dirname(SVC_DIR))
+            break
+        d = parent
+    _repo_root_cache = d
+    return d
+
 # injected at build time (UTF-16LE base64 of inject_watch.ps1);
 # the __WG_DIR__ placeholder inside is replaced at runtime with SVC_DIR
 PS_GUARD_B64 = '__PS_B64__'
@@ -178,8 +202,8 @@ def load_config():
         pass
     except Exception as e:
         log_err('config load error: %r' % e)
-    # 将相对路径配置（相对于 sunshine 根目录）展开为绝对路径，避免工作目录漂移
-    root = os.path.dirname(SVC_DIR)
+    # 将相对路径配置（相对于仓库根目录）展开为绝对路径，避免工作目录漂移
+    root = repo_root()
     for key in ('console_conf_path', 'game_conf_path'):
         if cfg.get(key) and not os.path.isabs(cfg[key]):
             cfg[key] = os.path.join(root, cfg[key])
@@ -1565,7 +1589,7 @@ _apollo_last_launch = {}
 
 def state_paths(cfg):
     """State file for each Apollo instance, taken from its conf's file_state."""
-    root = os.path.dirname(SVC_DIR)
+    root = repo_root()
     paths = []
     for key in ('console_conf_path', 'game_conf_path'):
         conf = cfg.get(key)
@@ -1911,7 +1935,7 @@ def launch_apollo(session_id, config_path=None, system_token=False, force=False,
     exe/extra_args override the command line (used to spawn the display worker).
     """
     global _apollo_last_launch
-    exe = exe or os.path.join(os.path.dirname(SVC_DIR), 'sunshine.exe')
+    exe = exe or os.path.join(repo_root(), 'sunshine.exe')
     if not os.path.exists(exe):
         log_err('apollo guard: sunshine.exe not found: %s' % exe)
         return None
