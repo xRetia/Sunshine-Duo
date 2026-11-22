@@ -1,4 +1,4 @@
-# 规划方案 v3：Console Apollo / SudoVDA / 双会话端口 / 重新架构 setup
+﻿# 规划方案 v3：Console Apollo / SudoVDA / 双会话端口 / 重新架构 setup
 
 生成于 2026-11-19，最后修订 2026-11-20。本轮在 v2 基础上修正：
 
@@ -176,7 +176,7 @@ function Install-SudoVDA {
 | --- | --- | --- |
 | `scripts/sunshine-setup.ps1` | **重写** | 向导 + 安装 + 卸载 + 托盘 + Apollo 配置 + 凭证 + 端口 + 显示模式 |
 | `src/SunshineDuoCore/duocore.py` | 核心服务 | 双 Apollo 守卫 + 双 conf 路径 + Console 会话日志 |
-| `SunshineDuoCore/config.json` | 配置 | 新增：`guard_apollo_console`, `console_conf_path`, `game_conf_path`, `console_port`, `game_port`, `install_sudovda`, `default_display_mode` |
+| `bin\SunshineDuoCore/config.json` | 配置 | 新增：`guard_apollo_console`, `console_conf_path`, `game_conf_path`, `console_port`, `game_port`, `install_sudovda`, `default_display_mode` |
 | `config/sunshine.conf` | 主 Apollo 配置 | 新增 `port`（由 setup 写） |
 | `config/sunshine-game.conf` | 次 Apollo 配置 | 新增 `port` |
 | `drivers/sudovda/*` | 驱动 | 不变（新增 `install-sudovda.bat`/`uninstall-sudovda.bat` 调用 nefcon） |
@@ -225,7 +225,7 @@ function Install-SudoVDA {
 | 1 | `duocore.py`：Console Apollo SYSTEM 守卫 + `--config` conf 参数 | **已完成** |
 | 2 | SudoVDA 安装/卸载 batch 封装 | **已完成** |
 | 3 | `sunshine-setup.ps1` 重写（SudoVDA 开关、显示模式 4 选 1、双端口分配、游戏 conf） | **已完成** |
-| 4 | `SunshineDuoCore/config.json` 新增双 Apollo 配置项 | **已完成** |
+| 4 | `bin/SunshineDuoCore/config.json` 新增双 Apollo 配置项 | **已完成** |
 | 5 | 系统托盘（WPF NotifyIcon） | 待实现 |
 | 6 | WebUI 用户名密码 `--creds` 集成 | **已完成** |
 | 7 | 防火墙已为程序级规则，无需修改 | 已完成 |

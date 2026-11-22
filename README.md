@@ -1,4 +1,4 @@
-<div align="center">
+﻿<div align="center">
 
 <img src="assets/banner.png" alt="Sunshine-Duo" width="880">
 
@@ -113,7 +113,7 @@
 | `setup.bat` | 一键安装入口（双击它） |
 | `sunshine.exe` | Sunshine 本体（Apollo） |
 | `scripts\` | 向导 + 驱动/网关/防火墙安装脚本（`install-sudovda.bat` / `uninstall-sudovda.bat`） |
-| `SunshineDuoCore\` | SunshineDuoCore 守护服务（保活串流会话、拉起两个 Apollo） |
+| `bin\` | 运行时部署目录：\`bin\SunshineDuoCore\`（守护服务 exe + _internal + 日志）、\`bin\SunshineDuoTray\`（托盘） |
 | `drivers\` | SudoVDA 虚拟显示驱动 |
 | `config\` | 运行时配置（安装时生成；应用列表 `apps.json` 随项目分发） |
 | `tools\` | RDP 解锁、游戏菜单等工具 |

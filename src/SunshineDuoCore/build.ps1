@@ -1,7 +1,7 @@
 ﻿# build.ps1 - SunshineDuoCore 一键重打包（PyInstaller onedir）
 # 用法（在管理员/普通 PowerShell 均可，仅打包不部署）：
 #   powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1
-#   powershell ... -File .\build.ps1 -Deploy   # 打包后自动部署到 仓库根\SunshineDuoCore（运行时主目录）
+#   powershell ... -File .\build.ps1 -Deploy   # 打包后自动部署到 仓库根\bin\SunshineDuoCore（运行时主目录）
 param([switch]$Deploy, [string]$Python)
 
 $ErrorActionPreference = 'Stop'
@@ -9,7 +9,7 @@ $ErrorActionPreference = 'Stop'
 # ---- 路径推导 ----
 $SrcDir   = $PSScriptRoot                       # src 正本目录
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $SrcDir)   # 仓库根（src 的父目录）
-$WgDir    = Join-Path $RepoRoot 'SunshineDuoCore'       # SunshineDuoCore 运行时主目录（部署目标）
+$WgDir    = Join-Path $RepoRoot 'bin\SunshineDuoCore'   # SunshineDuoCore 运行时主目录（部署目标）
 $BuildRoot = Join-Path $SrcDir '.duocore-build'   # src\SunshineDuoCore\.duocore-build（构建现场）
 if (-not $Python) { $Python = 'python' }   # 默认取 PATH 上的 python（需 3.12 x64），可用 -Python 指定完整路径
 

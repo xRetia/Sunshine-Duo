@@ -1,4 +1,4 @@
-# 第三方组件许可声明（THIRD-PARTY-NOTICES）
+﻿# 第三方组件许可声明（THIRD-PARTY-NOTICES）
 
 本仓库自有代码（`scripts\`、`SunshineDuoCore\`、`tools\GameManager.exe` 等）以 **GPL-3.0** 授权，全文见根目录 [LICENSE](LICENSE)。
 
@@ -18,7 +18,7 @@
 
 对应全文：GPL-3.0 → [LICENSE](LICENSE)；Apache-2.0 → [licenses\apache-2.0.txt](licenses/apache-2.0.txt)；BSD-3-Clause → [licenses\bsd-3-clause_vigembus.txt](licenses/bsd-3-clause_vigembus.txt)；SudoVDA 上游 MIT → [licenses\mit_virtual-display-driver.txt](licenses/mit_virtual-display-driver.txt)；nefcon MIT → [licenses\mit_nefcon.txt](licenses/mit_nefcon.txt)；zlib → [licenses\zlib.txt](licenses/zlib.txt)。
 
-## 二、SunshineDuoCore 运行库（目录 `SunshineDuoCore\_internal\`，PyInstaller 打包的 PyPI 依赖）
+## 二、SunshineDuoCore 运行库（目录 `bin\SunshineDuoCore\_internal\`，PyInstaller 打包的 PyPI 依赖）
 
 以 `pip install --target` 安装后打包（清单见 `src\SunshineDuoCore\requirements-rdp.txt`），版本固定：
 

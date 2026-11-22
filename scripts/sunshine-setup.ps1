@@ -81,7 +81,7 @@ $TsPolicyKey  = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services'
 $TsGpuAccelValues = @('bEnumerateHWBeforeSW', 'bAVC444Mode', 'AVCHardwareEncodePreferred')
 $RdpWrapExe   = Join-Path $Root 'tools\rdpWrapper.exe'
 $GmExe        = Join-Path $Root 'tools\GameManager.exe'
-$WgDir        = Join-Path $Root 'SunshineDuoCore'
+$WgDir        = Join-Path $Root 'bin\SunshineDuoCore'
 $WgExe        = Join-Path $WgDir 'SunshineDuoCore.exe'
 $WgCredPath   = Join-Path $WgDir 'rdp.cred'
 $WgCfgPath    = Join-Path $WgDir 'config.json'
@@ -187,7 +187,7 @@ function Install-ApolloGuard {
     $cfg = Get-Content $WgCfgPath -Raw -Encoding UTF8 | ConvertFrom-Json
     $cfg | Add-Member -NotePropertyName guard_apollo -NotePropertyValue $true -Force
     [IO.File]::WriteAllText($WgCfgPath, ($cfg | ConvertTo-Json -Depth 5), (New-Object System.Text.UTF8Encoding($false)))
-    Write-Log "OK: SunshineDuoCore config.json 已设置 guard_apollo=true（Apollo 守卫：提升令牌拉起 + 不进 Job）"
+    Write-Log "OK: bin\SunshineDuoCore\config.json 已设置 guard_apollo=true（Apollo 守卫：提升令牌拉起 + 不进 Job）"
 
     # 清理旧 Run 键（explorer 启动永不提升，且会与守卫双开冲突）
     $any = $false
@@ -466,7 +466,7 @@ function Install-SunshineDuoCore {
         $null = & icacls.exe $WgCredPath /inheritance:r /grant 'SYSTEM:F' /grant 'Administrators:F' 2>&1
         Write-Log "OK: rdp.cred 已生成（$RdpUser 密码，DPAPI 本机加密，仅 SYSTEM/管理员可解）"
     } elseif (Test-Path $WgCredPath) {
-        Write-Log '密码留空: 沿用现有 SunshineDuoCore\rdp.cred'
+        Write-Log '密码留空: 沿用现有 bin\SunshineDuoCore\rdp.cred'
     } else {
         throw '未提供密码且 rdp.cred 不存在，无法安装 SunshineDuoCore'
     }
@@ -521,7 +521,7 @@ function Install-SunshineDuoCore {
         $json = $cfg | ConvertTo-Json
         [IO.File]::WriteAllText($WgCfgPath, $json, (New-Object System.Text.UTF8Encoding($false)))
         $alNote2 = if ($AutoLogon) { '开机自动登录开' } else { '开机自动登录关' }
-        Write-Log "OK: SunshineDuoCore\config.json 已生成（默认参数：127.0.0.2 / ${w}x${h} / 30 分钟重建 / Apollo 守卫开 / $alNote2 / 日志仅警告与错误 / GameViewer 4.0.*、4.46.*）"
+        Write-Log "OK: bin\SunshineDuoCore\config.json 已生成（默认参数：127.0.0.2 / ${w}x${h} / 30 分钟重建 / Apollo 守卫开 / $alNote2 / 日志仅警告与错误 / GameViewer 4.0.*、4.46.*）"
     }
 
     # 服务幂等注册
@@ -556,7 +556,7 @@ function Install-SunshineDuoCore {
     if ($svc -and $svc.Status -eq 'Running') {
         Write-Log "OK: 服务 $SvcName 运行中（SYSTEM / 自启动 / 崩溃 1 分钟自重启）"
     } elseif ($svc) {
-        throw "服务已注册但状态为 $($svc.Status)，请查看 SunshineDuoCore\watch.log"
+        throw "服务已注册但状态为 $($svc.Status)，请查看 bin\SunshineDuoCore\watch.log"
     } else {
         throw "服务 $SvcName 注册失败"
     }
@@ -848,7 +848,7 @@ function Find-TrayAppExe {
         (Join-Path $Root 'src\trayapp\bin\Release\net9.0-windows\win-x64\publish\SunshineDuoTray.exe'),
         (Join-Path $Root 'src\trayapp\SunshineDuoTray.exe'),
         (Join-Path $Root 'src\trayapp\publish\SunshineDuoTray.exe'),
-        (Join-Path $Root 'tools\SunshineDuoTray\SunshineDuoTray.exe')
+        (Join-Path $Root 'bin\SunshineDuoTray\SunshineDuoTray.exe')
     )
     foreach ($c in $cands) { if (Test-Path -LiteralPath $c) { return $c } }
     return $null
@@ -857,7 +857,7 @@ function Find-TrayAppExe {
 function Install-TrayApp {
     param([bool]$DesktopShortcut, [bool]$StartShortcut, [bool]$AutoStart,
           [int]$PortMain = 0, [int]$PortGame = 0, [string]$WebUser = '', [bool]$StartNow = $false)
-    $deployDir = Join-Path $Root 'tools\SunshineDuoTray'
+    $deployDir = Join-Path $Root 'bin\SunshineDuoTray'
     $deployExe = Join-Path $deployDir 'SunshineDuoTray.exe'
     $src = Find-TrayAppExe
     if (-not $src) {
@@ -974,7 +974,7 @@ function Uninstall-TrayApp {
         } catch { }
     }
     # 程序目录：删 exe，保留 trayapp.json（端口与登录配置）
-    $deployDir = Join-Path $Root 'tools\SunshineDuoTray'
+    $deployDir = Join-Path $Root 'bin\SunshineDuoTray'
     $exe = Join-Path $deployDir 'SunshineDuoTray.exe'
     if (Test-Path -LiteralPath $exe) {
         Remove-Item -LiteralPath $exe -Force -ErrorAction SilentlyContinue
@@ -1866,7 +1866,7 @@ $xaml = @'
                   <CheckBox x:Name="chkTrayStart" IsChecked="True" Margin="0,6,0,0" Content="创建开始菜单快捷方式"/>
                   <CheckBox x:Name="chkTrayAuto" Margin="0,6,0,0" Content="开机自启"/>
                   <TextBlock FontSize="11" Foreground="#94A3B8" Margin="20,6,0,0" TextWrapping="Wrap"
-                             Text="勾选任意一项即部署托盘到 tools\SunshineDuoTray：查看双 Apollo 状态、打开后台、配对管理、重置后台密码、重启 Apollo。开机自启只对当前登录用户生效；安装后可在托盘菜单「设置」里随时修改"/>
+                             Text="勾选任意一项即部署托盘到 bin\SunshineDuoTray：查看双 Apollo 状态、打开后台、配对管理、重置后台密码、重启 Apollo。开机自启只对当前登录用户生效；安装后可在托盘菜单「设置」里随时修改"/>
                 </StackPanel>
               </Border>
             </StackPanel>
@@ -2052,7 +2052,7 @@ $xaml = @'
                     <CheckBox x:Name="chkUTray" IsChecked="True" Margin="0,6,0,0"
                               Content="卸载 Sunshine-Duo 托盘（含快捷方式与开机自启）"/>
                     <TextBlock FontSize="11" Foreground="#94A3B8" Margin="20,2,0,0" TextWrapping="Wrap"
-                               Text="删除 tools\SunshineDuoTray、快捷方式与自启项，不删除托盘配置"/>
+                               Text="删除 bin\SunshineDuoTray、快捷方式与自启项，不删除托盘配置"/>
                   </StackPanel>
                 </Border>
                 <TextBlock Foreground="#94A3B8" FontSize="11" Margin="2,2,2,0" TextWrapping="Wrap"
@@ -2120,7 +2120,7 @@ function Invoke-SelfTest {
     Check '根目录定位（sunshine.exe 存在）' { Test-Path (Join-Path $Root 'sunshine.exe') }
     Check 'tools\rdpWrapper.exe 存在'      { Test-Path $RdpWrapExe }
     Check 'tools\GameManager.exe 存在'     { Test-Path $GmExe }
-    Check 'SunshineDuoCore\SunshineDuoCore.exe 存在'       { Test-Path $WgExe }
+    Check 'bin\SunshineDuoCore\SunshineDuoCore.exe 存在'       { Test-Path $WgExe }
     Check 'scripts\add-firewall-rule.bat 存在'    { Test-Path (Join-Path $PSScriptRoot 'add-firewall-rule.bat') }
     Check 'scripts\delete-firewall-rule.bat 存在' { Test-Path (Join-Path $PSScriptRoot 'delete-firewall-rule.bat') }
     Check 'scripts\install-gamepad.ps1 存在'      { Test-Path (Join-Path $PSScriptRoot 'install-gamepad.ps1') }
@@ -2231,7 +2231,7 @@ public static class PwCheck {
     }
 
     # config.json 模板
-    Check 'SunshineDuoCore config.json 模板' {
+    Check 'bin\SunshineDuoCore config.json 模板' {
         $cfg = [ordered]@{
             username = 'Game'; password_mode = 'dpapi'; cred_path = $WgCredPath
             server = '127.0.0.2'; width = 1600; height = 720
@@ -2714,7 +2714,7 @@ if ($curAd) {
     if ($idx -ge 0) { $ui['cmbGpu'].SelectedIndex = $idx }
 }
 
-# 预填当前 SunshineDuoCore config.json 里的虚拟屏分辨率与已保存的分辨率清单
+# 预填当前 bin\SunshineDuoCore config.json 里的虚拟屏分辨率与已保存的分辨率清单
 try {
     $wg = Get-Content -LiteralPath $WgCfgPath -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json
     if ($wg.width)  { $ui['txtWidth'].Text  = [string][int]$wg.width }

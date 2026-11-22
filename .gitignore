@@ -14,12 +14,12 @@ config/*
 
 # ---- 密钥与凭据（本机生成，严禁入库）----
 config/credentials/
-SunshineDuoCore/rdp.cred
+bin/SunshineDuoCore/rdp.cred
 
 # ---- SunshineDuoCore 本机运行状态（服务/显示工作进程自写）----
-SunshineDuoCore/config.json
-SunshineDuoCore/display-worker.json
-SunshineDuoCore/display-disabled.json
+bin/SunshineDuoCore/config.json
+bin/SunshineDuoCore/display-worker.json
+bin/SunshineDuoCore/display-disabled.json
 
 # ---- 本机生成的工具配置（安装时按本机路径重写）----
 tools/GameManager.json
@@ -30,12 +30,12 @@ src/SunshineDuoCore/.duocore-build/
 __pycache__/
 *.pyc
 
-# ---- SunshineDuoTray 托盘构建产物与本机配置（源码在 src\trayapp）----
+# ---- SunshineDuoTray 托盘构建产物与本机配置（源码在 src\trayapp；运行时部署在 bin\SunshineDuoTray）----
 src/trayapp/bin/
 src/trayapp/obj/
 src/trayapp/publish/
 src/trayapp/trayapp.json
-tools/SunshineDuoTray/
+bin/SunshineDuoTray/
 
 # ---- 游戏快捷方式（指向本机游戏，别人机器无效；目录本身靠 README.md 占位入库）----
 Links/*

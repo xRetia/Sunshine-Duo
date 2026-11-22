@@ -1,2 +1,0 @@
-[console_scripts]
-ardpscan = aardwolf.examples.scanners.__main__:main

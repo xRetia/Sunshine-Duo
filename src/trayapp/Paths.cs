@@ -19,7 +19,7 @@ public static class Paths
         GameConf = Path.Combine(Root, "config", "sunshine-game.conf");
         try
         {
-            var wcfg = Path.Combine(Root, "SunshineDuoCore", "config.json");
+            var wcfg = Path.Combine(Root, "bin", "SunshineDuoCore", "config.json");
             if (File.Exists(wcfg))
             {
                 using var doc = JsonDocument.Parse(File.ReadAllText(wcfg));

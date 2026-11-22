@@ -362,7 +362,7 @@ public class TrayContext : ApplicationContext
     {
         try
         {
-            var cfg = Path.Combine(Paths.Root, "SunshineDuoCore", "config.json");
+            var cfg = Path.Combine(Paths.Root, "bin", "SunshineDuoCore", "config.json");
             if (!File.Exists(cfg)) return;
             using var doc = JsonDocument.Parse(File.ReadAllText(cfg));
             if (!doc.RootElement.TryGetProperty("default_display_mode", out var v)) return;

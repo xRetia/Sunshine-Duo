@@ -203,7 +203,7 @@ public class ResForm : Form
     {
         try
         {
-            var cfg = Path.Combine(Paths.Root, "SunshineDuoCore", "config.json");
+            var cfg = Path.Combine(Paths.Root, "bin", "SunshineDuoCore", "config.json");
             if (!File.Exists(cfg)) return (1600, 720);
             using var doc = JsonDocument.Parse(File.ReadAllText(cfg));
             var w = doc.RootElement.TryGetProperty("width", out var vw) ? vw.GetInt32() : 1600;
@@ -217,7 +217,7 @@ public class ResForm : Form
     {
         try
         {
-            var cfg = Path.Combine(Paths.Root, "SunshineDuoCore", "config.json");
+            var cfg = Path.Combine(Paths.Root, "bin", "SunshineDuoCore", "config.json");
             if (!File.Exists(cfg)) return new List<string>();
             using var doc = JsonDocument.Parse(File.ReadAllText(cfg));
             if (!doc.RootElement.TryGetProperty("sudovda_resolutions", out var arr) ||
