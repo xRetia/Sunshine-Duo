@@ -1711,6 +1711,56 @@ def game_state_path(cfg):
     return state_path_for_conf(cfg.get('game_conf_path'))
 
 
+# Session registry: (id, guard flag in config.json, conf path key in config.json).
+# "不安装某会话" = 对应 guard 开关为 false —— tick / 配对监听 / 重启 / 托盘菜单
+# 全部按这张表与开关工作，新增会话只需在此登记。
+SESSION_TARGETS = (
+    ('console', 'guard_apollo_console', 'console_conf_path'),
+    ('game', 'guard_apollo', 'game_conf_path'),
+)
+
+
+def session_enabled(cfg, target):
+    for tid, guard_key, _conf_key in SESSION_TARGETS:
+        if tid == target:
+            return bool(cfg.get(guard_key))
+    return False
+
+
+def apollo_conf_port(conf):
+    """Stream port parsed from a conf's port= line (WebUI = port+1); 0 if unknown."""
+    if not conf:
+        return 0
+    try:
+        with open(conf, 'r', encoding='utf-8-sig') as f:
+            for line in f:
+                name, sep, value = line.partition('=')
+                if sep and name.strip() == 'port':
+                    return int(value.strip())
+    except Exception:
+        pass
+    return 0
+
+
+def session_entries(cfg):
+    """Descriptor list of every registered session (enabled or not) for the
+    tray and the ctrl pipe: id, guard flag, conf/state paths and ports."""
+    entries = []
+    for tid, guard_key, conf_key in SESSION_TARGETS:
+        conf = cfg.get(conf_key)
+        port = apollo_conf_port(conf)
+        entries.append({
+            'id': tid,
+            'enabled': bool(cfg.get(guard_key)),
+            'conf_path': conf or '',
+            'conf_exists': bool(conf) and os.path.isfile(conf),
+            'state_path': state_path_for_conf(conf) or '',
+            'port': port,
+            'web_port': port + 1 if port else 0,
+        })
+    return entries
+
+
 def state_path_for_conf(conf):
     if not conf:
         return None
@@ -1827,9 +1877,10 @@ def pair_watch_loop():
             cfg = load_config()
             if cfg.get('pair_watch'):
                 interval = max(0.5, float(cfg.get('pair_watch_interval', 2)))
-                for target, key in (('console', 'console_conf_path'),
-                                    ('game', 'game_conf_path')):
-                    path = _apollo_log_path(cfg.get(key))
+                for target, guard_key, conf_key in SESSION_TARGETS:
+                    if not cfg.get(guard_key):
+                        continue  # 单会话安装：未启用的会话不监听配对日志
+                    path = _apollo_log_path(cfg.get(conf_key))
                     if path:
                         _pair_poll_file(target, path)
             else:
@@ -2200,14 +2251,16 @@ def tick():
 
     if cfg.get('guard_apollo') or cfg.get('guard_apollo_console'):
         normalize_state_types(cfg)
-        # Console: paired clients stream onto the SudoVDA virtual display for
-        # virtual-display modes (only/extend). Mirror mode streams the physical
-        # primary, so no virtual display is wanted there.
         _mode = _display_mode(cfg)
-        set_apollo_virtual_display(cfg, _mode in ('only', 'extend'), 'console')
-        # Game session is RDP-based: it never creates SudoVDA virtual displays,
-        # so pin its paired devices off (the inverse of console).
-        set_apollo_virtual_display(cfg, False, 'game')
+        if cfg.get('guard_apollo_console'):
+            # Console: paired clients stream onto the SudoVDA virtual display
+            # for virtual-display modes (only/extend). Mirror mode streams the
+            # physical primary, so no virtual display is wanted there.
+            set_apollo_virtual_display(cfg, _mode in ('only', 'extend'), 'console')
+        if cfg.get('guard_apollo'):
+            # Game session is RDP-based: it never creates SudoVDA virtual
+            # displays, so pin its paired devices off (the inverse of console).
+            set_apollo_virtual_display(cfg, False, 'game')
 
     sid, state = find_user_session(cfg.get('username', 'Game'))
     try:
@@ -2283,6 +2336,9 @@ def tick():
 #        queues a CCD/SetDisplayConfig topology request for the console-session
 #        display worker, then runs one tick so Apollo's virtual-display flag and
 #        the worker are updated immediately.
+#   {"cmd":"sessions"}
+#     -> session registry (id / enabled guard / conf+state paths / stream and
+#        WebUI ports) so the tray builds its menus from one source of truth.
 # Local-only pipe; SDDL grants generic access to Everyone+SYSTEM so the
 # non-elevated tray app can connect. Commands are restart-only, which is
 # acceptable exposure for this home tool.
@@ -2369,6 +2425,8 @@ def _find_apollo_pids(session_id):
 
 def _restart_apollo(target):
     cfg = load_config()
+    if not session_enabled(cfg, target):
+        return {'ok': False, 'error': 'session-disabled: %s' % target}
     if target == 'console':
         sid = find_console_session()
         conf = cfg.get('console_conf_path')
@@ -2436,6 +2494,10 @@ def _ctrl_dispatch(req):
     if cmd == 'poll_pair_events':
         # drain the passive new-device queue (trayapp auto-opens the PIN dialog)
         return {'ok': True, 'events': _drain_pair_events()}
+    if cmd == 'sessions':
+        # session registry for the tray: id / guard flag / conf+state paths /
+        # stream+WebUI ports. Lets the tray build its menu without guessing.
+        return {'ok': True, 'sessions': session_entries(load_config())}
     return {'ok': False, 'error': 'unknown cmd'}
 
 

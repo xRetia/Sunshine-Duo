@@ -7,6 +7,7 @@ namespace SunshineDuoTray;
 public class SettingsForm : Form
 {
     private readonly AppConfig _cfg;
+    private readonly bool _showConsole = true, _showGame = true;
     private readonly TextBox _user, _pass, _consolePort, _gamePort;
     private readonly CheckBox _autoStart;
     private readonly Button _ok, _cancel;
@@ -93,13 +94,18 @@ public class SettingsForm : Form
 
         _consolePort = new TextBox { Text = cfg.ConsolePort.ToString() };
         _gamePort = new TextBox { Text = cfg.GamePort.ToString() };
-        Add("主会话串流端口：", _consolePort, 160);
-        Add("游戏会话串流端口：", _gamePort, 204);
+        var y = 160;
+        _showConsole = Paths.ConsoleEnabled;
+        _showGame = Paths.GameEnabled;
+        if (_showConsole) Add("主会话串流端口：", _consolePort, y);
+        if (_showConsole) y += 44;
+        if (_showGame) Add("游戏会话串流端口：", _gamePort, y);
+        if (_showGame) y += 44;
 
         _autoStart = new CheckBox
         {
             Text = "开机自启（当前用户登录时）",
-            Location = new Point(24, 246),
+            Location = new Point(24, y + 42),
             AutoSize = true,
             Checked = IsAutoStartEnabled(),
             ForeColor = TextC,
@@ -147,19 +153,31 @@ public class SettingsForm : Form
 
     private void Save()
     {
-        if (!int.TryParse(_consolePort.Text.Trim(), out var cp) || cp is < 1024 or > 65535 ||
-            !int.TryParse(_gamePort.Text.Trim(), out var gp) || gp is < 1024 or > 65535)
+        int? cp = null, gp = null;
+        // 端口框可能被隐藏（单会话模式），先解析再决定是否校验
+        int cpv = 0, gpv = 0;
+        bool cpOk = int.TryParse(_consolePort.Text.Trim(), out cpv) && cpv is >= 1024 and <= 65535;
+        bool gpOk = int.TryParse(_gamePort.Text.Trim(), out gpv) && gpv is >= 1024 and <= 65535;
+        if (_showConsole && !cpOk)
         {
             MessageBox.Show("端口必须是 1024-65535 之间的数字，且两个端口差需 ≥ 50。", "设置");
             return;
         }
-        if (Math.Abs(cp - gp) < 50)
+        if (_showConsole) { cp = cpv; }
+        if (_showGame && !gpOk)
+        {
+            MessageBox.Show("端口必须是 1024-65535 之间的数字，且两个端口差需 ≥ 50。", "设置");
+            return;
+        }
+        if (_showGame) { gp = gpv; }
+        // 双会话时两个端口族不能重叠；单会话无需该约束
+        if (_showConsole && _showGame && cp.HasValue && gp.HasValue && Math.Abs(cp.Value - gp.Value) < 50)
         {
             MessageBox.Show("两个端口差需 ≥ 50（串流/RTSP 端口族与外设端口避免重叠）。", "设置");
             return;
         }
-        _cfg.ConsolePort = cp;
-        _cfg.GamePort = gp;
+        if (cp.HasValue) { _cfg.ConsolePort = cp.Value; }
+        if (gp.HasValue) { _cfg.GamePort = gp.Value; }
         _cfg.WebUser = _user.Text.Trim();
         _cfg.SetPass(_pass.Text);
         _cfg.AutoStart = _autoStart.Checked;

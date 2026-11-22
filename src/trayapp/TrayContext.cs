@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Linq;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Text.Json;
@@ -10,22 +11,20 @@ public class TrayContext : ApplicationContext
 {
     private readonly NotifyIcon _tray;
     private readonly AppConfig _cfg;
-    private readonly ToolStripMenuItem _mConsoleStatus;
-    private readonly ToolStripMenuItem _mGameStatus;
+    private readonly Dictionary<string, ToolStripMenuItem> _statusItems = new();
     private readonly ToolStripMenuItem _mMirror, _mOnly, _mExtend;
     private readonly System.Windows.Forms.Timer _timer;
     private readonly System.Windows.Forms.Timer _eventTimer;
     private bool _polling;
-    private bool _consoleUp;
-    private bool _gameUp;
     private bool _pairDialogOpen;
 
     public TrayContext()
     {
         _cfg = AppConfig.Load();
+        var sessions = Paths.GetSessions(_cfg);
 
-        _mConsoleStatus = new ToolStripMenuItem($"主会话 [检测中] [https://*:{_cfg.ConsolePort + 1}]") { Enabled = false };
-        _mGameStatus = new ToolStripMenuItem($"游戏会话 [检测中] [https://*:{_cfg.GamePort + 1}]") { Enabled = false };
+        foreach (var s in sessions)
+            _statusItems[s.Id] = new ToolStripMenuItem($"{s.Name} [检测中] [https://*:{s.WebPort}]") { Enabled = false };
 
         _mMirror = new ToolStripMenuItem("镜像 · 串流物理主屏") { Tag = "mirror" };
         _mOnly = new ToolStripMenuItem("独占 · 仅虚拟显示器") { Tag = "only" };
@@ -40,26 +39,25 @@ public class TrayContext : ApplicationContext
             };
         }
 
-        var displayMenu = new ToolStripMenuItem("显示模式");
-        displayMenu.DropDownItems.Add(_mMirror);
-        displayMenu.DropDownItems.Add(_mOnly);
-        displayMenu.DropDownItems.Add(_mExtend);
-        UpdateDisplayCheckmarks();
-
         var menu = new ContextMenuStrip();
-        menu.Items.Add(_mConsoleStatus);
-        menu.Items.Add(_mGameStatus);
+        foreach (var s in sessions) menu.Items.Add(_statusItems[s.Id]);
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add(M("打开主会话配置", () => OpenWeb(true)));
-        menu.Items.Add(M("打开游戏会话配置", () => OpenWeb(false)));
-        menu.Items.Add(displayMenu);
-        menu.Items.Add(M("虚拟屏分辨率…", ShowResForm));
-        menu.Items.Add(new ToolStripSeparator());
+        foreach (var s in sessions) menu.Items.Add(M($"打开{s.Name}配置", () => OpenWeb(s)));
+        if (Paths.ConsoleEnabled)
+        {
+            // 显示模式 / 虚拟屏都是 Console 会话（SudoVDA）专属
+            var displayMenu = new ToolStripMenuItem("显示模式");
+            displayMenu.DropDownItems.Add(_mMirror);
+            displayMenu.DropDownItems.Add(_mOnly);
+            displayMenu.DropDownItems.Add(_mExtend);
+            UpdateDisplayCheckmarks();
+            menu.Items.Add(displayMenu);
+            menu.Items.Add(M("虚拟屏分辨率…", ShowResForm));
+        }
         menu.Items.Add(M("设备配对…", () => ShowPairForm()));
         menu.Items.Add(M("修改 WebUI 账号密码…", ShowPasswordForm));
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add(M("重启主会话", () => RestartApollo(true)));
-        menu.Items.Add(M("重启游戏会话", () => RestartApollo(false)));
+        foreach (var s in sessions) menu.Items.Add(M($"重启{s.Name}", () => RestartApollo(s)));
         menu.Items.Add(M("重启 Sunshine Duo 核心服务", ToggleService));
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(M("设置…", ShowSettings));
@@ -78,7 +76,7 @@ public class TrayContext : ApplicationContext
             ContextMenuStrip = menu,
             Visible = true,
         };
-        _tray.DoubleClick += (_, _) => OpenWeb(true);
+        _tray.DoubleClick += (_, _) => OpenWeb(Paths.GetSessions(_cfg)[0]);
 
         _timer = new System.Windows.Forms.Timer { Interval = 2000 };
         _timer.Tick += async (_, _) => await PollAsync();
@@ -214,28 +212,28 @@ public class TrayContext : ApplicationContext
             : Color.FromArgb(24, 26, 30);
     }
 
-    private ApolloClient Client(bool console)
-    {
-        var port = (console ? _cfg.ConsolePort : _cfg.GamePort) + 1;
-        return new ApolloClient(port, _cfg.WebUser, _cfg.WebPass);
-    }
-
     private async Task PollAsync()
     {
         if (_polling) return;
         _polling = true;
         try
         {
-            using var c = Client(true);
-            using var g = Client(false);
-            _consoleUp = await c.Probe();
-            _gameUp = await g.Probe();
-            _mConsoleStatus.Text = $"主会话 [{( _consoleUp ? "运行中" : "未运行" )}] [https://*:{_cfg.ConsolePort + 1}]";
-            _mGameStatus.Text = $"游戏会话 [{( _gameUp ? "运行中" : "未运行" )}] [https://*:{_cfg.GamePort + 1}]";
-            var state = _consoleUp && _gameUp ? TrayState.Online
-                : _consoleUp || _gameUp ? TrayState.Partial : TrayState.Offline;
+            var sessions = Paths.GetSessions(_cfg);
+            var up = new List<bool>();
+            foreach (var s in sessions)
+            {
+                using var c = new ApolloClient(s.WebPort, _cfg.WebUser, _cfg.WebPass);
+                var ok = await c.Probe();
+                up.Add(ok);
+                if (_statusItems.TryGetValue(s.Id, out var item))
+                    item.Text = $"{s.Name} [{(ok ? "运行中" : "未运行")}] [https://*:{s.WebPort}]";
+            }
+            var online = up.Count(b => b);
+            var state = online == up.Count && up.Count > 0 ? TrayState.Online
+                : online > 0 ? TrayState.Partial : TrayState.Offline;
             _tray.Icon = TrayIcons.Get(state);
-            _tray.Text = $"Sunshine Duo 托盘\n主会话 {(_consoleUp ? "运行中" : "未运行")}\n游戏会话 {(_gameUp ? "运行中" : "未运行")}";
+            _tray.Text = "Sunshine Duo 托盘\n" + string.Join("\n",
+                sessions.Select((s, i) => $"{s.Name} {(up[i] ? "运行中" : "未运行")}"));
             UpdateDisplayCheckmarks();
         }
         catch { }
@@ -254,9 +252,13 @@ public class TrayContext : ApplicationContext
         if (_pairDialogOpen) return;
         var events = await GuardPipe.PollEvents();
         if (events == null || events.Count == 0) return;
+        var enabled = new HashSet<string>(Paths.GetSessions(_cfg).Select(s => s.Id));
         var latest = new Dictionary<bool, GuardPipe.PairEvent>();
         foreach (var ev in events)
+        {
+            if (!enabled.Contains(ev.Target)) continue; // 单会话安装：忽略未启用会话的事件
             latest[ev.Target != "game"] = ev;
+        }
         _pairDialogOpen = true;
         try
         {
@@ -269,10 +271,10 @@ public class TrayContext : ApplicationContext
         }
     }
 
-    private async void OpenWeb(bool console)
+    private async void OpenWeb(Paths.SessionInfo session)
     {
-        var port = (console ? _cfg.ConsolePort : _cfg.GamePort) + 1;
-        var title = console ? "主会话配置" : "游戏会话配置";
+        var port = session.WebPort;
+        var title = $"{session.Name}配置";
         try
         {
             using var f = new WebViewForm(_cfg, title, port, "/config");
@@ -285,26 +287,10 @@ public class TrayContext : ApplicationContext
         await Task.CompletedTask;
     }
 
-    private async void OpenPinPage(bool console)
+    private async void RestartApollo(Paths.SessionInfo session)
     {
-        var port = (console ? _cfg.ConsolePort : _cfg.GamePort) + 1;
-        var title = console ? "主会话配对" : "游戏会话配对";
-        try
-        {
-            using var f = new WebViewForm(_cfg, title, port, "/pin#PIN");
-            f.ShowDialog();
-        }
-        catch (Exception e)
-        {
-            MessageBox.Show("无法打开配对页面: " + e.Message, "Sunshine Duo 托盘");
-        }
-        await Task.CompletedTask;
-    }
-
-    private async void RestartApollo(bool console)
-    {
-        var name = console ? "主会话" : "游戏会话";
-        var target = console ? "console" : "game";
+        var name = session.Name;
+        var target = session.Id;
         if (MessageBox.Show($"确定重启{name}？（会断开当前该会话的串流）",
                 "重启会话", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK)
             return;
@@ -391,7 +377,7 @@ public class TrayContext : ApplicationContext
     private void ShowPairFormPreset(bool console, string deviceName)
     {
         // WinForms Timer 的 Tick 在 UI 线程触发，这里天然在 UI 线程
-        using var f = new PairForm(_cfg, console);
+        using var f = new PairForm(_cfg, console, Paths.GameEnabled);
         f.Text = $"设备配对 — {deviceName}";
         f.ShowDialog();
         _ = PollAsync();
@@ -399,7 +385,7 @@ public class TrayContext : ApplicationContext
 
     private void ShowPairForm()
     {
-        using var f = new PairForm(_cfg);
+        using var f = new PairForm(_cfg, null, Paths.GameEnabled);
         f.ShowDialog();
         _ = PollAsync();
     }

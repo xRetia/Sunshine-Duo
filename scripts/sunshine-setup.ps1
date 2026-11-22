@@ -175,7 +175,7 @@ function Get-PhysicalGpus {
 # 3 · Sunshine 开机自启 = SunshineDuoCore Apollo 守卫：写 config.json 的 guard_apollo，
 #     并清理旧自启机制（Run 键 / 计划任务）。Apollo 由 SunshineDuoCore 服务以提升令牌拉起。
 function Install-ApolloGuard {
-    param([string]$User)
+    param([string]$User, [bool]$GameEnabled = $true)
     if (-not (Test-Path (Join-Path $Root 'sunshine.exe'))) {
         throw "未找到 $($Root)\sunshine.exe，请确认脚本位于 Sunshine\scripts 目录"
     }
@@ -183,11 +183,14 @@ function Install-ApolloGuard {
         throw "未找到 $WgCfgPath（SunshineDuoCore 未安装？）"
     }
 
-    # config.json：设置 guard_apollo=true（保留其余字段，热重载生效）
+    # config.json：设置 guard_apollo（游戏会话）与 guard_apollo_console（主会话）
+    # 单会话模式下：console 始终启用，game 由 GameEnabled 控制
     $cfg = Get-Content $WgCfgPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    $cfg | Add-Member -NotePropertyName guard_apollo -NotePropertyValue $true -Force
+    $cfg | Add-Member -NotePropertyName guard_apollo -NotePropertyValue ([bool]$GameEnabled) -Force
+    $cfg | Add-Member -NotePropertyName guard_apollo_console -NotePropertyValue $true -Force
     [IO.File]::WriteAllText($WgCfgPath, ($cfg | ConvertTo-Json -Depth 5), (New-Object System.Text.UTF8Encoding($false)))
-    Write-Log "OK: bin\SunshineDuoCore\config.json 已设置 guard_apollo=true（Apollo 守卫：提升令牌拉起 + 不进 Job）"
+    $guardNote = if ($GameEnabled) { 'guard_apollo=true' } else { 'guard_apollo=false（单会话模式：仅主会话）' }
+    Write-Log "OK: bin\SunshineDuoCore\config.json 已设置 $guardNote（Apollo 守卫：提升令牌拉起 + 不进 Job）"
 
     # 清理旧 Run 键（explorer 启动永不提升，且会与守卫双开冲突）
     $any = $false
@@ -212,7 +215,8 @@ function Install-ApolloGuard {
         }
     }
     if (-not $any) { Write-Log '提示: 未发现旧 Run 键/计划任务残留' }
-    Write-Log "提示: $User 用户会话就绪后由 SunshineDuoCore 自动拉起 Sunshine（Game 会话存在 + sunshine.exe 不在时触发）"
+    $gameFlag = if ($GameEnabled) { '（含游戏会话）' } else { '（单会话模式：无游戏会话）' }
+    Write-Log "提示: $User 用户会话就绪后由 SunshineDuoCore 自动拉起 Sunshine$gameFlag（主会话存在 + sunshine.exe 不在时触发）"
 }
 
 # 1 · 写入 sunshine.conf（必装：显卡 / 手柄 / UPnP 等默认配置）
@@ -453,7 +457,7 @@ function Install-SunshineDuoCore {
     param([string]$RdpUser, [string]$Password, [int]$Vw = 0, [int]$Vh = 0, [bool]$AutoLogon = $false,
           [string]$DisplayMode = 'mirror', [bool]$DisplayExclusive = $false, [int]$PortMain = 48100, [int]$PortGame = 48200,
           [string]$ConsoleConf = 'config\sunshine.conf', [string]$GameConf = 'config\sunshine-game.conf',
-          [string[]]$SudovdaResList = @())
+          [string[]]$SudovdaResList = @(), [bool]$GameEnabled = $true)
     if (-not (Test-Path $WgExe)) { throw "未找到 $WgExe" }
 
     # rdp.cred：密码非空则（重新）生成；留空且已有则沿用
@@ -472,9 +476,13 @@ function Install-SunshineDuoCore {
     }
 
     # config.json：不存在则生成默认配置；存在则同步 Apollo 守卫与显示模式/独占开关（热重载）
+    # GameEnabled=false 表示单会话模式：仅设 guard_apollo_console（由 Install-ApolloGuard 写入），guard_apollo 留空或 false
     if (Test-Path $WgCfgPath) {
         $cfg = Get-Content $WgCfgPath -Raw -Encoding UTF8 | ConvertFrom-Json
-        $cfg | Add-Member -NotePropertyName guard_apollo -NotePropertyValue $true -Force
+        if ($GameEnabled) {
+            $cfg | Add-Member -NotePropertyName guard_apollo -NotePropertyValue $true -Force
+        }
+        $cfg | Add-Member -NotePropertyName guard_apollo_console -NotePropertyValue $true -Force
         $cfg | Add-Member -NotePropertyName auto_logon -NotePropertyValue ([bool]$AutoLogon) -Force
         $cfg | Add-Member -NotePropertyName default_display_mode -NotePropertyValue $DisplayMode -Force
         $cfg | Add-Member -NotePropertyName display_exclusive -NotePropertyValue ([bool]$DisplayExclusive) -Force
@@ -605,10 +613,12 @@ function Write-GameConf {
 
 # 3 · 生成 WebUI 登录凭证（`sunshine.exe <conf> --creds user password`，写入该 conf 的 state）
 function Set-WebUICredentials {
-    param([string]$User, [string]$Password)
+    param([string]$User, [string]$Password, [bool]$GameEnabled = $true, [int]$PortMain = 0, [int]$PortGame = 0)
     $exe = Join-Path $Root 'sunshine.exe'
     if (-not (Test-Path $exe)) { throw "未找到 $exe" }
-    foreach ($conf in @($ConfPath, $GameConfPath)) {
+    $confs = @($ConfPath)
+    if ($GameEnabled) { $confs += $GameConfPath }
+    foreach ($conf in $confs) {
         if (-not (Test-Path $conf)) { throw "未找到配置文件 $conf，无法设置 WebUI 凭证" }
         $argLine = '"{0}" --creds "{1}" "{2}"' -f $conf, $User, $Password
         $p = Start-Process -FilePath $exe -ArgumentList $argLine -WindowStyle Hidden -PassThru -Wait
@@ -616,8 +626,11 @@ function Set-WebUICredentials {
             throw "sunshine --creds 返回码 $($p.ExitCode)（$conf），请手动在 Web UI 设置用户名和密码"
         }
     }
-    Write-Log 'OK: Apollo WebUI 凭证已设置（控制台与游戏会话各存一份，用户名/密码相同）'
-    Write-Log ('提示: WebUI 后台地址 https://localhost:<端口+1>（控制台）/（游戏会话端口+1），用户名 ' + $User)
+    $gameNote = if ($GameEnabled) { '（控制台与游戏会话各存一份，用户名/密码相同）' } else { '（仅主会话，控制台凭证）' }
+    Write-Log ('OK: Apollo WebUI 凭证已设置' + $gameNote)
+    $addr = '提示: WebUI 后台地址 https://localhost:' + ($PortMain + 1) + '（控制台）'
+    if ($GameEnabled) { $addr += ' / https://localhost:' + ($PortGame + 1) + '（游戏会话）' }
+    Write-Log ($addr + '，用户名 ' + $User)
 }
 
 # 3 · 可选驱动：SudoVDA 虚拟显示器（独立于显示模式开关，仅决定是否安装驱动）
@@ -873,7 +886,8 @@ function Install-TrayApp {
     Write-Log "OK: 托盘应用已部署 $deployExe"
 
     # 同步托盘配置：端口与后台用户名跟本次安装保持一致；已加密的 WebUI 密码与自启设置保留
-    if ($PortMain -gt 0 -and $PortGame -gt 0) {
+    # 单会话模式（PortGame = 0）也写：托盘据此知道游戏会话不存在
+    if ($PortMain -gt 0) {
         $trayJsonPath = Join-Path $deployDir 'trayapp.json'
         try {
             $tcfg = $null
@@ -1047,10 +1061,13 @@ function Send-SunshineDuoCoreTick {
 # 等待两个 Apollo 的 WebUI 端口（conf 端口 +1）开始监听，装完页/后台立即可用
 function Wait-ApolloWeb {
     param([int]$PortMain, [int]$PortGame, [int]$TimeoutSec = 90)
+    # 目标列表：控制台必等；游戏会话仅在 PortGame > 0 时纳入
+    $targets = @(@{ n = '控制台'; v = $PortMain })
+    if ($PortGame -gt 0) { $targets += @{ n = '游戏'; v = $PortGame } }
     $deadline = (Get-Date).AddSeconds($TimeoutSec)
     $up = @{}
     while ((Get-Date) -lt $deadline) {
-        foreach ($p in @(@{ n = '控制台'; v = $PortMain }, @{ n = '游戏'; v = $PortGame })) {
+        foreach ($p in $targets) {
             if ($up.ContainsKey($p.n)) { continue }
             $c = New-Object Net.Sockets.TcpClient
             try {
@@ -1060,10 +1077,10 @@ function Wait-ApolloWeb {
                 }
             } catch { } finally { $c.Close() }
         }
-        if ($up.Count -ge 2) { return }
+        if ($up.Count -ge $targets.Count) { return }
         Start-Sleep -Seconds 2
     }
-    foreach ($p in @(@{ n = '控制台'; v = $PortMain }, @{ n = '游戏'; v = $PortGame })) {
+    foreach ($p in $targets) {
         if (-not $up.ContainsKey($p.n)) {
             Write-Log ("警告: {0} Apollo WebUI 端口 {1} 未就绪（该会话未登录或启动较慢，稍后由 SunshineDuoCore 自动拉起）" -f $p.n, $p.v)
         }
@@ -1096,13 +1113,13 @@ function Invoke-InstallRun {
                     Stop-StreamingProcesses
                     if ($Opts.PortGame -gt 0) { Write-GameConf -ConsoleConfPath $ConfPath -GameConfPath $GameConfPath -PortGame $Opts.PortGame -DisplayMode $Opts.DisplayMode -Vw $Opts.Vw -Vh $Opts.Vh }
                     # 先写两份 state 的凭证与主机身份，再启动服务；避免守卫拉起 Apollo 后回写覆盖
-                    Set-WebUICredentials -User $Opts.WebUser -Password $Opts.WebUiPassword
+                    Set-WebUICredentials -User $Opts.WebUser -Password $Opts.WebUiPassword -GameEnabled $Opts.GameEnabled -PortMain $Opts.PortMain -PortGame $Opts.PortGame
                     Ensure-DistinctUniqueIds
-                    Install-SunshineDuoCore -RdpUser $Opts.User -Password $Opts.Password -Vw $Opts.Vw -Vh $Opts.Vh -AutoLogon $Opts.AutoLogon -DisplayMode $Opts.DisplayMode -DisplayExclusive ($Opts.DisplayMode -eq 'only') -PortMain $Opts.PortMain -PortGame $Opts.PortGame -SudovdaResList $Opts.SudovdaResList
+                    Install-SunshineDuoCore -RdpUser $Opts.User -Password $Opts.Password -Vw $Opts.Vw -Vh $Opts.Vh -AutoLogon $Opts.AutoLogon -DisplayMode $Opts.DisplayMode -DisplayExclusive ($Opts.DisplayMode -eq 'only') -PortMain $Opts.PortMain -PortGame $Opts.PortGame -SudovdaResList $Opts.SudovdaResList -GameEnabled $Opts.GameEnabled
                     # 服务就绪后立即触发 tick 拉起两个 Apollo，并等 WebUI 端口就绪
                     Send-SunshineDuoCoreTick
-                    Wait-ApolloWeb -PortMain ($Opts.PortMain + 1) -PortGame ($Opts.PortGame + 1)
-                    Install-ApolloGuard -User $Opts.User
+                    Wait-ApolloWeb -PortMain ($Opts.PortMain + 1) -PortGame $(if ($Opts.PortGame -gt 0) { $Opts.PortGame + 1 } else { 0 })
+                    Install-ApolloGuard -User $Opts.User -GameEnabled $Opts.GameEnabled
                 }
                 'sudovda'  { Install-SudoVDA }
                 'gamemgr'  { Install-GameManager }
@@ -1842,6 +1859,20 @@ $xaml = @'
               </Border>
               <Border Style="{StaticResource Card}" Margin="0,0,0,12">
                 <StackPanel>
+                  <TextBlock Text="安装模式" Foreground="#7DD3FC" FontSize="12.5"
+                             FontWeight="Bold" Margin="0,0,0,8"/>
+                  <RadioButton x:Name="rdoDualSession" GroupName="SessionMode" IsChecked="True"
+                               Margin="0,4,0,0" Content="双会话（Console + 游戏会话，推荐）"/>
+                  <TextBlock FontSize="11" Foreground="#94A3B8" Margin="20,2,0,0" TextWrapping="Wrap"
+                             Text="主会话 + 游戏会话：两个 Apollo 实例，手机 / 平板可连游戏会话串流；需 RDP 并发解锁"/>
+                  <RadioButton x:Name="rdoConsoleOnly" GroupName="SessionMode" Margin="0,10,0,0"
+                               Content="仅主会话（Console 单机串流）"/>
+                  <TextBlock FontSize="11" Foreground="#94A3B8" Margin="20,2,0,0" TextWrapping="Wrap"
+                             Text="仅安装主会话：不装游戏会话与 RDP 并发解锁，适合只在本地主机串流；日后可重跑向导补装游戏会话"/>
+                </StackPanel>
+              </Border>
+              <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+                <StackPanel>
                   <TextBlock Text="串流端口（双会话）" Foreground="#7DD3FC" FontSize="12.5"
                              FontWeight="Bold" Margin="0,0,0,8"/>
                   <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
@@ -2100,7 +2131,7 @@ $UiControlNames = @('lblRoot','txtLog','cmbGpu','lblGpuInfo',
                    'btnUninstallBack','btnUninstallStart',
                    'svMirror','svOnly','svExtend','svModeDesc',
                    'svResList','svResInput','svResAdd','svResDel','svP169','svP1610','svP219',
-                   'txtPortMain','txtPortGame')
+                   'txtPortMain','txtPortGame','rdoDualSession','rdoConsoleOnly')
 function Invoke-SelfTest {
     $script:SelfTestFail = 0
     function Check([string]$Title, [scriptblock]$Body) {
@@ -2563,6 +2594,17 @@ foreach ($rb in $svGroup) {
     $rb.Add_Checked({ Update-SudovdaModeDesc })
 }
 
+# ---- 安装模式切换：单会话时游戏端口输入框置灰，避免填错 ----
+function Update-SessionModeDesc {
+    $single = [bool]$ui['rdoConsoleOnly'].IsChecked
+    $ui['txtPortGame'].IsEnabled = -not $single
+    $ui['txtPortGame'].ToolTip = $(if ($single) { '仅主会话模式不安装游戏会话，游戏端口不生效' } else { '游戏会话端口族（RTSP = 端口+21）' })
+}
+foreach ($rb in @($ui['rdoDualSession'], $ui['rdoConsoleOnly'])) {
+    $rb.Add_Checked({ Update-SessionModeDesc })
+}
+Update-SessionModeDesc
+
 # ---- 分辨率列表：1920x1080@60 格式的增删与预设 ----
 function Format-ResString {
     param([string]$Raw)
@@ -2623,6 +2665,14 @@ $ui['btnNext'].Add_Click({
         }
     }
     if ($script:WizardStep -eq 2) {
+        $single = [bool]$ui['rdoConsoleOnly'].IsChecked
+        # 单会话模式：跳过游戏用户验证，直接使用当前流式用户作为 console 用户
+        if ($single) {
+            $script:Phase = 'Install'
+            # 直接进入步骤 3，设置端口后由后台函数处理
+            Set-WizardStep ($script:WizardStep + 1)
+            return
+        }
         $pw = $ui['pwdRdp'].Password
         $streamUser = $ui['txtStreamUser'].Text.Trim()
         if ([string]::IsNullOrEmpty($streamUser) -or
@@ -2889,12 +2939,15 @@ function Start-InstallRun {
         }
     }
     # 步骤编排（gpuaccel 与 firewall 等顺序：conf → gpuaccel → firewall → gamepad → rdpwrap → SunshineDuoCore → sudovda → gamemgr → reset）
+    # 单会话模式：rdoConsoleOnly 被勾选时，不安装游戏会话相关组件（rdpwrap、gpuaccel），
+    # PortGame 设为 0，并在后续函数中通过 GameEnabled 控制 guard 标志。
+    $single = [bool]$ui['rdoConsoleOnly'].IsChecked
     $steps = @('conf')
     if ($ui['chkReset'].IsChecked)    { $steps += 'reset' }
-    if ($ui['chkGpuAccel'].IsChecked) { $steps += 'gpuaccel' }
+    if (-not $single -and $ui['chkGpuAccel'].IsChecked) { $steps += 'gpuaccel' }
     $steps += 'firewall'
     if ($ui['chkGamepad'].IsChecked)  { $steps += 'gamepad' }
-    $steps += 'rdpwrap'
+    if (-not $single) { $steps += 'rdpwrap' }
     $steps += 'SunshineDuoCore'
     if ($ui['chkSudoVDA'].IsChecked) { $steps += 'sudovda' }
     if ($ui['chkGameMgr'].IsChecked)  { $steps += 'gamemgr' }
@@ -2917,6 +2970,7 @@ function Start-InstallRun {
     $pGame = $ui['txtPortGame'].Text.Trim()
     if ($pMain -eq '') { $pMain = '48100' }
     if ($pGame -eq '') { $pGame = '48200' }
+    $single = [bool]$ui['rdoConsoleOnly'].IsChecked
     $portMain = 0; $portGame = 0
     if (-not [int]::TryParse($pMain, [ref]$portMain) -or $portMain -lt 1024 -or $portMain -gt 65520) {
         [void][System.Windows.MessageBox]::Show($window, '主会话端口须为 1024 至 65520 的整数。', '端口无效',
@@ -2924,17 +2978,19 @@ function Start-InstallRun {
         $ui['txtPortMain'].Focus()
         return
     }
-    if (-not [int]::TryParse($pGame, [ref]$portGame) -or $portGame -lt 1024 -or $portGame -gt 65520) {
-        [void][System.Windows.MessageBox]::Show($window, '游戏会话端口须为 1024 至 65520 的整数。', '端口无效',
-            [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Warning)
-        $ui['txtPortGame'].Focus()
-        return
-    }
-    if ([math]::Abs($portGame - $portMain) -lt 20) {
-        [void][System.Windows.MessageBox]::Show($window, '两个端口须相距至少 20。', '端口冲突',
-            [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Warning)
-        $ui['txtPortGame'].Focus()
-        return
+    if (-not $single) {
+        if (-not [int]::TryParse($pGame, [ref]$portGame) -or $portGame -lt 1024 -or $portGame -gt 65520) {
+            [void][System.Windows.MessageBox]::Show($window, '游戏会话端口须为 1024 至 65520 的整数。', '端口无效',
+                [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Warning)
+            $ui['txtPortGame'].Focus()
+            return
+        }
+        if ([math]::Abs($portGame - $portMain) -lt 20) {
+            [void][System.Windows.MessageBox]::Show($window, '两个端口须相距至少 20。', '端口冲突',
+                [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Warning)
+            $ui['txtPortGame'].Focus()
+            return
+        }
     }
     $script:PortMain = $portMain
     $script:PortGame = $portGame
@@ -2985,6 +3041,7 @@ function Start-InstallRun {
         TrayDesktop = [bool]$ui['chkTrayDesktop'].IsChecked
         TrayStart   = [bool]$ui['chkTrayStart'].IsChecked
         TrayAuto    = [bool]$ui['chkTrayAuto'].IsChecked
+        GameEnabled = -not $single
     }
     $script:InstallOpts = $opts
     Show-Page r
@@ -3345,14 +3402,15 @@ $timer.Add_Tick({
             $wu = $script:InstallOpts
             $wuUser = [string]$wu.WebUser
             $wuPw = [string]$wu.WebUiPassword
+            $single = $wu.GameEnabled -eq $false
             $lines = @("用户名：$wuUser")
             if (-not [string]::IsNullOrEmpty($wuPw)) { $lines += "密码：$wuPw" }
             $lines += '控制台会话后台：https://localhost:' + ([int]$wu.PortMain + 1)
-            if ([int]$wu.PortGame -gt 0) {
+            if (-not $single -and [int]$wu.PortGame -gt 0) {
                 $lines += '游戏会话后台：https://localhost:' + ([int]$wu.PortGame + 1)
             }
-            $lines += 'Moonlight 主机：主会话（控制台）/ 游戏会话（游戏）'
-            $lines += '（两处凭证相同，配对各自独立；证书不受信任时浏览器会提示，继续访问即可）'
+            $suffix = if ($single) { '（仅主会话：不装游戏会话，仅本地串流）' } else { '（两处凭证相同，配对各自独立；证书不受信任时浏览器会提示，继续访问即可）' }
+            $lines += $suffix
             $ui['lblWebUiInfo'].Text = ($lines -join "`n")
             $ui['cardWebUi'].Visibility = 'Visible'
         }

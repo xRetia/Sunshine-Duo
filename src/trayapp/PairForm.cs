@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Runtime.InteropServices;
 
 namespace SunshineDuoTray;
@@ -9,6 +10,7 @@ public class PairForm : Form
     private readonly TextBox[] _pin = new TextBox[4];
     private readonly Button _submit, _advanced, _close;
     private readonly Label _status;
+    private readonly bool _gameEnabled;
     private bool _console = true;
 
     private static readonly Color Bg = Color.FromArgb(24, 26, 30);
@@ -23,10 +25,12 @@ public class PairForm : Form
     [DllImport("user32.dll")] private static extern bool ReleaseCapture();
     [DllImport("user32.dll")] private static extern int SendMessage(IntPtr hWnd, int msg, int wParam, int lParam);
 
-    public PairForm(AppConfig cfg, bool? presetConsole = null)
+    public PairForm(AppConfig cfg, bool? presetConsole = null, bool gameEnabled = true)
     {
         _cfg = cfg;
+        _gameEnabled = gameEnabled;
         Text = "设备配对";
+        if (!gameEnabled && presetConsole == false) presetConsole = true;
         if (presetConsole.HasValue) _console = presetConsole.Value;
         FormBorderStyle = FormBorderStyle.None;
         StartPosition = FormStartPosition.CenterScreen;
@@ -209,8 +213,7 @@ public class PairForm : Form
 
     private void UpdateSessionText()
     {
-        var port = (_console ? _cfg.ConsolePort : _cfg.GamePort) + 1;
-        _session.Text = _console ? $"主会话  [https://*:{port}]" : $"游戏会话  [https://*:{port}]";
+        _session.Text = $"{(_console ? "主会话" : "游戏会话")}  [https://*:{Port}]";
     }
 
     private void ShowSessionMenu()
@@ -222,15 +225,28 @@ public class PairForm : Form
             RenderMode = ToolStripRenderMode.Professional,
         };
         var c = new ToolStripMenuItem("主会话") { ForeColor = TextC };
-        var g = new ToolStripMenuItem("游戏会话") { ForeColor = TextC };
         c.Click += (_, _) => { _console = true; UpdateSessionText(); };
-        g.Click += (_, _) => { _console = false; UpdateSessionText(); };
         menu.Items.Add(c);
-        menu.Items.Add(g);
+        if (_gameEnabled)
+        {
+            var g = new ToolStripMenuItem("游戏会话") { ForeColor = TextC };
+            g.Click += (_, _) => { _console = false; UpdateSessionText(); };
+            menu.Items.Add(g);
+        }
         menu.Show(_session, new Point(0, _session.Height));
     }
 
-    private int Port => (_console ? _cfg.ConsolePort : _cfg.GamePort) + 1;
+    // 会话端口：conf 里能读到 port= 就用 conf 的（与核心一致），否则退回 trayapp.json
+    private int Port
+    {
+        get
+        {
+            var id = _console ? "console" : "game";
+            var s = Paths.GetSessions(_cfg).FirstOrDefault(x => x.Id == id);
+            if (s != null) return s.WebPort;
+            return (_console ? _cfg.ConsolePort : _cfg.GamePort) + 1;
+        }
+    }
 
     private string PinText => string.Concat(_pin.Select(t => t.Text.Trim()));
 
