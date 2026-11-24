@@ -94,9 +94,4 @@ internal static class NetInfo
             lock (Gate) return (_wan, msg);
         }
     }
-
-    public static string WanError
-    {
-        get { lock (Gate) return _wanErr; }
-    }
 }

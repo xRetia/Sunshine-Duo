@@ -162,19 +162,7 @@ internal static class UiKit
         return t;
     }
 
-    public static CheckBox Check(string text, bool isChecked)
-    {
-        var c = new CheckBox
-        {
-            Text = text,
-            Checked = isChecked,
-            ForeColor = Text,
-            BackColor = Color.Transparent,
-            Font = YaHei(10F),
-            AutoSize = true,
-        };
-        return c;
-    }
+
 }
 
 // 圆角卡片容器
