@@ -73,6 +73,7 @@ public class AppConfig
     public string WebUser { get; set; } = "";
     public string WebPassEnc { get; set; } = "";
     public bool AutoStart { get; set; }
+    public string Theme { get; set; } = "system"; // system | light | dark
 
     [System.Text.Json.Serialization.JsonIgnore]
     public string WebPass => string.IsNullOrEmpty(WebPassEnc) ? "" : Dpapi.Unprotect(WebPassEnc);

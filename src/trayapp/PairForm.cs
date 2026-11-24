@@ -13,14 +13,14 @@ public class PairForm : Form
     private readonly bool _gameEnabled;
     private bool _console = true;
 
-    private static readonly Color Bg = Color.FromArgb(24, 26, 30);
-    private static readonly Color Surface = Color.FromArgb(38, 41, 47);
-    private static readonly Color SurfaceHover = Color.FromArgb(50, 54, 61);
-    private static readonly Color Accent = Color.FromArgb(16, 124, 16);
-    private static readonly Color AccentHover = Color.FromArgb(28, 148, 28);
-    private static readonly Color TextC = Color.FromArgb(240, 242, 245);
-    private static readonly Color Muted = Color.FromArgb(150, 156, 166);
-    private static readonly Color Border = Color.FromArgb(70, 75, 84);
+    private static Color Bg => UiKit.WindowBg;
+    private static Color Surface => UiKit.Card;
+    private static Color SurfaceHover => UiKit.CardHover;
+    private static Color Accent => UiKit.AccentDeep;
+    private static Color AccentHover => UiKit.Accent;
+    private static Color TextC => UiKit.Text;
+    private static Color Muted => UiKit.Muted;
+    private static Color Border => UiKit.Border;
 
     [DllImport("user32.dll")] private static extern bool ReleaseCapture();
     [DllImport("user32.dll")] private static extern int SendMessage(IntPtr hWnd, int msg, int wParam, int lParam);
@@ -256,7 +256,7 @@ public class PairForm : Form
         if (pin.Length != 4 || !pin.All(char.IsDigit))
         {
             _status.Text = "请输入设备上显示的 4 位配对码。";
-            _status.ForeColor = Color.FromArgb(244, 96, 86);
+            _status.ForeColor = UiKit.Danger;
             return;
         }
         SetBusy(true);
@@ -265,24 +265,55 @@ public class PairForm : Form
         try
         {
             using var client = new ApolloClient(Port, _cfg.WebUser, _cfg.WebPass);
+            var (before, listErr) = await client.ListClients();
             var err = await client.SendPin(pin);
             if (err != null && err.Length > 0)
             {
                 _status.Text = "配对失败：" + err;
-                _status.ForeColor = Color.FromArgb(244, 96, 86);
+                _status.ForeColor = UiKit.Danger;
             }
             else
             {
-                _status.Text = "配对成功！请在 Moonlight 上确认。";
-                _status.ForeColor = AccentHover;
-                foreach (var t in _pin) t.Clear();
-                _pin[0].Focus();
+                var grantErr = "";
+                if (listErr != "")
+                {
+                    grantErr = "无法读取设备列表：" + listErr;
+                }
+                else
+                {
+                    var (after, lerr) = await client.ListClients();
+                    if (lerr != "")
+                    {
+                        grantErr = "无法读取设备列表：" + lerr;
+                    }
+                    else
+                    {
+                        var old = before.Select(d => d.Uuid).ToHashSet();
+                        foreach (var d in after.Where(d => !old.Contains(d.Uuid)))
+                        {
+                            var gerr = await client.GrantAllPermissions(d);
+                            if (gerr != null && gerr.Length > 0) grantErr = gerr;
+                        }
+                    }
+                }
+                if (grantErr != "")
+                {
+                    _status.Text = "配对成功，但自动授权失败：" + grantErr + "。请到 WebUI 设备管理手动授权。";
+                    _status.ForeColor = UiKit.Danger;
+                }
+                else
+                {
+                    _status.Text = "配对成功，已授予全部权限。请在 Moonlight 上确认。";
+                    _status.ForeColor = AccentHover;
+                    foreach (var t in _pin) t.Clear();
+                    _pin[0].Focus();
+                }
             }
         }
         catch (Exception e)
         {
             _status.Text = "连接失败：" + e.Message;
-            _status.ForeColor = Color.FromArgb(244, 96, 86);
+            _status.ForeColor = UiKit.Danger;
         }
         finally
         {
@@ -308,6 +339,6 @@ public class PairForm : Form
     {
         UseWaitCursor = busy;
         _submit.Enabled = _advanced.Enabled = !busy;
-        _submit.BackColor = busy ? Color.FromArgb(60, 84, 60) : Accent;
+        _submit.BackColor = busy ? Color.FromArgb(30, 96, 56) : Accent;
     }
 }

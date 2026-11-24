@@ -44,6 +44,33 @@ public static class Paths
         catch { }
     }
 
+    // 读取 core 的实时配置项（托盘菜单勾选态用，避免静态缓存显示旧值）
+    public static bool CoreFlag(string key, bool fallback)
+    {
+        try
+        {
+            var cfg = Path.Combine(Root, "bin", "SunshineDuoCore", "config.json");
+            if (!File.Exists(cfg)) return fallback;
+            using var doc = JsonDocument.Parse(File.ReadAllText(cfg));
+            return Flag(doc.RootElement, key, fallback);
+        }
+        catch { return fallback; }
+    }
+
+    public static string CoreString(string key, string fallback)
+    {
+        try
+        {
+            var cfg = Path.Combine(Root, "bin", "SunshineDuoCore", "config.json");
+            if (!File.Exists(cfg)) return fallback;
+            using var doc = JsonDocument.Parse(File.ReadAllText(cfg));
+            return doc.RootElement.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.String
+                ? v.GetString() ?? fallback
+                : fallback;
+        }
+        catch { return fallback; }
+    }
+
     // 已启用会话列表（顺序 console → game）；端口以 conf 的 port= 行为准，
     // 读不到时退回 trayapp.json 保存的端口。
     public static List<SessionInfo> GetSessions(AppConfig cfg)

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO.Pipes;
 using System.Linq;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
@@ -13,14 +14,19 @@ public class TrayContext : ApplicationContext
     private readonly AppConfig _cfg;
     private readonly Dictionary<string, ToolStripMenuItem> _statusItems = new();
     private readonly ToolStripMenuItem _mMirror, _mOnly, _mExtend;
+    private readonly ToolStripMenuItem _kWinFromRAlt, _kWinLFromRAltL;
+    private readonly ToolStripMenuItem _hideCursor;
     private readonly System.Windows.Forms.Timer _timer;
     private readonly System.Windows.Forms.Timer _eventTimer;
+    private MainForm? _mainForm;
+    private volatile bool _openRequested;
     private bool _polling;
     private bool _pairDialogOpen;
 
     public TrayContext()
     {
         _cfg = AppConfig.Load();
+        Theme.Apply(_cfg.Theme);
         var sessions = Paths.GetSessions(_cfg);
 
         foreach (var s in sessions)
@@ -39,29 +45,49 @@ public class TrayContext : ApplicationContext
             };
         }
 
+        _kWinFromRAlt = new ToolStripMenuItem("R-Alt 替代 Win") { CheckOnClick = false };
+        _kWinLFromRAltL = new ToolStripMenuItem("R-Alt+L 替代 Win+L") { CheckOnClick = false };
+        _kWinFromRAlt.Click += async (_, _) => await ToggleHotkey(true);
+        _kWinLFromRAltL.Click += async (_, _) => await ToggleHotkey(false);
+
+        _hideCursor = new ToolStripMenuItem("连接后隐藏系统鼠标指针") { CheckOnClick = false };
+        _hideCursor.Click += async (_, _) => await ToggleHideCursor();
+
         var menu = new ContextMenuStrip();
         foreach (var s in sessions) menu.Items.Add(_statusItems[s.Id]);
         menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(M("打开主界面", () => ShowMain(FirstPage)));
         foreach (var s in sessions) menu.Items.Add(M($"打开{s.Name}配置", () => OpenWeb(s)));
         if (Paths.ConsoleEnabled)
         {
-            // 显示模式 / 虚拟屏都是 Console 会话（SudoVDA）专属
+            // 分组：显示模式 / 虚拟屏 / 快捷键都是 Console 会话（SudoVDA）专属
+            menu.Items.Add(new ToolStripSeparator());
             var displayMenu = new ToolStripMenuItem("显示模式");
             displayMenu.DropDownItems.Add(_mMirror);
             displayMenu.DropDownItems.Add(_mOnly);
             displayMenu.DropDownItems.Add(_mExtend);
             UpdateDisplayCheckmarks();
             menu.Items.Add(displayMenu);
-            menu.Items.Add(M("虚拟屏分辨率…", ShowResForm));
+            menu.Items.Add(M("虚拟屏分辨率…", () => ShowMain(MainPage.VirtualDisplay)));
+            // 热键替代只作用在 Console 会话的键盘钩子上
+            var keyMenu = new ToolStripMenuItem("快捷键");
+            keyMenu.DropDownItems.Add(_kWinFromRAlt);
+            keyMenu.DropDownItems.Add(_kWinLFromRAltL);
+            UpdateHotkeyCheckmarks();
+            menu.Items.Add(keyMenu);
+            // 串流期间隐藏 Console 会话的系统鼠标指针（显示 worker 执行）
+            UpdateHideCursorCheckmark();
+            menu.Items.Add(_hideCursor);
         }
-        menu.Items.Add(M("设备配对…", () => ShowPairForm()));
-        menu.Items.Add(M("修改 WebUI 账号密码…", ShowPasswordForm));
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(M("设备配对…", () => ShowMain(MainPage.Console, true)));
+        menu.Items.Add(M("修改 WebUI 账号密码…", () => ShowMain(MainPage.Settings)));
         menu.Items.Add(new ToolStripSeparator());
         foreach (var s in sessions) menu.Items.Add(M($"重启{s.Name}", () => RestartApollo(s)));
         menu.Items.Add(M("重启 Sunshine Duo 核心服务", ToggleService));
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add(M("设置…", ShowSettings));
-        menu.Items.Add(M("关于 Sunshine Duo…", ShowAbout));
+        menu.Items.Add(M("设置…", () => ShowMain(MainPage.Settings)));
+        menu.Items.Add(M("关于 Sunshine Duo…", () => ShowMain(MainPage.About)));
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(M("退出", Exit));
 
@@ -76,7 +102,7 @@ public class TrayContext : ApplicationContext
             ContextMenuStrip = menu,
             Visible = true,
         };
-        _tray.DoubleClick += (_, _) => OpenWeb(Paths.GetSessions(_cfg)[0]);
+        _tray.DoubleClick += (_, _) => ShowMain(FirstPage);
 
         _timer = new System.Windows.Forms.Timer { Interval = 2000 };
         _timer.Tick += async (_, _) => await PollAsync();
@@ -87,6 +113,32 @@ public class TrayContext : ApplicationContext
         _eventTimer = new System.Windows.Forms.Timer { Interval = 1500 };
         _eventTimer.Tick += async (_, _) => await PollPairEvents();
         _eventTimer.Start();
+
+        // 第二实例（再次运行 exe）通过命名管道请求呼出主界面
+        StartUiPipe();
+    }
+
+    private void StartUiPipe()
+    {
+        Task.Run(async () =>
+        {
+            while (true)
+            {
+                try
+                {
+                    await using var server = new NamedPipeServerStream(
+                        "SunshineDuoTray-ui", PipeDirection.In, 1,
+                        PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+                    await server.WaitForConnectionAsync();
+                    using var reader = new StreamReader(server);
+                    if (await reader.ReadLineAsync() == "open") _openRequested = true;
+                }
+                catch
+                {
+                    await Task.Delay(500);
+                }
+            }
+        });
     }
 
     private static ToolStripMenuItem M(string text, Action onClick)
@@ -218,6 +270,11 @@ public class TrayContext : ApplicationContext
         _polling = true;
         try
         {
+            if (_openRequested)
+            {
+                _openRequested = false;
+                ShowMain(FirstPage);
+            }
             var sessions = Paths.GetSessions(_cfg);
             var up = new List<bool>();
             foreach (var s in sessions)
@@ -235,6 +292,8 @@ public class TrayContext : ApplicationContext
             _tray.Text = "Sunshine Duo 托盘\n" + string.Join("\n",
                 sessions.Select((s, i) => $"{s.Name} {(up[i] ? "运行中" : "未运行")}"));
             UpdateDisplayCheckmarks();
+            UpdateHotkeyCheckmarks();
+            UpdateHideCursorCheckmark();
         }
         catch { }
         finally
@@ -374,6 +433,68 @@ public class TrayContext : ApplicationContext
         catch { }
     }
 
+    private void UpdateHotkeyCheckmarks()
+    {
+        _kWinFromRAlt.Checked = Paths.CoreFlag("win_from_ralt", false);
+        _kWinLFromRAltL.Checked = Paths.CoreFlag("winl_from_ralt_l", false);
+    }
+
+    // 勾选态即目标态；写回 core 后由 Console 显示 worker 约 120ms 内热加载
+    private async Task ToggleHotkey(bool winFromRAlt)
+    {
+        var target = !(winFromRAlt ? _kWinFromRAlt.Checked : _kWinLFromRAltL.Checked);
+        var win = winFromRAlt ? target : _kWinFromRAlt.Checked;
+        var winl = winFromRAlt ? _kWinLFromRAltL.Checked : target;
+        string? err;
+        try
+        {
+            err = await GuardPipe.SetHotkeys(win, winl);
+        }
+        catch (Exception e)
+        {
+            err = e.Message;
+        }
+        if (err != null)
+        {
+            _tray.ShowBalloonTip(4000, "快捷键", "设置失败: " + err, ToolTipIcon.Error);
+            UpdateHotkeyCheckmarks();
+            return;
+        }
+        if (winFromRAlt) _kWinFromRAlt.Checked = target;
+        else _kWinLFromRAltL.Checked = target;
+        var name = winFromRAlt ? "R-Alt 替代 Win" : "R-Alt+L 替代 Win+L";
+        _tray.ShowBalloonTip(3000, "快捷键", $"{name}已{(target ? "开启" : "关闭")}", ToolTipIcon.Info);
+    }
+
+    private void UpdateHideCursorCheckmark()
+    {
+        _hideCursor.Checked = Paths.CoreFlag("hide_cursor_on_stream", false);
+    }
+
+    private async Task ToggleHideCursor()
+    {
+        var target = !_hideCursor.Checked;
+        string? err;
+        try
+        {
+            err = await GuardPipe.SetHideCursor(target);
+        }
+        catch (Exception e)
+        {
+            err = e.Message;
+        }
+        if (err != null)
+        {
+            _tray.ShowBalloonTip(4000, "鼠标指针", "设置失败: " + err, ToolTipIcon.Error);
+            UpdateHideCursorCheckmark();
+            return;
+        }
+        _hideCursor.Checked = target;
+        _tray.ShowBalloonTip(3000, "鼠标指针",
+            target ? "连接后将隐藏系统鼠标指针" : "已恢复显示系统鼠标指针",
+            ToolTipIcon.Info);
+    }
+
     private void ShowPairFormPreset(bool console, string deviceName)
     {
         // WinForms Timer 的 Tick 在 UI 线程触发，这里天然在 UI 线程
@@ -383,43 +504,37 @@ public class TrayContext : ApplicationContext
         _ = PollAsync();
     }
 
-    private void ShowPairForm()
-    {
-        using var f = new PairForm(_cfg, null, Paths.GameEnabled);
-        f.ShowDialog();
-        _ = PollAsync();
-    }
+    private static MainPage FirstPage =>
+        Paths.ConsoleEnabled ? MainPage.Console
+        : Paths.GameEnabled ? MainPage.Game
+        : MainPage.Settings;
 
-    private void ShowResForm()
+    private void ShowMain(MainPage page, bool focusPin = false)
     {
-        using var f = new ResForm();
-        f.ShowDialog();
-    }
-
-    private void ShowPasswordForm()
-    {
-        using var f = new PasswordForm(_cfg);
-        if (f.ShowDialog() == DialogResult.OK)
+        try
+        {
+            if (_mainForm == null || _mainForm.IsDisposed)
+                _mainForm = new MainForm(_cfg);
+            _mainForm.Navigate(page);
+            if (!_mainForm.Visible) _mainForm.Show();
+            if (_mainForm.WindowState == FormWindowState.Minimized)
+                _mainForm.WindowState = FormWindowState.Normal;
+            _mainForm.Activate();
+            if (focusPin) _mainForm.FocusPair();
             _ = PollAsync();
-    }
-
-    private void ShowSettings()
-    {
-        using var f = new SettingsForm(_cfg);
-        f.ShowDialog();
-        _ = PollAsync();
-    }
-
-    private void ShowAbout()
-    {
-        var url = "https://github.com/xRetia/Sunshine-Duo";
-        var text = $"Sunshine Duo 托盘\n\n作者：苏羽茜工作室（xRetia Labs.）\nGitHub 项目地址：{url}";
-        if (MessageBox.Show(text + "\n\n是否打开项目主页？", "关于 Sunshine Duo",
-                MessageBoxButtons.YesNo, MessageBoxIcon.Information) == DialogResult.Yes)
+        }
+        catch (Exception e)
         {
             try
             {
-                Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+                File.AppendAllText(Path.Combine(AppContext.BaseDirectory, "trayapp-ui.log"),
+                    $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] 打开主界面失败\r\n{e}\r\n\r\n");
+            }
+            catch { }
+            try
+            {
+                _tray.ShowBalloonTip(5000, "打开主界面失败",
+                    "详情见 bin\\SunshineDuoTray\\trayapp-ui.log", ToolTipIcon.Error);
             }
             catch { }
         }

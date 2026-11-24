@@ -81,6 +81,25 @@ internal static class TrayIcons
         }
     }
 
+    // 侧栏/关于页头像：内嵌太阳图裁成圆形
+    public static Bitmap Avatar(int size)
+    {
+        using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("sun.png")
+            ?? throw new InvalidOperationException("sun.png resource missing");
+        using var source = new Bitmap(stream);
+        using var cropped = source.Clone(AlphaBounds(source), source.PixelFormat);
+        var canvas = new Bitmap(size, size, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        using var g = Graphics.FromImage(canvas);
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+        g.Clear(Color.Transparent);
+        using var clip = new GraphicsPath();
+        clip.AddEllipse(0.5f, 0.5f, size - 1f, size - 1f);
+        g.SetClip(clip);
+        g.DrawImage(cropped, new Rectangle(0, 0, size, size));
+        return canvas;
+    }
+
     private static Rectangle AlphaBounds(Bitmap bitmap)
     {
         var minX = bitmap.Width;

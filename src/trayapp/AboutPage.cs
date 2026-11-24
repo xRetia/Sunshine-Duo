@@ -1,0 +1,119 @@
+using System.Diagnostics;
+using System.Reflection;
+
+namespace SunshineDuoTray;
+
+internal sealed class AboutPage : Panel
+{
+    public AboutPage()
+    {
+        BackColor = UiKit.WindowBg;
+        Font = UiKit.YaHei(9F);
+
+        var title = UiKit.Title("关于");
+        title.Location = new Point(0, 24);
+        Controls.Add(title);
+        var sub = UiKit.Sub("Sunshine Duo 托盘 · 双 Apollo 串流管理");
+        sub.Location = new Point(0, 62);
+        Controls.Add(sub);
+
+        var avatar = new PictureBox
+        {
+            Location = new Point(0, 108),
+            Size = new Size(64, 64),
+            SizeMode = PictureBoxSizeMode.Zoom,
+            BackColor = UiKit.Card,
+            Image = TrayIcons.Avatar(64),
+        };
+        Controls.Add(avatar);
+
+        Controls.Add(new Label
+        {
+            Text = "Sunshine Duo",
+            ForeColor = UiKit.Text,
+            BackColor = Color.Transparent,
+            Font = new Font("Segoe UI", 18F, FontStyle.Bold),
+            Location = new Point(80, 110),
+            AutoSize = true,
+        });
+
+        var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "1.0.0";
+        Controls.Add(new Label
+        {
+            Text = "托盘 v" + version + " · 莫氏萌艺风格的双会话串流派生",
+            ForeColor = UiKit.Muted,
+            BackColor = Color.Transparent,
+            Font = UiKit.YaHei(9F),
+            Location = new Point(82, 146),
+            AutoSize = true,
+        });
+
+        var author = new RoundCard { Location = new Point(0, 204), Size = new Size(736, 104) };
+        Controls.Add(author);
+        author.Controls.Add(UiKit.Caption("作者", UiKit.Muted, 8.5F));
+        author.Controls[0].Location = new Point(16, 14);
+        author.Controls.Add(new Label
+        {
+            Text = "苏羽茜工作室（xRetia Labs.）",
+            ForeColor = UiKit.Text,
+            BackColor = Color.Transparent,
+            Font = UiKit.YaHei(10.5F),
+            Location = new Point(16, 36),
+            AutoSize = true,
+        });
+        author.Controls.Add(new Label
+        {
+            Text = "GitHub · xRetia/Sunshine-Duo",
+            ForeColor = UiKit.Muted,
+            BackColor = Color.Transparent,
+            Font = UiKit.Mono(9F),
+            Location = new Point(16, 66),
+            AutoSize = true,
+        });
+        var open = UiKit.Ghost("打开项目主页");
+        open.Location = new Point(584, 40);
+        open.Size = new Size(136, 32);
+        open.Click += (_, _) => OpenUrl("https://github.com/xRetia/Sunshine-Duo");
+        author.Controls.Add(open);
+
+        var tech = new RoundCard { Location = new Point(0, 324), Size = new Size(736, 132) };
+        Controls.Add(tech);
+        tech.Controls.Add(UiKit.Caption("架构", UiKit.Muted, 8.5F));
+        tech.Controls[0].Location = new Point(16, 14);
+        var lines = new[]
+        {
+            "双 Apollo 实例：Console SYSTEM 物理屏 / Game 用户桌面 RDP 会话",
+            "SudoVDA 虚拟显示器 · 拓扑由 SunshineDuoCore 按各自流生命周期管理",
+            "Moonlight / Apollo 协议 · 本机控制管道：\\\\.\\pipe\\SunshineDuoCore-ctrl",
+        };
+        for (var i = 0; i < lines.Length; i++)
+            tech.Controls.Add(new Label
+            {
+                Text = "·  " + lines[i],
+                ForeColor = i == 0 ? UiKit.Text : UiKit.Muted,
+                BackColor = Color.Transparent,
+                Font = UiKit.YaHei(9F),
+                Location = new Point(16, 38 + i * 26),
+                AutoSize = true,
+            });
+
+        Controls.Add(new Label
+        {
+            Text = "本工具只管理本机串流服务，不收集、不上传任何数据。",
+            ForeColor = UiKit.Muted,
+            BackColor = Color.Transparent,
+            Font = UiKit.YaHei(8.5F),
+            Location = new Point(0, 476),
+            AutoSize = true,
+        });
+    }
+
+    private static void OpenUrl(string url)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+        }
+        catch { }
+    }
+}
