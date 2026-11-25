@@ -149,7 +149,7 @@ internal sealed class SettingsPage : Panel
 
         var note = new Label
         {
-            Text = "服务启停经 gsudo64 提权；重启会话由核心服务执行。",
+            Text = "服务启停经 UAC 提权；重启会话由核心服务执行。",
             ForeColor = UiKit.Muted,
             BackColor = Color.Transparent,
             Font = UiKit.YaHei(8.5F),
@@ -489,7 +489,7 @@ internal sealed class SettingsPage : Panel
     {
         var state = await Task.Run(ServiceControl.Query);
         var running = state is "运行中" or "启动中";
-        SetStatus(_svcStatus, "正在请求提权（gsudo64）…", UiKit.Muted);
+        SetStatus(_svcStatus, "正在请求 UAC 提权…", UiKit.Muted);
         _svcBtn.Enabled = false;
         try
         {

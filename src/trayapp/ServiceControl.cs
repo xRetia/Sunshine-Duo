@@ -2,7 +2,7 @@ using System.Diagnostics;
 
 namespace SunshineDuoTray;
 
-// SunshineDuoCore 服务的查询与启停（sc.exe；启停按 AGENTS 铁律走 gsudo64 提权缓存）
+// SunshineDuoCore 服务的查询与启停（sc.exe 查询；启停经 ShellExecute runas 走标准 UAC 提权）
 public static class ServiceControl
 {
     public static string Query()
@@ -34,73 +34,35 @@ public static class ServiceControl
 
     public static string? SetRunning(bool run) // null=ok
     {
-        var gsudo = FindGsudo();
-        if (gsudo == null) return "未找到 gsudo64.exe，无法提权启停服务";
-
-        // AGENTS 铁律：先开全局提权缓存（-p 0 任意进程复用，-d -1 直到注销）
-        var cache = Run(gsudo, "cache on -p 0 -d -1", 90000);
-        if (cache.Timeout) return "开启 gsudo64 缓存超时（可能正在等待 UAC 确认）";
-
         var arg = run ? "start" : "stop";
-        var res = Run(gsudo, $"sc.exe {arg} SunshineDuoCore", 90000);
-        if (res.Timeout) return "提权命令超时（可能正在等待 UAC 确认）";
-        if (res.ExitCode != 0 || res.Out.Contains("FAILED", StringComparison.OrdinalIgnoreCase))
-        {
-            var detail = res.Err.Trim().Length > 0 ? res.Err.Trim() : res.Out.Trim();
-            return $"gsudo64 sc {arg} 失败（返回码 {res.ExitCode}）{(detail.Length > 0 ? "：" + detail : "")}";
-        }
-        return null;
-    }
-
-    private static string? FindGsudo()
-    {
         try
         {
-            var path = Environment.GetEnvironmentVariable("PATH") ?? "";
-            foreach (var dir in path.Split(Path.PathSeparator))
+            var psi = new ProcessStartInfo("sc.exe", $"{arg} SunshineDuoCore")
             {
-                if (string.IsNullOrWhiteSpace(dir)) continue;
-                var candidate = Path.Combine(dir.Trim().Trim('"'), "gsudo64.exe");
-                if (File.Exists(candidate)) return candidate;
-            }
-        }
-        catch { }
-        foreach (var candidate in new[]
-                 {
-                     @"C:\Komandare\Module\gsudo\gsudo64.exe",
-                     @"C:\Program Files\gsudo\Current\gsudo64.exe",
-                     @"C:\Program Files\gsudo\gsudo64.exe",
-                 })
-        {
-            if (File.Exists(candidate)) return candidate;
-        }
-        return null;
-    }
-
-    private static (int ExitCode, string Out, string Err, bool Timeout) Run(string exe, string args, int timeoutMs)
-    {
-        try
-        {
-            var psi = new ProcessStartInfo(exe, args)
-            {
-                UseShellExecute = false,
+                UseShellExecute = true,
+                Verb = "runas",
                 CreateNoWindow = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
+                WindowStyle = ProcessWindowStyle.Hidden,
             };
             using var p = Process.Start(psi)!;
-            var outTask = p.StandardOutput.ReadToEndAsync();
-            var errTask = p.StandardError.ReadToEndAsync();
-            if (!p.WaitForExit(timeoutMs))
+            if (!p.WaitForExit(90000))
             {
                 try { p.Kill(); } catch { }
-                return (-1, "", "", true);
+                return "服务启停超时（可能正在等待 UAC 确认）";
             }
-            return (p.ExitCode, outTask.GetAwaiter().GetResult(), errTask.GetAwaiter().GetResult(), false);
+            // UAC 被取消时 Process.Start 直接抛 Win32Exception，进 catch；
+            // 这里 ExitCode 非 0 视为 sc 自身失败。
+            if (p.ExitCode != 0)
+                return $"sc {arg} 失败（返回码 {p.ExitCode}）";
+            return null;
+        }
+        catch (System.ComponentModel.Win32Exception e) when (e.NativeErrorCode == 1223)
+        {
+            return "已取消提权";
         }
         catch (Exception e)
         {
-            return (-1, "", e.Message, false);
+            return $"服务启停失败：{e.Message}";
         }
     }
 }
