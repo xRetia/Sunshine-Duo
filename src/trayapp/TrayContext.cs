@@ -18,7 +18,7 @@ public class TrayContext : ApplicationContext
     private readonly ToolStripMenuItem _hideCursor;
     private readonly System.Windows.Forms.Timer _timer;
     private readonly System.Windows.Forms.Timer _eventTimer;
-    private MainForm? _mainForm;
+    private IMainUi? _mainForm;
     private volatile bool _openRequested;
     private bool _polling;
     private bool _pairDialogOpen;
@@ -514,7 +514,16 @@ public class TrayContext : ApplicationContext
         try
         {
             if (_mainForm == null || _mainForm.IsDisposed)
-                _mainForm = new MainForm(_cfg);
+            {
+                try
+                {
+                    _mainForm = WebUiForm.IsSupported ? new WebUiForm(_cfg) : new MainForm(_cfg);
+                }
+                catch
+                {
+                    _mainForm = new MainForm(_cfg);
+                }
+            }
             _mainForm.Navigate(page);
             if (!_mainForm.Visible) _mainForm.Show();
             if (_mainForm.WindowState == FormWindowState.Minimized)

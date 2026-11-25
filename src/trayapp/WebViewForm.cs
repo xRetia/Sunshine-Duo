@@ -52,11 +52,12 @@ public class WebViewForm : Form
         try
         {
             var light = IsSystemLightTheme();
-            var args = "--ignore-certificate-errors --allow-insecure-localhost";
-            if (!light) args += " --force-dark-mode";
-            var options = new CoreWebView2EnvironmentOptions(args);
-            var env = await CoreWebView2Environment.CreateAsync(null, null, options);
+            var env = await WebViewEnvironment.GetAsync();
             await _view.EnsureCoreWebView2Async(env);
+            if (_view.CoreWebView2?.Profile != null)
+                _view.CoreWebView2.Profile.PreferredColorScheme = light
+                    ? CoreWebView2PreferredColorScheme.Light
+                    : CoreWebView2PreferredColorScheme.Dark;
 
             if (!string.IsNullOrEmpty(_cfg.WebUser))
             {

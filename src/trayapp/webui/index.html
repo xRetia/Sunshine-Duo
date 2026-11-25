@@ -1,0 +1,1151 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sunshine Duo</title>
+<style>
+/* ===================== 设计令牌 ===================== */
+:root{
+  --font-ui:"Segoe UI Variable Text","Segoe UI","Microsoft YaHei UI",system-ui,sans-serif;
+  --font-display:"Segoe UI Variable Display","Segoe UI","Microsoft YaHei UI",system-ui,sans-serif;
+  --font-mono:"Cascadia Mono","Consolas",monospace;
+  --r-win:16px; --r-card:12px; --r-ctl:7px;
+  --ease:cubic-bezier(.2,0,0,1); --dur:140ms;
+}
+html[data-theme="dark"]{
+  color-scheme:dark;
+  --window:#0e1013; --sidebar:#13161a; --card:#1c2026; --card-hover:#242a31;
+  --field:#14171c; --border:#2d333c; --border-strong:#3d454f;
+  --text:#f0f3f7; --muted:#929ba7; --faint:#69727e;
+  --accent:#22c55e; --accent-deep:#16a34a; --accent-tint:#17251d;
+  --danger:#f05c52; --warn:#f0a838;
+  --shadow:0 44px 96px rgba(0,0,0,.66),0 3px 10px rgba(0,0,0,.5);
+  --hair:rgba(255,255,255,.06);
+}
+html[data-theme="light"]{
+  color-scheme:light;
+  --window:#f6f7fa; --sidebar:#eef0f4; --card:#ffffff; --card-hover:#f1f4f9;
+  --field:#f9fafc; --border:#dfe4eb; --border-strong:#c8d0db;
+  --text:#1a1e24; --muted:#68717d; --faint:#8d96a3;
+  --accent:#16a34a; --accent-deep:#15803d; --accent-tint:#e8f7ed;
+  --danger:#d6453a; --warn:#ba7612;
+  --shadow:0 34px 76px rgba(18,26,38,.18),0 2px 6px rgba(18,26,38,.10);
+  --hair:rgba(0,0,0,.06);
+}
+
+/* ===================== 去浏览器化基础 ===================== */
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  font-family:var(--font-ui);font-size:13px;line-height:1.5;color:var(--text);
+  background:#0a0c0f;-webkit-font-smoothing:antialiased;
+  user-select:none;-webkit-user-select:none;cursor:default;overflow:hidden;
+}
+button,input{font:inherit;color:inherit;outline:none;background:none;border:0}
+input{cursor:text;user-select:text;-webkit-user-select:text}
+img,svg{-webkit-user-drag:none;user-select:none}
+::selection{background:color-mix(in srgb,var(--accent) 26%,transparent)}
+:focus{outline:none}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+svg.ic{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.6;
+  stroke-linecap:round;stroke-linejoin:round;flex:none}
+/* WebView2 开启 IsNonClientRegionSupportEnabled 后生效；浏览器预览里无副作用 */
+.drag{-webkit-app-region:drag;app-region:drag}
+.nodrag{-webkit-app-region:no-drag;app-region:no-drag}
+/* 主题切换是瞬间换色：变量驱动的颜色过渡在 Chromium 里会卡在旧值，必须整体关掉 */
+html.notrans *{transition:none !important}
+
+/* ===================== 舞台（预览用桌面背景，不属于应用） ===================== */
+.stage{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;
+  background:
+    radial-gradient(900px 620px at 20% 6%,rgba(34,197,94,.10),transparent 62%),
+    radial-gradient(1100px 760px at 82% 96%,rgba(70,130,240,.09),transparent 60%),
+    linear-gradient(158deg,#131720,#0a0c10 55%,#07080a);
+}
+.stage-note{font-size:11.5px;color:#69727f;text-align:center;letter-spacing:.01em}
+.stage-note b{color:#9aa4b2;font-weight:600}
+.reopen{display:none;height:32px;padding:0 16px;border-radius:7px;background:#1c2026;
+  border:1px solid #3d454f;color:#f0f3f7;font-size:12.5px;cursor:default}
+.reopen:hover{background:#242a31}
+.stage.closed .app{display:none}
+.stage.closed .reopen{display:inline-flex;align-items:center}
+
+/* ===================== 应用窗口外壳 ===================== */
+.app{position:relative;width:1020px;height:680px;flex:none;display:grid;grid-template-columns:236px 1fr;
+  background:var(--window);border-radius:var(--r-win);
+  box-shadow:inset 0 0 0 1px var(--border),var(--shadow);
+  overflow:hidden;transform:scale(var(--fit,1));transform-origin:center;
+  transition:transform var(--dur) var(--ease),opacity var(--dur) var(--ease)}
+.app.min{transform:scale(calc(var(--fit,1) * .94));opacity:0}
+
+/* ===================== 侧栏 ===================== */
+.sidebar{background:var(--sidebar);border-right:1px solid var(--border);
+  padding:24px 12px 16px;display:flex;flex-direction:column;gap:18px}
+.brand{display:flex;align-items:center;gap:12px;padding-left:12px}
+.logo{width:44px;height:44px;border-radius:12px;flex:none;display:grid;place-items:center;color:#fff;
+  background:linear-gradient(155deg,var(--accent),var(--accent-deep));
+  box-shadow:0 6px 18px color-mix(in srgb,var(--accent) 30%,transparent)}
+.logo svg{width:25px;height:25px;stroke-width:1.7}
+.brand-name{font-family:var(--font-display);font-size:15.5px;font-weight:600;letter-spacing:.005em}
+.brand-sub{font-size:11px;color:var(--muted);margin-top:2px}
+.nav{display:flex;flex-direction:column;gap:3px;-webkit-app-region:no-drag;app-region:no-drag}
+.nav-item{position:relative;display:flex;align-items:center;gap:12px;height:42px;padding:0 12px;
+  border-radius:9px;font-size:13.5px;color:var(--text);
+  transition:background var(--dur) var(--ease),color var(--dur) var(--ease)}
+.nav-item svg{width:19px;height:19px;color:var(--muted);transition:color var(--dur) var(--ease)}
+.nav-item:hover{background:var(--card-hover)}
+.nav-item:active{transform:scale(.995)}
+.nav-item.on{background:var(--accent-tint)}
+.nav-item.on svg{color:var(--accent)}
+.nav-item.on::after{content:"";position:absolute;left:2px;top:50%;transform:translateY(-50%);
+  width:3px;height:20px;border-radius:2px;background:var(--accent)}
+.side-foot{margin-top:auto;padding:0 12px;-webkit-app-region:no-drag;app-region:no-drag}
+.hair{height:1px;background:var(--border);margin-bottom:14px}
+.svc{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--muted);min-height:20px}
+.svc .dot{width:8px;height:8px;border-radius:50%;flex:none;background:var(--muted);
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--dotc,var(--muted)) 20%,transparent)}
+.svc.ok .dot{background:var(--accent);--dotc:var(--accent)}
+.svc.warn .dot{background:var(--warn);--dotc:var(--warn)}
+.svc.bad .dot{background:var(--danger);--dotc:var(--danger)}
+.svc svg{width:15px;height:15px;color:var(--faint);margin-left:auto}
+
+/* ===================== 内容区 ===================== */
+.content{position:relative;overflow-y:auto;overflow-x:hidden;padding:0 24px;scrollbar-width:thin}
+.content::-webkit-scrollbar{width:12px}
+.content::-webkit-scrollbar-track{background:transparent}
+.content::-webkit-scrollbar-thumb{background:var(--border-strong);border:4px solid transparent;
+  background-clip:content-box;border-radius:99px}
+.content::-webkit-scrollbar-thumb:hover{background:var(--muted);border:3px solid transparent;background-clip:content-box}
+.page{display:none;padding:22px 0 26px}
+.page.on{display:block;animation:pageIn .18s var(--ease)}
+@keyframes pageIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.head{display:flex;align-items:flex-start;gap:16px;margin-bottom:20px;padding-right:92px}
+.h1{font-family:var(--font-display);font-size:24px;font-weight:600;letter-spacing:-.01em;line-height:1.25}
+.sub{font-size:12px;color:var(--muted);margin-top:5px}
+.h2{font-size:14px;font-weight:600;letter-spacing:.005em}
+.sec{margin-top:22px}
+.sec-h{display:flex;align-items:baseline;gap:12px;margin-bottom:10px}
+.sec-h .right{margin-left:auto;font-size:11.5px;color:var(--muted)}
+.note{font-size:11px;color:var(--faint);line-height:1.6;margin-top:14px}
+
+/* 窗口控件 */
+.winctl{position:absolute;top:12px;right:12px;z-index:8;display:flex;gap:4px}
+.wbtn{width:34px;height:30px;border-radius:7px;display:grid;place-items:center;color:var(--muted);
+  transition:background var(--dur) var(--ease),color var(--dur) var(--ease)}
+.wbtn:hover{background:var(--card-hover);color:var(--text)}
+.wbtn.x:hover{background:#c42b1c;color:#fff}
+
+/* 状态胶囊 */
+.pill{display:inline-flex;align-items:center;gap:8px;height:28px;padding:0 12px;border-radius:14px;
+  font-size:12px;font-weight:600;flex:none;
+  --pc:var(--muted);
+  background:color-mix(in srgb,var(--pc) 13%,transparent);
+  border:1px solid color-mix(in srgb,var(--pc) 38%,transparent)}
+.pill i{width:7px;height:7px;border-radius:50%;background:var(--pc);flex:none}
+.pill.ok{--pc:var(--accent)} .pill.bad{--pc:var(--danger)} .pill.wait{--pc:var(--warn)}
+
+/* 卡片 */
+.card{background:var(--card);border:1px solid var(--border);border-radius:var(--r-card);padding:16px;
+  transition:border-color var(--dur) var(--ease),background var(--dur) var(--ease)}
+.card:hover{border-color:var(--border-strong)}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+.cols > div{display:flex;flex-direction:column;gap:16px}
+.card-t{font-size:13.5px;font-weight:600}
+.card-d{font-size:11.5px;color:var(--muted);line-height:1.55;margin-top:4px}
+.card-top{display:flex;align-items:center;gap:6px;margin-bottom:2px}
+.card-t{white-space:nowrap}
+.card-top .btn{margin-left:auto}
+.card-top .btn.sm{padding:0 7px;font-size:11px}
+.val{font-family:var(--font-mono);font-size:17px;font-weight:600;letter-spacing:.005em;margin-top:10px;
+  user-select:text;-webkit-user-select:text}
+.status{font-size:11.5px;color:var(--muted);min-height:17px;margin-top:12px;line-height:1.5}
+.status.ok{color:var(--accent)} .status.bad{color:var(--danger)} .status.warn{color:var(--warn)}
+
+/* 按钮 */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;height:32px;padding:0 14px;
+  border-radius:var(--r-ctl);background:var(--card);border:1px solid var(--border);color:var(--text);
+  font-size:12.5px;white-space:nowrap;
+  transition:background var(--dur) var(--ease),border-color var(--dur) var(--ease),transform 60ms var(--ease),opacity var(--dur)}
+.btn:hover{background:var(--card-hover);border-color:var(--border-strong)}
+.btn:active{transform:scale(.985)}
+.btn svg{width:14px;height:14px;color:var(--muted)}
+.btn.pri{background:var(--accent-deep);border-color:transparent;color:#fff;font-weight:600}
+.btn.pri:hover{background:var(--accent)}
+.btn.pri svg{color:#fff}
+.btn.sm{height:26px;padding:0 10px;font-size:11.5px;border-radius:6px;background:transparent}
+.btn.lg{height:44px;padding:0 26px;font-size:13.5px}
+.btn.blk{width:100%}
+.btn[disabled]{opacity:.45;pointer-events:none}
+.btnrow{display:flex;gap:10px;flex-wrap:wrap}
+
+/* 输入 */
+.field{display:block}
+.field > label{display:block;font-size:11.5px;color:var(--muted);margin-bottom:6px}
+.input{width:100%;height:32px;padding:0 10px;border-radius:var(--r-ctl);background:var(--field);
+  border:1px solid var(--border);font-size:12.5px;
+  transition:border-color var(--dur) var(--ease),box-shadow var(--dur) var(--ease)}
+.input:hover{border-color:var(--border-strong)}
+.input:focus{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 20%,transparent)}
+.input.mono{font-family:var(--font-mono);letter-spacing:.02em}
+.input::placeholder{color:var(--faint)}
+
+/* 开关 */
+.sw{display:flex;align-items:center;gap:14px;width:100%;min-height:34px;text-align:left}
+.sw-t{font-size:12.5px}
+.sw-d{font-size:11px;color:var(--muted);margin-top:1px}
+.sw .track{margin-left:auto;flex:none;width:40px;height:22px;border-radius:11px;background:var(--border-strong);
+  position:relative;transition:background var(--dur) var(--ease)}
+.sw .track::after{content:"";position:absolute;top:4px;left:4px;width:14px;height:14px;border-radius:50%;
+  background:#fff;transition:transform var(--dur) var(--ease),width var(--dur) var(--ease),
+  height var(--dur) var(--ease),top var(--dur) var(--ease)}
+.sw[aria-checked="true"] .track{background:var(--accent-deep)}
+.sw[aria-checked="true"] .track::after{transform:translateX(18px)}
+.sw:hover .track::after{width:16px;height:16px;top:3px}
+.sw:hover[aria-checked="true"] .track::after{transform:translateX(16px)}
+
+/* 主题分段控件 */
+.seg{display:inline-flex;gap:3px;padding:3px;border-radius:9px;background:var(--field);border:1px solid var(--border)}
+.seg button{height:26px;padding:0 12px;border-radius:6px;font-size:12px;color:var(--muted);
+  transition:background var(--dur) var(--ease),color var(--dur) var(--ease)}
+.seg button:hover{color:var(--text);background:var(--card-hover)}
+.seg button.on{background:var(--accent-deep);color:#fff;font-weight:600}
+.seg button.on:hover{background:var(--accent)}
+
+/* 模式卡 */
+.modes{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.mode{padding:18px 14px 16px;border-radius:var(--r-card);background:var(--card);border:1px solid var(--border);
+  text-align:center;transition:background var(--dur) var(--ease),border-color var(--dur) var(--ease),transform 60ms var(--ease)}
+.mode svg{width:34px;height:34px;margin:0 auto 12px;color:var(--muted);stroke-width:1.5;transition:color var(--dur) var(--ease)}
+.mode b{display:block;font-size:13.5px;font-weight:600}
+.mode span{display:block;font-size:11px;color:var(--muted);line-height:1.55;margin-top:6px}
+.mode:hover{background:var(--card-hover);border-color:var(--border-strong)}
+.mode:active{transform:scale(.995)}
+.mode.on{background:var(--accent-tint);border-color:color-mix(in srgb,var(--accent) 55%,transparent)}
+.mode.on svg,.mode.on b{color:var(--accent)}
+
+/* 地址条 */
+.addr{display:flex;align-items:center;gap:16px;padding:14px 16px;margin-top:14px}
+.addr .k{font-size:11.5px;color:var(--muted)}
+.addr .v{font-family:var(--font-mono);font-size:16px;font-weight:600;margin-top:3px;
+  user-select:text;-webkit-user-select:text}
+.addr .btn{margin-left:auto}
+
+/* PIN */
+.pairrow{display:flex;align-items:center;gap:18px;margin-top:14px}
+.pin{display:flex;gap:10px}
+.pin input{width:56px;height:58px;text-align:center;border-radius:9px;background:var(--field);
+  border:1px solid var(--border);font-family:var(--font-mono);font-size:22px;font-weight:600;
+  transition:border-color var(--dur) var(--ease),box-shadow var(--dur) var(--ease),background var(--dur) var(--ease)}
+.pin input:hover{border-color:var(--border-strong)}
+.pin input:focus{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 20%,transparent)}
+.pin input.has{background:var(--accent-tint);border-color:color-mix(in srgb,var(--accent) 45%,transparent);color:var(--accent)}
+
+/* 分辨率列表 */
+.res{border:1px solid var(--border);border-radius:var(--r-card);overflow:hidden;background:var(--card);
+  max-height:240px;overflow-y:auto;scrollbar-width:thin}
+.res::-webkit-scrollbar{width:12px}
+.res::-webkit-scrollbar-thumb{background:var(--border-strong);border:4px solid transparent;background-clip:content-box;border-radius:99px}
+.res-row{display:flex;align-items:center;gap:10px;height:38px;padding:0 14px;
+  border-bottom:1px solid var(--hair);font-family:var(--font-mono);font-size:12.5px;
+  transition:background var(--dur) var(--ease),color var(--dur) var(--ease)}
+.res-row:last-child{border-bottom:0}
+.res-row:hover{background:var(--card-hover)}
+.res-row.sel{background:var(--accent-tint);color:var(--accent)}
+.res-row .idx{font-family:var(--font-ui);font-size:11px;color:var(--faint);width:14px}
+.res-row.sel .idx{color:var(--accent)}
+.res-row .tag{margin-left:auto;font-family:var(--font-ui);font-size:10.5px;font-weight:600;color:var(--accent)}
+.res-side{display:flex;flex-direction:column;gap:10px}
+.res-side .btnrow{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.empty{padding:26px 14px;text-align:center;font-size:11.5px;color:var(--faint)}
+
+/* 关于页 */
+.ident{display:flex;align-items:center;gap:16px;margin-top:22px}
+.ident .logo{width:56px;height:56px;border-radius:14px}
+.ident .logo svg{width:31px;height:31px}
+.ident-name{font-family:var(--font-display);font-size:20px;font-weight:600}
+.ident-ver{font-size:11.5px;color:var(--muted);margin-top:3px}
+.kv{display:flex;flex-direction:column;gap:3px}
+.kv .k{font-size:11px;color:var(--faint)}
+.kv .v2{font-size:13px}
+.kv .v3{font-family:var(--font-mono);font-size:11.5px;color:var(--muted);margin-top:2px}
+.arch{display:flex;flex-direction:column;gap:11px;margin-top:12px}
+.arch li{display:flex;gap:9px;font-size:12px;color:var(--muted);line-height:1.55;list-style:none}
+.arch li:first-child{color:var(--text)}
+.arch li::before{content:"·";color:var(--accent);font-weight:700;line-height:1.5}
+
+/* Toast */
+.toast{position:absolute;left:50%;bottom:20px;z-index:9;transform:translate(-50%,10px);
+  display:flex;align-items:center;gap:9px;height:34px;padding:0 14px;border-radius:9px;
+  background:var(--card);border:1px solid var(--border-strong);box-shadow:0 12px 34px rgba(0,0,0,.35);
+  font-size:12px;opacity:0;pointer-events:none;
+  transition:opacity var(--dur) var(--ease),transform var(--dur) var(--ease)}
+.toast.on{opacity:1;transform:translate(-50%,0)}
+.toast svg{width:15px;height:15px;color:var(--accent)}
+.toast.err svg{color:var(--danger)}
+
+/* 布局工具 */
+.split{display:grid;grid-template-columns:1.05fr .95fr;gap:16px;align-items:start}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.stack{display:flex;flex-direction:column;gap:12px}
+.mt{margin-top:14px}
+.mt16{margin-top:16px}
+.mt22{margin-top:22px}
+.grow{flex:1}
+.cap{font-size:11.5px;color:var(--muted)}
+.between{display:flex;align-items:center;gap:16px}
+.divider{height:1px;background:var(--border);margin:20px 0}
+.card .svc{font-size:12.5px;color:var(--text)}
+.btn svg{transition:transform var(--dur) var(--ease)}
+.btn[data-a="wan"]:hover svg{transform:rotate(120deg)}
+
+/* ===================== WebView2 宿主模式 ===================== */
+html.hosted,html.hosted body{width:100%;height:100%;background:var(--window);overflow:hidden}
+html.hosted .stage{position:static;display:block;background:transparent;gap:0}
+html.hosted .app{width:100vw;height:100vh;border-radius:0;box-shadow:none;--fit:1;transform:none}
+html.hosted .stage-note,html.hosted .reopen{display:none}
+
+@media (prefers-reduced-motion:reduce){
+  *{animation:none !important;transition:none !important}
+}
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2.6M12 18.9v2.6M2.5 12h2.6M18.9 12h2.6M5.3 5.3l1.9 1.9M16.8 16.8l1.9 1.9M18.7 5.3l-1.9 1.9M7.2 16.8l-1.9 1.9"/></symbol>
+    <symbol id="i-monitor" viewBox="0 0 24 24"><rect x="2.6" y="4" width="18.8" height="12.4" rx="2.2"/><path d="M12 16.4V20M8.4 20h7.2"/></symbol>
+    <symbol id="i-gamepad" viewBox="0 0 24 24"><rect x="2.4" y="7.6" width="19.2" height="8.8" rx="4.4"/><path d="M7.4 10.6v3.2M5.8 12.2h3.2"/><circle cx="16" cy="11" r="1.05" fill="currentColor" stroke="none"/><circle cx="18.3" cy="13.7" r="1.05" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-stack" viewBox="0 0 24 24"><rect x="8.6" y="2.6" width="12.8" height="8.2" rx="1.8" opacity=".5"/><rect x="2.6" y="9.6" width="12.8" height="8.2" rx="1.8"/><path d="M9 17.8v3.4"/></symbol>
+    <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="6.4"/><circle cx="12" cy="12" r="2.5"/><path d="M12 2.8v2.2M12 19v2.2M2.8 12H5M19 12h2.2M5.6 5.6l1.6 1.6M16.8 16.8l1.6 1.6M18.4 5.6L16.8 7.2M7.2 16.8l-1.6 1.6"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.4"/><circle cx="12" cy="7.7" r=".95" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4.6" y="10.4" width="14.8" height="9.6" rx="2.2"/><path d="M8.2 10.4V7.8a3.8 3.8 0 0 1 7.6 0v2.6"/></symbol>
+    <symbol id="i-mirror" viewBox="0 0 24 24"><rect x="2.2" y="4" width="8.4" height="6.4" rx="1.6"/><rect x="13.4" y="13.6" width="8.4" height="6.4" rx="1.6"/><path d="M13.4 7.2h5.6v5.4M10.6 16.8H5V11.4" opacity=".85"/></symbol>
+    <symbol id="i-exclusive" viewBox="0 0 24 24"><rect x="2.6" y="4" width="18.8" height="12.4" rx="2.2"/><rect x="6.2" y="7.2" width="11.6" height="6" rx="1.2" fill="currentColor" fill-opacity=".35" stroke="none"/><path d="M12 16.4V20M8.4 20h7.2"/></symbol>
+    <symbol id="i-extend" viewBox="0 0 24 24"><rect x="1.6" y="5.2" width="9.6" height="6.8" rx="1.6"/><rect x="12.8" y="5.2" width="9.6" height="6.8" rx="1.6"/><path d="M6.4 12v3.4M17.6 12v3.4M3.8 15.8H9M15 15.8h5.2"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8.4" y="8.4" width="12.2" height="12.2" rx="2.2"/><path d="M16 5.4A2.2 2.2 0 0 0 13.8 3.2H6.2A2.2 2.2 0 0 0 4 5.4v7.6"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20.5 12a8.5 8.5 0 1 1-2.7-6.2"/><path d="M20.8 4.1v5h-5"/></symbol>
+    <symbol id="i-save" viewBox="0 0 24 24"><path d="M6 3.6h9.4L20.4 8v12.4H6z"/><path d="M9.2 3.6v5.2h6.4V3.6"/><path d="M9.2 14.4h6v6h-6z"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5.6v12.8M5.6 12h12.8"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4.8 7.2h14.4M9.6 7.2V5.4a1.4 1.4 0 0 1 1.4-1.4h2a1.4 1.4 0 0 1 1.4 1.4v1.8M6.8 7.2l.7 11.6a1.8 1.8 0 0 0 1.8 1.6h5.4a1.8 1.8 0 0 0 1.8-1.6l.7-11.6"/></symbol>
+    <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7.6"/><circle cx="12" cy="12" r="2.6"/><path d="M12 2.4v2.6M12 19v2.6M2.4 12H5M19 12h2.6"/></symbol>
+    <symbol id="i-power" viewBox="0 0 24 24"><path d="M12 3.4v8.2"/><path d="M18 6.4a8.2 8.2 0 1 1-12 0"/></symbol>
+    <symbol id="i-ext" viewBox="0 0 24 24"><path d="M14 4.4h5.6V10"/><path d="M19.6 4.4 11.8 12.2"/><path d="M18 13.6V18a2.2 2.2 0 0 1-2.2 2.2H6.2A2.2 2.2 0 0 1 4 18V8.2A2.2 2.2 0 0 1 6.2 6H11"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M4.8 12.6 9.4 17.2 19.2 6.8"/></symbol>
+    <symbol id="i-min" viewBox="0 0 24 24"><path d="M5.6 12.2h12.8"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6.4 6.4 17.6 17.6M17.6 6.4 6.4 17.6"/></symbol>
+  </defs></svg>
+  <div class="app" id="app"></div>
+  <p class="stage-note" id="stageNote"></p>
+  <button class="reopen" id="reopen">重新打开界面</button>
+</div>
+<script>
+"use strict";
+const $=(s,r=document)=>r.querySelector(s);
+const $$=(s,r=document)=>Array.from(r.querySelectorAll(s));
+const wait=ms=>new Promise(r=>setTimeout(r,ms));
+const ic=(n,cls="")=>`<svg class="ic ${cls}" aria-hidden="true"><use href="#i-${n}"></use></svg>`;
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+/* ===================== 宿主 RPC ===================== */
+const HOSTED=!!(window.chrome&&window.chrome.webview);
+if(HOSTED)document.documentElement.classList.add("hosted");
+let rpcSeq=0;
+const RPC=new Map();
+function call(method,args={}){
+  if(!HOSTED)return Promise.reject(new Error("预览模式无宿主"));
+  return new Promise((ok,fail)=>{
+    const id=++rpcSeq;
+    RPC.set(id,{ok,fail});
+    window.chrome.webview.postMessage({id,method,args});
+  });
+}
+async function remote(method,args){
+  try{return await call(method,args);}catch(e){toast(e.message,false);throw e;}
+}
+if(HOSTED){
+  window.addEventListener("error",e=>call("log",{message:"UI error: "+e.message}));
+  window.addEventListener("unhandledrejection",e=>call("log",{message:"UI reject: "+(e.reason&&e.reason.message||e.reason)}));
+  window.__sdReply=m=>{
+    const p=RPC.get(m.id);
+    if(!p)return;
+    RPC.delete(m.id);
+    m.ok?p.ok(m.result):p.fail(new Error(m.error||"调用失败"));
+  };
+  window.__sdEvent=m=>onEvent(m.event,m.data);
+  window.chrome.webview.addEventListener("message",e=>{
+    const m=e.data;
+    if(!m)return;
+    if(m.id!==undefined&&m.method===undefined)window.__sdReply(m);
+    else if(m.event)window.__sdEvent(m);
+  });
+}
+
+const NAV=[
+  {id:"console",t:"主会话",i:"monitor"},
+  {id:"game",t:"游戏会话",i:"gamepad"},
+  {id:"vda",t:"虚拟显示器",i:"stack"},
+  {id:"settings",t:"设置",i:"gear"},
+  {id:"about",t:"关于",i:"info"},
+];
+const MODES=[
+  {id:"mirror",t:"镜像",d:"串流物理主屏<br>摘除虚拟屏",i:"mirror"},
+  {id:"only",t:"独占",d:"仅串流虚拟屏<br>物理屏保持点亮",i:"exclusive"},
+  {id:"extend",t:"扩展",d:"物理屏与虚拟屏<br>同时可用",i:"extend"},
+];
+
+/* 预览时的默认值；宿主模式由 C# 下发真实快照 */
+const QS=new URLSearchParams(location.search);
+const THEME_PARAM=QS.get("theme");
+let state={
+  theme:THEME_PARAM||localStorage.getItem("sd.theme")||"system",
+  page:QS.get("page")||"console",
+  net:{lan:"192.168.12.64",wan:"203.0.113.66"},
+  sessions:{
+    console:{id:"console",name:"主会话",sub:"物理屏与虚拟屏串流 · Console SYSTEM 会话",stream:48100,web:48101},
+    game:{id:"game",name:"游戏会话",sub:"RDP 用户桌面 · 游戏会话",stream:48200,web:48201},
+  },
+  vda:{mode:"only",aw:1440,ah:648,sel:-1,busy:false,
+    list:["2560x1080@60","1280x720@60","1920x1080@60","1920x1200@60","1440x648@60","1440x648@90"]},
+  core:{cport:48100,gport:48200,autoStart:true,ralt:false,raltl:true,hideCursor:false,
+    service:"运行中",user:"sunshine"},
+};
+
+/* ===================== 模板 ===================== */
+function sidebarHTML(){
+  return `<aside class="sidebar drag">
+    <div class="brand">
+      <div class="logo">${ic("sun")}</div>
+      <div>
+        <div class="brand-name">Sunshine Duo</div>
+        <div class="brand-sub">双会话串流</div>
+      </div>
+    </div>
+    <nav class="nav nodrag">
+      ${NAV.map(n=>`<button class="nav-item${n.id===state.page?" on":""}" data-a="nav" data-nav="${n.id}">${ic(n.i)}<span>${n.t}</span></button>`).join("")}
+    </nav>
+    <div class="side-foot nodrag">
+      <div class="hair"></div>
+      <div class="svc" id="svcSide"><span class="dot"></span><span id="svcText"></span>${ic("lock")}</div>
+    </div>
+  </aside>`;
+}
+
+function infoCard(o){
+  return `<div class="card">
+    <div class="card-top">
+      <span class="card-t">${o.title}</span>
+      ${o.acts.map(a=>`<button class="btn sm" data-a="${a[0]}"${a[2]?` data-src="${a[2]}"`:""}>${a[1]}</button>`).join("")}
+    </div>
+    <p class="card-d">${o.hint}</p>
+    <p class="val" id="${o.id}">${esc(o.value)}</p>
+  </div>`;
+}
+
+function sessionHTML(s){
+  return `<section class="page${s.id===state.page?" on":""}" data-page="${s.id}">
+    <div class="head drag">
+      <div class="grow">
+        <h1 class="h1">${s.name}</h1>
+        <p class="sub">${s.sub}</p>
+      </div>
+      <span class="pill ok nodrag" id="pill-${s.id}"><i></i><span id="pillText-${s.id}">运行中</span></span>
+    </div>
+
+    <div class="grid3 nodrag">
+      ${infoCard({title:"本机 IP",hint:"局域网内 Moonlight 直接连接",value:state.net.lan,id:`v-lan-${s.id}`,
+        acts:[["copy","复制",`v-lan-${s.id}`]]})}
+      ${infoCard({title:"WAN 公网 IP",hint:"ip.sb 实时获取 · 5 分钟缓存",value:state.net.wan,id:`v-wan-${s.id}`,
+        acts:[["wan","刷新",`v-wan-${s.id}`],["copy","复制",`v-wan-${s.id}`]]})}
+      ${infoCard({title:"会话端口",hint:"Moonlight 使用的串流端口",value:s.stream,id:`v-port-${s.id}`,
+        acts:[["copy","复制",`v-port-${s.id}`]]})}
+    </div>
+
+    <div class="card addr nodrag">
+      <div>
+        <div class="k">Moonlight 连接地址</div>
+        <div class="v" id="v-addr-${s.id}">${state.net.lan}:${s.stream}</div>
+      </div>
+      <button class="btn sm" data-a="copy" data-src="v-addr-${s.id}">复制</button>
+    </div>
+
+    <div class="sec nodrag">
+      <h2 class="h2">PIN 配对</h2>
+      <p class="sub" style="margin-top:6px">在 Moonlight 中连接本机后，把它显示的 4 位配对码填到下面。</p>
+      <div class="pairrow">
+        <div class="pin" id="pin-${s.id}">
+          ${[0,1,2,3].map(i=>`<input class="pinbox" data-sid="${s.id}" inputmode="numeric" autocomplete="off" maxlength="1" aria-label="配对码第 ${i+1} 位">`).join("")}
+        </div>
+        <button class="btn pri lg" data-a="pair" data-sid="${s.id}">配对</button>
+      </div>
+      <p class="status" id="pairStatus-${s.id}"></p>
+      <div class="btnrow mt">
+        <button class="btn" data-a="web" data-path="/pin#PIN">${ic("ext")}打开 WebUI 配对页</button>
+        <button class="btn" data-a="web" data-path="/config">${ic("ext")}打开 WebUI 配置</button>
+      </div>
+    </div>
+  </section>`;
+}
+
+function vdaHTML(){
+  return `<section class="page${state.page==="vda"?" on":""}" data-page="vda">
+    <div class="head drag">
+      <div class="grow">
+        <h1 class="h1">虚拟显示器</h1>
+        <p class="sub">SudoVDA 虚拟屏工作模式与分辨率 · 仅作用于主会话</p>
+      </div>
+    </div>
+
+    <div class="sec-h"><h2 class="h2">工作模式</h2></div>
+    <div class="modes nodrag">
+      ${MODES.map(m=>`<button class="mode${m.id===state.vda.mode?" on":""}" data-a="mode" data-mode="${m.id}">${ic(m.i)}<b>${m.t}</b><span>${m.d}</span></button>`).join("")}
+    </div>
+    <p class="status" id="modeStatus"></p>
+
+    <div class="divider"></div>
+
+    <div class="sec-h">
+      <h2 class="h2">分辨率</h2>
+      <span class="right" id="resActive">当前活动：${state.vda.aw} × ${state.vda.ah}</span>
+    </div>
+    <div class="split nodrag">
+      <div class="res" id="resList"></div>
+      <div class="res-side">
+        <input class="input mono" id="resInput" placeholder="2560x1440@60" autocomplete="off" aria-label="新增分辨率">
+        <div class="btnrow">
+          <button class="btn" data-a="res-add">${ic("plus")}添加</button>
+          <button class="btn" data-a="res-del">${ic("trash")}删除所选</button>
+        </div>
+        <button class="btn blk" data-a="res-active">${ic("target")}设为活动分辨率</button>
+        <button class="btn pri blk" data-a="res-save">${ic("save")}保存分辨率列表</button>
+        <p class="note">格式：宽x高@刷新率，例如 2560x1440@60。<br>双击列表项也可设为活动。</p>
+      </div>
+    </div>
+    <p class="status" id="resStatus"></p>
+    <p class="note">工作模式切换会立即调整显示拓扑；分辨率在下一场串流建立时生效。</p>
+  </section>`;
+}
+
+function swHTML(key,label,on){
+  return `<button class="sw" role="switch" data-a="sw" data-key="${key}" aria-checked="${!!on}">
+    <span class="sw-t">${label}</span>
+    <span class="track"></span>
+  </button>`;
+}
+
+function settingsHTML(){
+  const c=state.core;
+  return `<section class="page${state.page==="settings"?" on":""}" data-page="settings">
+    <div class="head drag">
+      <div class="grow">
+        <h1 class="h1">设置</h1>
+        <p class="sub">会话端口、启动项、账号与维护工具集中在这里。</p>
+      </div>
+      <div class="nodrag">
+        <div class="cap" style="margin-bottom:7px">主题</div>
+        <div class="seg">
+          ${[["system","跟随系统"],["light","浅色"],["dark","深色"]]
+            .map(t=>`<button data-a="theme" data-mode="${t[0]}"${state.theme===t[0]?' class="on"':""}>${t[1]}</button>`).join("")}
+        </div>
+      </div>
+    </div>
+
+    <div class="cols nodrag">
+      <div>
+        <div class="card">
+          <div class="card-t">会话端口</div>
+          <p class="card-d">conf 里的 port，WebUI 用端口 +1；保存后重启会话。</p>
+          <div class="row2 mt">
+            <div class="field"><label for="p-c">主会话串流端口</label><input class="input mono" id="p-c" value="${c.cport}" autocomplete="off"></div>
+            <div class="field"><label for="p-g">游戏会话串流端口</label><input class="input mono" id="p-g" value="${c.gport}" autocomplete="off"></div>
+          </div>
+          <div class="mt"><button class="btn" data-a="ports-save">保存端口</button></div>
+          <p class="status" id="portStatus"></p>
+        </div>
+
+        <div class="card">
+          <div class="card-t">启动</div>
+          <div class="mt">${swHTML("autoStart","登录 Windows 时自动启动托盘",c.autoStart)}</div>
+        </div>
+
+        <div class="card">
+          <div class="card-t">键盘与鼠标</div>
+          <p class="card-d">仅作用于主会话桌面；勾选即生效，无需重启。</p>
+          <div class="stack mt">
+            ${swHTML("ralt","R-Alt 替代 Win",c.ralt)}
+            ${swHTML("raltl","R-Alt+L 替代 Win+L",c.raltl)}
+            ${swHTML("hideCursor","串流期间隐藏系统鼠标指针",c.hideCursor)}
+          </div>
+          <p class="status" id="hkStatus"></p>
+        </div>
+      </div>
+
+      <div>
+        <div class="card">
+          <div class="card-t">WebUI 账号密码</div>
+          <p class="card-d">写入两个 Apollo 的状态文件，并重启会话使其生效。</p>
+          <div class="stack mt">
+            <div class="field"><label for="c-user">用户名</label><input class="input" id="c-user" value="${esc(c.user)}" autocomplete="off"></div>
+            <div class="field"><label for="c-pass">新密码</label><input class="input" id="c-pass" type="password" autocomplete="new-password"></div>
+            <div class="field"><label for="c-confirm">确认新密码</label><input class="input" id="c-confirm" type="password" autocomplete="new-password"></div>
+          </div>
+          <div class="mt"><button class="btn pri" data-a="cred-apply">应用并重启会话</button></div>
+          <p class="status" id="credStatus"></p>
+        </div>
+
+        <div class="card">
+          <div class="card-t">服务与维护</div>
+          <div class="svc mt" id="svcCard"><span class="dot"></span><span id="svcCardText"></span></div>
+          <div class="mt"><button class="btn" data-a="svc-toggle" id="svcBtn">启动服务</button></div>
+          <div class="btnrow mt">
+            <button class="btn" data-a="restart" data-id="console" data-name="主会话">重启主会话</button>
+            <button class="btn" data-a="restart" data-id="game" data-name="游戏会话">重启游戏会话</button>
+          </div>
+          <p class="note">服务启停经 gsudo64 提权；重启会话由核心服务执行。</p>
+          <p class="status" id="svcStatus"></p>
+        </div>
+      </div>
+    </div>
+  </section>`;
+}
+
+function aboutHTML(){
+  return `<section class="page${state.page==="about"?" on":""}" data-page="about">
+    <div class="head drag">
+      <div class="grow">
+        <h1 class="h1">关于</h1>
+        <p class="sub">Sunshine Duo 托盘 · 双 Apollo 串流管理</p>
+      </div>
+    </div>
+
+    <div class="ident nodrag">
+      <div class="logo">${ic("sun")}</div>
+      <div>
+        <div class="ident-name">Sunshine Duo</div>
+        <div class="ident-ver">托盘 v1.0.0 · 莫氏萌艺风格的双会话串流派生</div>
+      </div>
+    </div>
+
+    <div class="card between nodrag mt22">
+      <div class="kv">
+        <span class="k">作者</span>
+        <span class="v2">苏羽茜工作室（xRetia Labs.）</span>
+        <span class="v3">GitHub · xRetia/Sunshine-Duo</span>
+      </div>
+      <button class="btn" data-a="homepage" style="margin-left:auto">${ic("ext")}打开项目主页</button>
+    </div>
+
+    <div class="card nodrag mt16">
+      <div class="kv"><span class="k">架构</span></div>
+      <ul class="arch">
+        <li>双 Apollo 实例：Console SYSTEM 物理屏 / Game 用户桌面 RDP 会话</li>
+        <li>SudoVDA 虚拟显示器 · 拓扑由 SunshineDuoCore 按各自流生命周期管理</li>
+        <li>Moonlight / Apollo 协议 · 本机控制管道：\\\\.\\pipe\\SunshineDuoCore-ctrl</li>
+      </ul>
+    </div>
+
+    <p class="note">本工具只管理本机串流服务，不收集、不上传任何数据。</p>
+  </section>`;
+}
+/* ===================== 宿主事件 ===================== */
+function applySnapshot(s){
+  state={...state,...s,
+    net:{...state.net,...(s.net||{})},
+    sessions:{...state.sessions,...(s.sessions||{})},
+    core:{...state.core,...(s.core||{})},
+    vda:{...state.vda,...(s.vda||{})}};
+  if(s.sessions)for(const x of Object.values(s.sessions))state.sessions[x.id]=x;
+  render();
+  applyTheme(state.theme);
+  if(s.page)navigate(s.page);
+  if(s.focusPin){const f=document.querySelector("#pin-console input");if(f)f.focus();}
+  if(s.consoleEnabled===false||s.gameEnabled===false){
+    $$('.nav-item').forEach(b=>{
+      if((s.consoleEnabled===false&&["console","vda"].includes(b.dataset.nav))||
+         (s.gameEnabled===false&&b.dataset.nav==="game")) b.style.display="none";
+    });
+    if(s.consoleEnabled===false){const el=$("#p-c");if(el)el.closest(".field").style.display="none";}
+    if(s.gameEnabled===false){const el=$("#p-g");if(el)el.closest(".field").style.display="none";}
+    $$('[data-a="restart"]').forEach(b=>{
+      const id=b.dataset.id;
+      if((id==="console"&&s.consoleEnabled===false)||(id==="game"&&s.gameEnabled===false))b.style.display="none";
+    });
+  }
+}
+
+function onEvent(name,data){
+  if(name==="session"){
+    for(const [id,up] of Object.entries(data||{})){
+      const pill=$("#pill-"+id);
+      if(!pill)continue;
+      pill.className="pill nodrag "+(up===true?"ok":up===false?"bad":"wait");
+      $("#pillText-"+id).textContent=up===true?"运行中":up===false?"未运行":"检测中";
+    }
+    return;
+  }
+  if(name==="service"){state.core.service=data;renderService();return;}
+  if(name==="wan"){
+    state.net.wan=data;
+    $$('.val[id^="v-wan-"]').forEach(el=>{el.textContent=data});
+    return;
+  }
+  if(name==="navigate"){navigate(data);return;}
+  if(name==="focusPair"){
+    navigate("console");
+    const first=document.querySelector("#pin-console input");
+    if(first)first.focus();
+    return;
+  }
+  if(name==="theme"){applyTheme(data);return;}
+}
+
+async function pollRemote(){
+  while(HOSTED){
+    await wait(2500);
+    try{
+      const s=await call("poll");
+      onEvent("session",s.sessions);
+      onEvent("service",s.service);
+      if(s.wan)onEvent("wan",s.wan);
+    }catch{}
+  }
+}
+
+/* ===================== 渲染 ===================== */
+const RES_RE=/^\d{2,5}x\d{2,5}@\d{2,3}$/;
+const SIZE_RE=/^(\d+)x(\d+)/;
+const lightMQ=matchMedia("(prefers-color-scheme: light)");
+
+function render(){
+  $("#app").innerHTML=sidebarHTML()
+    +`<main class="content">`
+      +sessionHTML(state.sessions.console)
+      +sessionHTML(state.sessions.game)
+      +vdaHTML()
+      +settingsHTML()
+      +aboutHTML()
+    +`</main>`
+    +`<div class="winctl nodrag">
+        <button class="wbtn" data-a="min" aria-label="最小化">${ic("min")}</button>
+        <button class="wbtn x" data-a="close" aria-label="关闭">${ic("x")}</button>
+      </div>
+      <div class="toast" id="toast"><span id="toastIcon"></span><span id="toastText"></span></div>`;
+  $("#stageNote").innerHTML=
+    "<b>Sunshine Duo · WebView2 界面预览</b>　拖拽 / 窗口按钮 / 右键屏蔽 / 主题切换：宿主侧由 WebView2 + WinForms 承担";
+  resRows();
+  renderService();
+  fit();
+}
+
+function navigate(id){
+  state.page=id;
+  $$(".nav-item").forEach(b=>b.classList.toggle("on",b.dataset.nav===id));
+  $$(".page").forEach(p=>p.classList.toggle("on",p.dataset.page===id));
+  $(".content").scrollTop=0;
+}
+
+const resolveTheme=m=>m==="light"?"light":m==="dark"?"dark":(lightMQ.matches?"light":"dark");
+function applyTheme(mode){
+  state.theme=mode;
+  if(!HOSTED&&!THEME_PARAM)localStorage.setItem("sd.theme",mode);
+  const root=document.documentElement;
+  root.classList.add("notrans");
+  root.dataset.theme=resolveTheme(mode);
+  void root.offsetHeight;
+  requestAnimationFrame(()=>root.classList.remove("notrans"));
+  /* 页面隐藏时 rAF 不会触发（WebView2 最小化也是），补一个定时器兜底 */
+  setTimeout(()=>root.classList.remove("notrans"),120);
+  $$('[data-a="theme"]').forEach(b=>b.classList.toggle("on",b.dataset.mode===mode));
+}
+
+function toast(text,ok=true){
+  $("#toastIcon").innerHTML=ic(ok?"check":"info");
+  $("#toastText").textContent=text;
+  const t=$("#toast");
+  t.classList.toggle("err",!ok);
+  t.classList.add("on");
+  clearTimeout(toast._t);
+  toast._t=setTimeout(()=>t.classList.remove("on"),1900);
+}
+
+function setStatus(el,text,kind){
+  if(!el)return;
+  el.className="status"+(kind?" "+kind:"");
+  el.textContent=text;
+}
+
+const SVC_KIND={"运行中":"ok","启动中":"warn","停止中":"warn"};
+function renderService(){
+  const s=state.core.service, kind=SVC_KIND[s]||"bad";
+  $("#svcSide").className="svc "+kind;
+  $("#svcText").textContent="核心服务："+s;
+  $("#svcCard").className="svc mt "+kind;
+  $("#svcCardText").textContent="SunshineDuoCore："+s;
+  const btn=$("#svcBtn");
+  btn.textContent=(s==="运行中"||s==="启动中"?"停止":"启动")+"服务";
+  btn.disabled=s==="未安装"||s==="查询失败";
+}
+
+function resRows(){
+  const {list,sel,aw,ah}=state.vda, box=$("#resList");
+  if(!list.length){box.innerHTML='<div class="empty">列表为空，先在右侧添加一条分辨率。</div>';return;}
+  const firstMatch=list.findIndex(r=>{
+    const m=SIZE_RE.exec(r);
+    return m&&+m[1]===aw&&+m[2]===ah;
+  });
+  box.innerHTML=list.map((r,i)=>{
+    return `<div class="res-row${i===sel?" sel":""}" data-a="res-pick" data-i="${i}">`
+      +`<span class="idx">${i+1}</span><span>${esc(r)}</span>${i===firstMatch?'<span class="tag">当前活动</span>':""}</div>`;
+  }).join("");
+}
+
+function syncSessions(){
+  for(const s of Object.values(state.sessions)){
+    $("#v-port-"+s.id).textContent=String(s.stream);
+    $("#v-addr-"+s.id).textContent=state.net.lan+":"+s.stream;
+  }
+}
+
+function fit(){
+  const s=Math.max(.5,Math.min(1,(innerWidth-40)/1020,(innerHeight-96)/680));
+  document.documentElement.style.setProperty("--fit",String(s));
+}
+
+/* ===================== 行为 ===================== */
+async function copyText(v){
+  if(HOSTED){await call("copyText",{text:v});return;}
+  try{await navigator.clipboard.writeText(v);}
+  catch{
+    const ta=document.createElement("textarea");
+    ta.value=v;ta.style.position="fixed";ta.style.opacity="0";
+    document.body.appendChild(ta);ta.select();
+    try{document.execCommand("copy");}catch{}
+    ta.remove();
+  }
+}
+
+function pinBoxes(sid){return $$(`#pin-${sid} input`)}
+
+async function submitPin(sid){
+  const st=$("#pairStatus-"+sid), btn=$(`[data-a="pair"][data-sid="${sid}"]`);
+  const code=pinBoxes(sid).map(b=>b.value).join("");
+  if(code.length!==4){setStatus(st,"请输入设备上显示的 4 位配对码。","bad");return;}
+  btn.disabled=true;btn.textContent="提交中…";
+  setStatus(st,"正在提交…","");
+  if(HOSTED){
+    try{
+      const msg=await call("sendPin",{sid,code});
+      setStatus(st,msg,"ok");
+      pinBoxes(sid).forEach(b=>{b.value="";b.classList.remove("has")});
+      pinBoxes(sid)[0].focus();
+    }catch(e){setStatus(st,"配对失败："+e.message,"bad");}
+    btn.disabled=false;btn.textContent="配对";
+    return;
+  }
+  await wait(1000);
+  btn.disabled=false;btn.textContent="配对";
+  setStatus(st,"配对成功，已授予全部权限。请在 Moonlight 上确认。","ok");
+  pinBoxes(sid).forEach(b=>{b.value="";b.classList.remove("has")});
+  pinBoxes(sid)[0].focus();
+}
+
+async function applyMode(id){
+  if(state.vda.busy)return;
+  state.vda.busy=true;
+  state.vda.mode=id;
+  $$(".mode").forEach(m=>m.classList.toggle("on",m.dataset.mode===id));
+  setStatus($("#modeStatus"),"正在切换显示拓扑…","");
+  if(HOSTED){
+    try{await call("setDisplayMode",{mode:id});setStatus($("#modeStatus"),`已切换为「${MODES.find(m=>m.id===id).t}」。串流中的拓扑已立即调整。`,"ok");}
+    catch(e){setStatus($("#modeStatus"),"切换失败："+e.message,"bad");}
+    state.vda.busy=false;
+    return;
+  }
+  await wait(800);
+  const name=MODES.find(m=>m.id===id).t;
+  setStatus($("#modeStatus"),`已切换为「${name}」。串流中的拓扑已立即调整。`,"ok");
+  state.vda.busy=false;
+}
+
+function addRes(){
+  const inp=$("#resInput"), st=$("#resStatus");
+  const s=inp.value.trim().toLowerCase();
+  if(!RES_RE.test(s)){setStatus(st,"格式不对：必须带刷新率，例如 2560x1440@60。","bad");return;}
+  if(state.vda.list.some(x=>x.toLowerCase()===s)){setStatus(st,"该分辨率已在列表中。","warn");return;}
+  state.vda.sel=state.vda.list.push(s)-1;
+  inp.value="";inp.focus();
+  resRows();
+  setStatus(st,"已添加，记得保存。","");
+}
+
+function delRes(){
+  const st=$("#resStatus");
+  if(state.vda.sel<0){setStatus(st,"先在列表中选中要删除的分辨率。","warn");return;}
+  state.vda.list.splice(state.vda.sel,1);
+  state.vda.sel=Math.min(state.vda.sel,state.vda.list.length-1);
+  resRows();
+  setStatus(st,"已删除，记得保存。","");
+}
+
+function activeRes(){
+  const st=$("#resStatus");
+  if(state.vda.sel<0){setStatus(st,"先在列表中选中一个分辨率。","warn");return;}
+  const m=SIZE_RE.exec(state.vda.list[state.vda.sel]||"");
+  if(!m){setStatus(st,"无法解析该分辨率。","bad");return;}
+  state.vda.aw=+m[1];state.vda.ah=+m[2];
+  $("#resActive").textContent=`当前活动：${state.vda.aw} × ${state.vda.ah}`;
+  resRows();
+  setStatus(st,"已设为活动分辨率，保存后生效。","");
+}
+
+async function saveRes(){
+  const st=$("#resStatus"), {list,aw,ah}=state.vda;
+  const bad=list.find(r=>!RES_RE.test(r));
+  if(bad){setStatus(st,"存在无效条目："+bad,"bad");return;}
+  setStatus(st,"正在保存…","");
+  if(HOSTED){
+    try{const msg=await call("setResolution",{width:aw,height:ah,list});setStatus(st,msg,"ok");}
+    catch(e){setStatus(st,"保存失败："+e.message,"bad");}
+    return;
+  }
+  await wait(900);
+  setStatus(st,`已保存，下一场串流按 ${aw} × ${ah} 建立。`,"ok");
+}
+
+async function savePorts(){
+  const st=$("#portStatus");
+  const cp=Number($("#p-c").value.trim()), gp=Number($("#p-g").value.trim());
+  const ok=v=>Number.isInteger(v)&&v>=1024&&v<=65535;
+  if(!ok(cp)){setStatus(st,"主会话端口必须是 1024-65535 的数字。","bad");return;}
+  if(!ok(gp)){setStatus(st,"游戏会话端口必须是 1024-65535 的数字。","bad");return;}
+  if(Math.abs(cp-gp)<50){setStatus(st,"两个端口差需 ≥ 50，避免端口族重叠。","bad");return;}
+  if(HOSTED){
+    setStatus(st,"端口已写入，正在重启会话…","");
+    try{
+      const msg=await call("savePorts",{cport:cp,gport:gp});
+      state.core.cport=cp;state.core.gport=gp;
+      state.sessions.console.stream=cp;state.sessions.game.stream=gp;
+      syncSessions();
+      setStatus(st,msg,"ok");
+    }catch(e){setStatus(st,"保存失败："+e.message,"bad");}
+    return;
+  }
+  const changed=[];
+  if(cp!==state.core.cport)changed.push("主会话");
+  if(gp!==state.core.gport)changed.push("游戏会话");
+  state.core.cport=cp;state.core.gport=gp;
+  state.sessions.console.stream=cp;state.sessions.game.stream=gp;
+  syncSessions();
+  if(!changed.length){setStatus(st,"端口未变化。","");return;}
+  setStatus(st,"端口已写入，正在重启 "+changed.join("、")+"…","");
+  await wait(1100);
+  setStatus(st,"端口已保存，会话已重启。","ok");
+}
+
+async function applyCred(){
+  const st=$("#credStatus");
+  const u=$("#c-user").value.trim(), p=$("#c-pass").value, q=$("#c-confirm").value;
+  if(!u||p.length<4){setStatus(st,"用户名不能为空，密码至少 4 位。","bad");return;}
+  if(p!==q){setStatus(st,"两次输入的密码不一致。","bad");return;}
+  setStatus(st,"正在写入凭证…","");
+  if(HOSTED){
+    try{const msg=await call("applyCredentials",{user:u,pass:p});state.core.user=u;setStatus(st,msg,"ok");}
+    catch(e){setStatus(st,"写入失败："+e.message,"bad");}
+    $("#c-pass").value="";$("#c-confirm").value="";
+    return;
+  }
+  await wait(1000);
+  state.core.user=u;
+  $("#c-pass").value="";$("#c-confirm").value="";
+  setStatus(st,"凭证已应用，Apollo 正在重启。","ok");
+}
+
+async function toggleService(){
+  const btn=$("#svcBtn");
+  const running=state.core.service==="运行中"||state.core.service==="启动中";
+  btn.disabled=true;
+  setStatus($("#svcStatus"),"正在请求提权（gsudo64）…","");
+  if(HOSTED){
+    try{
+      const r=await call("toggleService");
+      state.core.service=r.service;
+      renderService();
+      setStatus($("#svcStatus"),r.message,"ok");
+    }catch(e){setStatus($("#svcStatus"),e.message,"bad");}
+    btn.disabled=false;
+    return;
+  }
+  await wait(900);
+  state.core.service=running?"已停止":"运行中";
+  renderService();
+  btn.disabled=false;
+  setStatus($("#svcStatus"),(running?"停止":"启动")+"指令已执行。","ok");
+}
+
+async function restartSession(el){
+  const name=el.dataset.name;
+  el.disabled=true;
+  setStatus($("#svcStatus"),"正在重启"+name+"…","");
+  if(HOSTED){
+    try{const msg=await call("restartApollo",{id:el.dataset.id});setStatus($("#svcStatus"),msg,"ok");}
+    catch(e){setStatus($("#svcStatus"),"重启失败："+e.message,"bad");}
+    el.disabled=false;
+    return;
+  }
+  await wait(1000);
+  setStatus($("#svcStatus"),name+"重启指令已执行。","ok");
+  el.disabled=false;
+}
+
+async function toggleSwitch(el){
+  const key=el.dataset.key, on=el.getAttribute("aria-checked")==="true";
+  el.setAttribute("aria-checked",String(!on));
+  state.core[key]=!on;
+  if(HOSTED){
+    try{
+      if(key==="autoStart")await call("setAutoStart",{enabled:!on});
+      else if(key==="hideCursor")await call("setHideCursor",{enabled:!on});
+      else await call("setHotkeys",{ralt:state.core.ralt,raltl:state.core.raltl});
+    }catch(e){
+      el.setAttribute("aria-checked",String(on));
+      state.core[key]=on;
+      toast(e.message,false);
+      return;
+    }
+  }
+  if(key==="autoStart"){toast(!on?"已加入登录启动项。":"已移除登录启动项。");return;}
+  if(key==="hideCursor"){
+    setStatus($("#hkStatus"),!on?"连接后将隐藏系统鼠标指针。":"已恢复显示系统鼠标指针。","ok");
+    return;
+  }
+  setStatus($("#hkStatus"),"快捷键设置已应用。","ok");
+}
+
+async function minimize(){
+  if(HOSTED){call("windowMinimize");return;}
+  const a=$("#app");
+  a.classList.add("min");
+  await wait(720);
+  a.classList.remove("min");
+}
+
+const ACT={
+  nav:el=>navigate(el.dataset.nav),
+  copy:el=>{
+    const v=$("#"+el.dataset.src).textContent.trim();
+    if(!v||v==="获取中…"||v==="获取失败")return;
+    copyText(v);
+    toast("已复制："+v);
+  },
+  wan:async el=>{
+    const box=$("#"+el.dataset.src);
+    el.disabled=true;box.textContent="获取中…";
+    if(HOSTED){
+      try{const ip=await call("getWanIp",{force:true});state.net.wan=ip;box.textContent=ip;}
+      catch(e){box.textContent="获取失败";toast(e.message,false);}
+      el.disabled=false;
+      return;
+    }
+    await wait(800);
+    box.textContent=state.net.wan;el.disabled=false;
+  },
+  pair:el=>submitPin(el.dataset.sid),
+  web:el=>{
+    if(HOSTED){call("openWebUi",{sid:"console",path:el.dataset.path||"/config"});toast("正在打开 Apollo WebUI…");return;}
+    toast("预览占位：真实实现里打开 Apollo WebUI 窗口");
+  },
+  mode:el=>applyMode(el.dataset.mode),
+  "res-pick":el=>{state.vda.sel=+el.dataset.i;resRows();},
+  "res-add":addRes,
+  "res-del":delRes,
+  "res-active":activeRes,
+  "res-save":saveRes,
+  theme:el=>{applyTheme(el.dataset.mode);if(HOSTED)call("setTheme",{mode:el.dataset.mode});toast("主题已切换："+el.textContent.trim());},
+  sw:el=>toggleSwitch(el),
+  "ports-save":savePorts,
+  "cred-apply":applyCred,
+  "svc-toggle":toggleService,
+  restart:el=>restartSession(el),
+  min:minimize,
+  close:()=>{
+    if(HOSTED){call("windowClose");return;}
+    $("#stage").classList.add("closed");
+  },
+  homepage:()=>{
+    if(HOSTED){call("openHomepage");toast("正在打开项目主页…");return;}
+    toast("预览占位：不调用外部浏览器");
+  },
+};
+
+/* ===================== 事件绑定 ===================== */
+document.addEventListener("click",e=>{
+  const el=e.target.closest("[data-a]");
+  if(!el||el.disabled)return;
+  const fn=ACT[el.dataset.a];
+  if(fn)fn(el,e);
+});
+
+document.addEventListener("input",e=>{
+  const el=e.target;
+  if(!el.classList||!el.classList.contains("pinbox"))return;
+  el.value=el.value.replace(/\D/g,"").slice(0,1);
+  el.classList.toggle("has",el.value.length===1);
+  if(!el.value)return;
+  const boxes=pinBoxes(el.dataset.sid), i=boxes.indexOf(el);
+  if(i<3)boxes[i+1].focus();
+});
+
+document.addEventListener("paste",e=>{
+  const el=e.target;
+  if(!el.classList||!el.classList.contains("pinbox"))return;
+  e.preventDefault();
+  const code=(e.clipboardData.getData("text")||"").replace(/\D/g,"").slice(0,4);
+  if(!code)return;
+  const boxes=pinBoxes(el.dataset.sid);
+  code.split("").forEach((c,i)=>{if(boxes[i]){boxes[i].value=c;boxes[i].classList.add("has");}});
+  boxes[Math.min(code.length,3)].focus();
+});
+
+document.addEventListener("keydown",e=>{
+  if((e.ctrlKey||e.metaKey)&&!/^[1-5]$/.test(e.key))return;
+  if((e.ctrlKey||e.metaKey)&&/^[1-5]$/.test(e.key)){navigate(NAV[+e.key-1].id);e.preventDefault();return;}
+  const el=document.activeElement;
+  if(!el||!el.classList.contains("pinbox"))return;
+  const boxes=pinBoxes(el.dataset.sid), i=boxes.indexOf(el);
+  if(e.key==="Backspace"&&!el.value&&i>0){
+    boxes[i-1].focus();boxes[i-1].value="";boxes[i-1].classList.remove("has");e.preventDefault();
+  }else if(e.key==="Enter"){submitPin(el.dataset.sid);e.preventDefault();}
+  else if(e.key==="ArrowLeft"&&i>0)boxes[i-1].focus();
+  else if(e.key==="ArrowRight"&&i<3)boxes[i+1].focus();
+});
+
+document.addEventListener("dblclick",e=>{
+  const row=e.target.closest('[data-a="res-pick"]');
+  if(!row)return;
+  state.vda.sel=+row.dataset.i;
+  resRows();
+  activeRes();
+});
+
+/* 浏览器特征屏蔽：真实宿主里对应 AreDefaultContextMenusEnabled=false 与 AllowExternalDrop=false */
+document.addEventListener("contextmenu",e=>{
+  if(e.target.closest("input"))return;
+  e.preventDefault();
+});
+document.addEventListener("dragstart",e=>e.preventDefault());
+addEventListener("resize",fit);
+lightMQ.addEventListener("change",()=>{if(state.theme==="system")applyTheme("system")});
+
+$("#reopen").addEventListener("click",()=>$("#stage").classList.remove("closed"));
+
+if(HOSTED){
+  call("init").then(s=>{applySnapshot(s);pollRemote();})
+    .catch(e=>{toast("初始化失败："+e.message,false);call("log",{message:"UI init failed: "+e.message});});
+}else{
+  render();
+  applyTheme(state.theme);
+}
+</script>
+</body>
+</html>

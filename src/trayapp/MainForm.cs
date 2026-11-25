@@ -13,7 +13,7 @@ internal enum MainPage
 }
 
 // 托盘双击打开的主界面：左侧导航 + 右侧分页（仿远程协助客户端的布局），支持浅色/深色主题
-internal sealed class MainForm : Form
+internal sealed class MainForm : Form, IMainUi
 {
     private const int SidebarWidth = 236;
     private const int ContentWidth = 784;
