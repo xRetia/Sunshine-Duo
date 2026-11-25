@@ -1489,11 +1489,12 @@ class DisplayExclusive:
         (~1.3s after the client requests a mode). Windows never auto-activates
         a freshly added SudoVDA monitor while a physical display is active
         (measured live: the target stays out of the active path set until a
-        topology apply, and it does not even show up as GDI-attached before
-        that), so fire the EXTERNAL projection on every poll while the race is
-        open - the moment the driver registers the new target it joins the
-        active set and Apollo's name lookup succeeds. After Apollo reports a
-        failed naming attempt, rescue the capture target instead:
+        topology apply), so activate it via EXTERNAL as soon as it is visible.
+        While the target is not visible yet the preset is only pushed on a
+        truly headless host: with an active physical source a bare EXTERNAL
+        strips it mid-topology and breaks Apollo's in-flight monitor creation.
+        After Apollo reports a failed naming attempt, rescue the capture
+        target instead:
         only -> detach physicals (capture reinit lands on the lone VDA),
         extend -> make the VDA primary. Mirror never activates the VDA."""
         if not self._streaming or mode == 'mirror' or self._vda_created:
@@ -1503,10 +1504,9 @@ class DisplayExclusive:
                 ok, detail = _activate_vda_external()
                 self._fp_fail = 0
             elif time.time() < self._fp_until:
-                # VDA not GDI-visible yet: push the preset anyway so the
-                # target activates the instant the driver registers it.
-                # Bounded by the race window - pushing EXTERNAL with no
-                # virtual display at all would switch the physical panel off.
+                if _physical_devices_any():
+                    return True
+                # A truly headless host has no physical source to disrupt.
                 if time.time() < self._fp_backoff_until:
                     return True  # in backoff - retry on the next cadence tick
                 ok = _set_topology_preset(SDC_TOPOLOGY_EXTERNAL)
