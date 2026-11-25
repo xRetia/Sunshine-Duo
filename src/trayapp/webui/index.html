@@ -5,6 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>萌远控 Duo</title>
 <style>
+/* 图标统一用仓库自带的 Font Awesome 6 Solid，仅 logo 保留图片 */
+@font-face{font-family:"FA Solid";src:url("fa-solid-900.woff2") format("woff2");
+  font-weight:900;font-style:normal;font-display:block}
+.fi{font-family:"FA Solid";font-weight:900;font-style:normal;display:inline-flex;align-items:center;
+  justify-content:center;line-height:1;font-size:14px;user-select:none;-webkit-user-select:none}
 /* ===================== Fluent 2 / WinUI 3 设计令牌 ===================== */
 :root{
   --font-ui:"Segoe UI Variable Text","Segoe UI","Microsoft YaHei UI",system-ui,sans-serif;
@@ -62,8 +67,6 @@ img,svg{-webkit-user-drag:none;user-select:none}
 ::selection{background:var(--accent-soft)}
 :focus{outline:none}
 :focus-visible{outline:2px solid var(--accent-text);outline-offset:2px}
-svg.ic{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.5;
-  stroke-linecap:round;stroke-linejoin:round;flex:none}
 .drag{-webkit-app-region:drag;app-region:drag}
 .nodrag{-webkit-app-region:no-drag;app-region:no-drag}
 html.notrans *{transition:none !important}
@@ -95,7 +98,7 @@ html.notrans *{transition:none !important}
   padding:20px 12px 16px;display:flex;flex-direction:column;gap:22px}
 .brand{display:flex;align-items:center;gap:12px;padding-left:12px}
 .logo{width:40px;height:40px;flex:none;display:grid;place-items:center}
-.logo svg{width:22px;height:22px;stroke-width:1.6}
+.logo .fi{font-size:20px}
 .logo img{width:100%;height:100%;object-fit:contain}
 .brand-name{font-family:var(--font-display);font-size:15px;font-weight:600;line-height:1.2}
 .brand-sub{font-size:12px;color:var(--muted);margin-top:3px}
@@ -104,11 +107,11 @@ html.notrans *{transition:none !important}
   border-radius:var(--r-ctl);font-size:15px;color:var(--text);text-align:left;width:100%;
   transition:background var(--dur) var(--ease)}
 .nav-item:focus-visible{outline:2px solid var(--text-primary);outline-offset:-2px}
-.nav-item svg{width:18px;height:18px;color:var(--muted);transition:color var(--dur) var(--ease)}
+.nav-item .fi{font-size:18px;color:var(--muted);transition:color var(--dur) var(--ease)}
 .nav-item:hover{background:var(--subtle-2)}
 .nav-item:active{background:var(--subtle)}
 .nav-item.on{background:var(--subtle)}
-.nav-item.on svg{color:var(--accent-text)}
+.nav-item.on .fi{color:var(--accent-text)}
 .nav-item.on::after{content:"";position:absolute;left:-12px;top:50%;transform:translateY(-50%);
   width:3px;height:16px;border-radius:2px;background:var(--accent)}
 .nav-item .pill{margin-left:auto;height:18px;padding:0 6px;font-size:10px;border-radius:9px;gap:4px}
@@ -121,7 +124,7 @@ html.notrans *{transition:none !important}
 .svc.ok .dot{background:var(--accent-text);--dotc:var(--accent-text)}
 .svc.warn .dot{background:var(--warn);--dotc:var(--warn)}
 .svc.bad .dot{background:var(--danger);--dotc:var(--danger)}
-.svc svg{width:14px;height:14px;color:var(--faint);margin-left:auto}
+.svc .fi{font-size:14px;color:var(--faint);margin-left:auto}
 
 /* ===================== 内容区 ===================== */
 .content{position:relative;overflow-y:auto;overflow-x:hidden;padding:0 24px;scrollbar-width:thin}
@@ -149,7 +152,7 @@ html.notrans *{transition:none !important}
 .winctl{position:absolute;top:0;right:0;z-index:8;display:flex}
 .wbtn{width:46px;height:32px;display:grid;place-items:center;color:var(--muted);border-radius:0;
   transition:background var(--dur) var(--ease),color var(--dur) var(--ease)}
-.wbtn svg{width:14px;height:14px}
+.wbtn .fi{font-size:13px}
 .wbtn:hover{background:var(--fill-hover);color:var(--text)}
 .wbtn.x:hover{background:#C42B1C;color:#fff}
 
@@ -187,23 +190,23 @@ html.notrans *{transition:none !important}
 .btn:hover{background:var(--fill-hover);border-color:var(--stroke-2)}
 .btn:active{background:var(--press);transform:scale(.99)}
 .btn[disabled]{opacity:.45;pointer-events:none}
-.btn svg{width:14px;height:14px;color:var(--muted)}
+.btn .fi{font-size:14px;color:var(--muted)}
 .btn.pri{background:var(--accent);border-color:transparent;color:var(--on-accent);font-weight:600}
 .btn.pri:hover{background:var(--accent-hover);border-color:transparent}
 .btn.pri:active{background:var(--accent-press)}
-.btn.pri svg{color:var(--on-accent)}
+.btn.pri .fi{color:var(--on-accent)}
 .btn.sm{height:26px;padding:0 8px;font-size:12px;border-radius:var(--r-ctl)}
 .btn.lg{height:36px;padding:0 20px;font-size:14px}
 .btn-icn{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;
   padding:0;border-radius:var(--r-ctl);background:var(--fill);border:1px solid var(--stroke);
-  font-family:"Segoe Fluent Icons","Segoe MDL2 Assets",sans-serif;font-size:13px;color:var(--muted);
+  font-family:"FA Solid";font-weight:900;font-size:13px;color:var(--muted);
   cursor:pointer;transition:background var(--dur) var(--ease),color var(--dur) var(--ease),
   transform var(--dur) var(--ease)}
 .btn-icn:hover{background:var(--fill-hover);color:var(--text)}
 .btn-icn[data-a="wan"]:hover{transform:rotate(120deg)}
 .btn.blk{width:100%}
 .btnrow{display:flex;gap:10px;flex-wrap:wrap}
-.btn svg{transition:transform var(--dur) var(--ease)}
+.btn .fi{transition:transform var(--dur) var(--ease)}
 
 /* TextBox */
 .field{display:block}
@@ -261,13 +264,13 @@ html.notrans *{transition:none !important}
 .modes{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
 .mode{padding:18px 14px 16px;border-radius:var(--r-card);background:var(--card);border:1px solid var(--stroke);
   text-align:center;transition:background var(--dur) var(--ease),border-color var(--dur) var(--ease),box-shadow var(--dur) var(--ease)}
-.mode svg{width:44px;height:44px;margin:0 auto 12px;color:var(--muted);stroke-width:1.4;transition:color var(--dur) var(--ease)}
+.mode .fi{font-size:40px;width:40px;height:40px;margin:0 auto 12px;color:var(--muted);transition:color var(--dur) var(--ease)}
 .mode b{display:block;font-size:14px;font-weight:600}
-.mode span{display:block;font-size:12px;color:var(--muted);line-height:1.55;margin-top:6px}
+.mode span:not(.fi){display:block;font-size:12px;color:var(--muted);line-height:1.55;margin-top:6px}
 .mode:hover{background:var(--card2)}
 .mode:active{transform:scale(.995)}
 .mode.on{background:var(--accent-soft);border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
-.mode.on svg,.mode.on b{color:var(--accent-text)}
+.mode.on .fi,.mode.on b{color:var(--accent-text)}
 
 /* 地址条 */
 .addr{display:flex;align-items:center;gap:16px;padding:14px 16px;margin-top:12px}
@@ -312,7 +315,7 @@ html.notrans *{transition:none !important}
 /* 关于 */
 .ident{display:flex;align-items:center;gap:16px;margin-top:20px}
 .ident .logo{width:56px;height:56px}
-.ident .logo svg{width:30px;height:30px}
+.ident .logo .fi{font-size:28px}
 .ident .logo img{width:100%;height:100%;object-fit:contain}
 .ident-name{font-family:var(--font-display);font-size:28px;font-weight:600;line-height:1.2}
 .ident-ver{font-size:12px;color:var(--muted);margin-top:5px}
@@ -320,10 +323,6 @@ html.notrans *{transition:none !important}
 .kv .k{font-size:12px;color:var(--faint)}
 .kv .v2{font-size:14px}
 .kv .v3{font-family:var(--font-mono);font-size:12px;color:var(--muted);margin-top:2px}
-.arch{display:flex;flex-direction:column;gap:10px;margin-top:12px}
-.arch li{display:flex;gap:9px;font-size:13px;color:var(--muted);line-height:1.6;list-style:none}
-.arch li:first-child{color:var(--text)}
-.arch li::before{content:"·";color:var(--accent-text);font-weight:700;line-height:1.5}
 
 /* InfoBar 提示 */
 .toast{position:absolute;left:50%;bottom:20px;z-index:9;transform:translate(-50%,10px);
@@ -332,8 +331,8 @@ html.notrans *{transition:none !important}
   font-size:13px;opacity:0;pointer-events:none;
   transition:opacity var(--dur) var(--ease),transform var(--dur) var(--ease)}
 .toast.on{opacity:1;transform:translate(-50%,0)}
-.toast svg{width:15px;height:15px;color:var(--accent-text)}
-.toast.err svg{color:var(--danger)}
+.toast .fi{font-size:15px;color:var(--accent-text)}
+.toast.err .fi{color:var(--danger)}
 
 /* 布局工具 */
 .split{display:grid;grid-template-columns:1.05fr .95fr;gap:16px;align-items:start}
@@ -358,29 +357,6 @@ html.hosted .stage-note,html.hosted .reopen{display:none}
 </head>
 <body>
 <div class="stage" id="stage">
-  <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
-    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2.6M12 18.9v2.6M2.5 12h2.6M18.9 12h2.6M5.3 5.3l1.9 1.9M16.8 16.8l1.9 1.9M18.7 5.3l-1.9 1.9M7.2 16.8l-1.9 1.9"/></symbol>
-    <symbol id="i-monitor" viewBox="0 0 24 24"><rect x="2.6" y="4" width="18.8" height="12.4" rx="2.2"/><path d="M12 16.4V20M8.4 20h7.2"/></symbol>
-    <symbol id="i-gamepad" viewBox="0 0 24 24"><rect x="2.4" y="7.6" width="19.2" height="8.8" rx="4.4"/><path d="M7.4 10.6v3.2M5.8 12.2h3.2"/><circle cx="16" cy="11" r="1.05" fill="currentColor" stroke="none"/><circle cx="18.3" cy="13.7" r="1.05" fill="currentColor" stroke="none"/></symbol>
-    <symbol id="i-stack" viewBox="0 0 24 24"><rect x="8.6" y="2.6" width="12.8" height="8.2" rx="1.8" opacity=".5"/><rect x="2.6" y="9.6" width="12.8" height="8.2" rx="1.8"/><path d="M9 17.8v3.4"/></symbol>
-    <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="6.4"/><circle cx="12" cy="12" r="2.5"/><path d="M12 2.8v2.2M12 19v2.2M2.8 12H5M19 12h2.2M5.6 5.6l1.6 1.6M16.8 16.8l1.6 1.6M18.4 5.6L16.8 7.2M7.2 16.8l-1.6 1.6"/></symbol>
-    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.4"/><circle cx="12" cy="7.7" r=".95" fill="currentColor" stroke="none"/></symbol>
-    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4.6" y="10.4" width="14.8" height="9.6" rx="2.2"/><path d="M8.2 10.4V7.8a3.8 3.8 0 0 1 7.6 0v2.6"/></symbol>
-    <symbol id="i-mirror" viewBox="0 0 24 24"><rect x="2.2" y="4" width="8.4" height="6.4" rx="1.6"/><rect x="13.4" y="13.6" width="8.4" height="6.4" rx="1.6"/><path d="M13.4 7.2h5.6v5.4M10.6 16.8H5V11.4" opacity=".85"/></symbol>
-    <symbol id="i-exclusive" viewBox="0 0 24 24"><rect x="2.6" y="4" width="18.8" height="12.4" rx="2.2"/><rect x="6.2" y="7.2" width="11.6" height="6" rx="1.2" fill="currentColor" fill-opacity=".35" stroke="none"/><path d="M12 16.4V20M8.4 20h7.2"/></symbol>
-    <symbol id="i-extend" viewBox="0 0 24 24"><rect x="1.6" y="5.2" width="9.6" height="6.8" rx="1.6"/><rect x="12.8" y="5.2" width="9.6" height="6.8" rx="1.6"/><path d="M6.4 12v3.4M17.6 12v3.4M3.8 15.8H9M15 15.8h5.2"/></symbol>
-    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8.4" y="8.4" width="12.2" height="12.2" rx="2.2"/><path d="M16 5.4A2.2 2.2 0 0 0 13.8 3.2H6.2A2.2 2.2 0 0 0 4 5.4v7.6"/></symbol>
-    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20.5 12a8.5 8.5 0 1 1-2.7-6.2"/><path d="M20.8 4.1v5h-5"/></symbol>
-    <symbol id="i-save" viewBox="0 0 24 24"><path d="M6 3.6h9.4L20.4 8v12.4H6z"/><path d="M9.2 3.6v5.2h6.4V3.6"/><path d="M9.2 14.4h6v6h-6z"/></symbol>
-    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5.6v12.8M5.6 12h12.8"/></symbol>
-    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4.8 7.2h14.4M9.6 7.2V5.4a1.4 1.4 0 0 1 1.4-1.4h2a1.4 1.4 0 0 1 1.4 1.4v1.8M6.8 7.2l.7 11.6a1.8 1.8 0 0 0 1.8 1.6h5.4a1.8 1.8 0 0 0 1.8-1.6l.7-11.6"/></symbol>
-    <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7.6"/><circle cx="12" cy="12" r="2.6"/><path d="M12 2.4v2.6M12 19v2.6M2.4 12H5M19 12h2.6"/></symbol>
-    <symbol id="i-power" viewBox="0 0 24 24"><path d="M12 3.4v8.2"/><path d="M18 6.4a8.2 8.2 0 1 1-12 0"/></symbol>
-    <symbol id="i-ext" viewBox="0 0 24 24"><path d="M14 4.4h5.6V10"/><path d="M19.6 4.4 11.8 12.2"/><path d="M18 13.6V18a2.2 2.2 0 0 1-2.2 2.2H6.2A2.2 2.2 0 0 1 4 18V8.2A2.2 2.2 0 0 1 6.2 6H11"/></symbol>
-    <symbol id="i-check" viewBox="0 0 24 24"><path d="M4.8 12.6 9.4 17.2 19.2 6.8"/></symbol>
-    <symbol id="i-min" viewBox="0 0 24 24"><path d="M5.6 12.2h12.8"/></symbol>
-    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6.4 6.4 17.6 17.6M17.6 6.4 6.4 17.6"/></symbol>
-  </defs></svg>
   <div class="app" id="app"></div>
   <p class="stage-note" id="stageNote"></p>
   <button class="reopen" id="reopen">重新打开界面</button>
@@ -390,7 +366,14 @@ html.hosted .stage-note,html.hosted .reopen{display:none}
 const $=(s,r=document)=>r.querySelector(s);
 const $$=(s,r=document)=>Array.from(r.querySelectorAll(s));
 const wait=ms=>new Promise(r=>setTimeout(r,ms));
-const ic=(n,cls="")=>`<svg class="ic ${cls}" aria-hidden="true"><use href="#i-${n}"></use></svg>`;
+/* 图标一律用 Font Awesome 6 Solid 字形；映射值取自仓库内 fa-solid-900.ttf 的 cmap */
+const ICON={
+  monitor:"",gamepad:"",stack:"",gear:"",info:"",
+  mirror:"",exclusive:"",extend:"",lock:"",
+  ext:"",plus:"",trash:"",target:"",save:"",
+  min:"",x:"",check:"",
+};
+const ic=(n,cls="")=>`<span class="fi ${cls}" aria-hidden="true">${ICON[n]||""}</span>`;
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
 /* ===================== 宿主 RPC ===================== */
@@ -479,7 +462,7 @@ function sidebarHTML(){
 }
 
 function infoCard(o){
-  const ICN={copy:"\uE8C8",wan:"\uE72C"};
+  const ICN={copy:"\uF0C5",wan:"\uF021"};
   return `<div class="card">
     <div class="card-top">
       <span class="card-t">${o.title}</span>
@@ -519,7 +502,7 @@ function sessionHTML(s){
           <div class="v" id="v-addr-${s.id}">${(s.addrMode||"lan")==="wan"?state.net.wan:state.net.lan}:${s.stream}</div>
         </div>
       </div>
-      <button class="btn-icn" data-a="copy" data-src="v-addr-${s.id}" aria-label="复制">\uE8C8</button>
+      <button class="btn-icn" data-a="copy" data-src="v-addr-${s.id}" aria-label="复制">\uF0C5</button>
     </div>
 
     <div class="sec nodrag">
@@ -667,7 +650,7 @@ function aboutHTML(){
     <div class="head drag">
       <div class="grow">
         <h1 class="h1">关于</h1>
-        <p class="sub">萌远控 Duo 托盘 · 双 Apollo 串流管理</p>
+        <p class="sub">来自萌艺科技的双会话远程控制软件</p>
       </div>
     </div>
 
@@ -675,7 +658,7 @@ function aboutHTML(){
       <div class="logo"><img src="sun.png" alt="Sunshine"></div>
       <div>
         <div class="ident-name">萌远控 Duo</div>
-        <div class="ident-ver">托盘 v1.0.0 · 莫氏萌艺风格的双会话串流派生</div>
+        <div class="ident-ver">v1.0.0 · 来自萌艺科技的双会话远程控制软件</div>
       </div>
     </div>
 
@@ -688,16 +671,7 @@ function aboutHTML(){
       <button class="btn" data-a="homepage" style="margin-left:auto">${ic("ext")}打开项目主页</button>
     </div>
 
-    <div class="card nodrag mt16">
-      <div class="kv"><span class="k">架构</span></div>
-      <ul class="arch">
-        <li>双 Apollo 实例：Console SYSTEM 物理屏 / Game 用户桌面 RDP 会话</li>
-        <li>SudoVDA 虚拟显示器 · 拓扑由 SunshineDuoCore 按各自流生命周期管理</li>
-        <li>Moonlight / Apollo 协议 · 本机控制管道：\\\\.\\pipe\\SunshineDuoCore-ctrl</li>
-      </ul>
-    </div>
-
-    <p class="note">本工具只管理本机串流服务，不收集、不上传任何数据。</p>
+    <p class="note mt22">本工具只管理本机串流服务，不收集、不上传任何数据。</p>
   </section>`;
 }
 /* ===================== 宿主事件 ===================== */
