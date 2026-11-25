@@ -57,7 +57,7 @@ internal sealed class MainForm : Form, IMainUi
         Font = UiKit.YaHei(9F);
         ShowInTaskbar = true;
         MaximizeBox = false;
-        Icon = TrayIcons.Get(TrayState.Online);
+        Icon = TrayIcons.AppIcon();
         KeyPreview = true;
 
         _timer = new System.Windows.Forms.Timer { Interval = 2500 };

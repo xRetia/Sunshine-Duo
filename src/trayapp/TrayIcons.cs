@@ -13,6 +13,20 @@ internal enum TrayState
 internal static class TrayIcons
 {
     private static readonly Dictionary<TrayState, Icon> Cache = new();
+    private static Icon? _appIcon;
+
+    // 窗口/任务栏/exe 使用不带状态角标的太阳图标
+    public static Icon AppIcon()
+    {
+        lock (Cache)
+        {
+            if (_appIcon != null) return _appIcon;
+            using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("sun.ico")
+                ?? throw new InvalidOperationException("sun.ico resource missing");
+            _appIcon = new Icon(stream, 256, 256);
+            return _appIcon;
+        }
+    }
 
     public static Icon Get(TrayState state)
     {

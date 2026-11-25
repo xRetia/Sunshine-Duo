@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
@@ -47,7 +48,7 @@ internal sealed class WebUiForm : Form, IMainUi
         DoubleBuffered = true;
         ShowInTaskbar = true;
         MaximizeBox = false;
-        Icon = TrayIcons.Get(TrayState.Online);
+        Icon = TrayIcons.AppIcon();
         KeyPreview = true;
 
         _view.Dock = DockStyle.Fill;
@@ -81,8 +82,18 @@ internal sealed class WebUiForm : Form, IMainUi
     {
         base.OnSizeChanged(e);
         if (Width <= 0 || Height <= 0) return;
-        using var path = UiKit.RoundRect(new RectangleF(0, 0, Width, Height), 16);
+        using var path = UiKit.RoundRect(new RectangleF(0, 0, Width, Height), 8);
         Region = new Region(path);
+    }
+
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        var preference = (int)DwmWindowCornerPreference.Round;
+        if (DwmSetWindowAttribute(Handle, DwmWindowAttribute.CornerPreference,
+                ref preference, sizeof(int)) != 0) return;
+        var none = DwmColorNone;
+        DwmSetWindowAttribute(Handle, DwmWindowAttribute.BorderColor, ref none, sizeof(uint));
     }
 
     protected override CreateParams CreateParams
@@ -90,10 +101,31 @@ internal sealed class WebUiForm : Form, IMainUi
         get
         {
             var cp = base.CreateParams;
-            cp.ClassStyle |= 0x20000;
+            cp.ClassStyle |= 0x00020000; // CS_DROPSHADOW：轻量投影
             return cp;
         }
     }
+
+    private const uint DwmColorNone = 0xFFFFFFFE;
+
+    private enum DwmWindowAttribute
+    {
+        CornerPreference = 33,
+        BorderColor = 34,
+    }
+
+    private enum DwmWindowCornerPreference
+    {
+        Round = 2,
+    }
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(IntPtr hwnd, DwmWindowAttribute attribute,
+        ref int value, int size);
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(IntPtr hwnd, DwmWindowAttribute attribute,
+        ref uint value, int size);
 
     private Color WindowColor()
         => UiKit.IsLight ? Color.FromArgb(246, 247, 250) : Color.FromArgb(14, 16, 19);
@@ -327,8 +359,15 @@ internal sealed class WebUiForm : Form, IMainUi
                 var path = Str(a, "path", "/config");
                 var s = Paths.GetSessions(_cfg).FirstOrDefault(x => x.Id == sid)
                         ?? throw new Exception("会话不可用");
-                using var f = new WebViewForm(_cfg, $"{s.Name}配置", s.WebPort, path);
-                f.ShowDialog(this);
+                // 不能在本消息回调里直接 ShowDialog：会阻塞 WebView2 事件泵，
+                // 新窗口停在 about:blank；推迟到下一拍消息循环再弹。
+                var title = path.StartsWith("/pin", StringComparison.OrdinalIgnoreCase)
+                    ? "已配对设备管理" : "高级设置";
+                BeginInvoke(() =>
+                {
+                    using var f = new WebViewForm(_cfg, title, s.WebPort, path);
+                    f.ShowDialog(this);
+                });
                 return true;
             }
 

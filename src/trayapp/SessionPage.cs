@@ -153,13 +153,13 @@ internal sealed class SessionPage : Panel
         };
         Controls.Add(_pairStatus);
 
-        var webPair = UiKit.Ghost("打开 WebUI 配对页");
+        var webPair = UiKit.Ghost("已配对设备管理");
         webPair.Location = new Point(0, 456);
         webPair.Size = new Size(152, 34);
         webPair.Click += (_, _) => OpenWeb("/pin#PIN");
         Controls.Add(webPair);
 
-        var webConfig = UiKit.Ghost("打开 WebUI 配置");
+        var webConfig = UiKit.Ghost("高级设置");
         webConfig.Location = new Point(164, 456);
         webConfig.Size = new Size(144, 34);
         webConfig.Click += (_, _) => OpenWeb("/config");
@@ -387,7 +387,9 @@ internal sealed class SessionPage : Panel
         if (_s.WebPort <= 0) return;
         try
         {
-            using var f = new WebViewForm(_cfg, $"{_s.Name}配置", _s.WebPort, path);
+            var title = path.StartsWith("/pin", StringComparison.OrdinalIgnoreCase)
+                ? "已配对设备管理" : "高级设置";
+            using var f = new WebViewForm(_cfg, title, _s.WebPort, path);
             var owner = FindForm();
             if (owner != null) f.ShowDialog(owner);
             else f.ShowDialog();

@@ -7,7 +7,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>SunshineDuoTray</AssemblyName>
-    <ApplicationIcon>..\..\assets\web\images\apollo.ico</ApplicationIcon>
+    <ApplicationIcon>sun.ico</ApplicationIcon>
     <Version>1.0.0</Version>
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
@@ -19,6 +19,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="sun.png" LogicalName="sun.png" />
+    <EmbeddedResource Include="sun.ico" LogicalName="sun.ico" />
   </ItemGroup>
 
   <ItemGroup>

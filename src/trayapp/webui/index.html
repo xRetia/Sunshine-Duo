@@ -35,6 +35,8 @@ html[data-theme="light"]{
   --danger:#C42B1C; --warn:#9D5D00;
   --shadow:0 8px 26px rgba(0,0,0,.11),0 2px 6px rgba(0,0,0,.05);
   --hair:rgba(0,0,0,.06);
+  --win-line:rgba(0,0,0,.10);
+  --wbtn-hover:rgba(0,0,0,.06); --wbtn-press:rgba(0,0,0,.10);
 }
 html[data-theme="dark"]{
   color-scheme:dark;
@@ -51,6 +53,8 @@ html[data-theme="dark"]{
   --danger:#F1707B; --warn:#E8A317;
   --shadow:0 14px 38px rgba(0,0,0,.52),0 2px 8px rgba(0,0,0,.36);
   --hair:rgba(255,255,255,.07);
+  --win-line:rgba(255,255,255,.16);
+  --wbtn-hover:rgba(255,255,255,.12); --wbtn-press:rgba(255,255,255,.16);
 }
 
 /* ===================== 去浏览器化基础 ===================== */
@@ -104,7 +108,7 @@ html.notrans *{transition:none !important}
 .brand-sub{font-size:12px;color:var(--muted);margin-top:3px}
 .nav{display:flex;flex-direction:column;gap:2px}
 .nav-item{position:relative;display:flex;align-items:center;gap:12px;height:40px;padding:0 12px;
-  border-radius:var(--r-ctl);font-size:15px;color:var(--text);text-align:left;width:100%;
+  border-radius:var(--r-ctl);font-size:15px;font-weight:400;color:var(--text);text-align:left;width:100%;
   transition:background var(--dur) var(--ease)}
 .nav-item:focus-visible{outline:2px solid var(--text-primary);outline-offset:-2px}
 .nav-item .fi{font-size:18px;color:var(--muted);transition:color var(--dur) var(--ease)}
@@ -114,9 +118,7 @@ html.notrans *{transition:none !important}
 .nav-item.on .fi{color:var(--accent-text)}
 .nav-item.on::after{content:"";position:absolute;left:-12px;top:50%;transform:translateY(-50%);
   width:3px;height:16px;border-radius:2px;background:var(--accent)}
-.nav-item .pill{margin-left:auto;height:20px;padding:0 8px;font-size:11px;border-radius:10px;gap:5px;
-  background:color-mix(in srgb,var(--accent-text) 12%,transparent);
-  border:1px solid color-mix(in srgb,var(--accent-text) 30%,transparent);color:var(--accent-text);font-weight:400}
+.nav-item .pill{margin-left:auto;height:20px;padding:0 8px;font-size:11px;border-radius:10px;gap:5px;font-weight:400}
 .nav-item .pill i{width:6px;height:6px}
 .side-foot{margin-top:auto;padding:0 12px}
 .hair{height:1px;background:var(--hair);margin-bottom:12px}
@@ -129,13 +131,16 @@ html.notrans *{transition:none !important}
 .svc .fi{font-size:14px;color:var(--faint);margin-left:auto}
 
 /* ===================== 内容区 ===================== */
-.content{position:relative;overflow-y:auto;overflow-x:hidden;padding:0 24px;scrollbar-width:thin}
-.content::-webkit-scrollbar{width:10px}
-.content::-webkit-scrollbar-track{background:transparent}
-.content::-webkit-scrollbar-thumb{background:transparent;border:3px solid transparent;
-  background-clip:content-box;border-radius:99px}
-.content:hover::-webkit-scrollbar-thumb{background:var(--stroke-2)}
-.content::-webkit-scrollbar-thumb:hover{background:var(--muted);border:2px solid transparent;background-clip:content-box}
+.content{position:relative;overflow-y:auto;overflow-x:hidden;padding:0 24px}
+.content::-webkit-scrollbar,.res::-webkit-scrollbar{width:10px;height:10px;background:transparent}
+.content::-webkit-scrollbar-track,.res::-webkit-scrollbar-track{background:transparent}
+.content::-webkit-scrollbar-button,.res::-webkit-scrollbar-button{display:none;width:0;height:0}
+.content::-webkit-scrollbar-corner,.res::-webkit-scrollbar-corner{background:transparent}
+.content::-webkit-scrollbar-thumb,.res::-webkit-scrollbar-thumb{
+  background:transparent;border:3px solid transparent;background-clip:content-box;border-radius:99px;min-height:32px}
+.content.scrolling::-webkit-scrollbar-thumb,.res.scrolling::-webkit-scrollbar-thumb{background:var(--stroke-2)}
+.content.scrolling::-webkit-scrollbar-thumb:hover,.res.scrolling::-webkit-scrollbar-thumb:hover{
+  background:var(--muted);border:2px solid transparent;background-clip:content-box}
 .page{display:none;padding:20px 0 24px}
 .page.on{display:block;animation:pageIn .18s var(--ease)}
 @keyframes pageIn{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
@@ -156,7 +161,10 @@ html.notrans *{transition:none !important}
 .wbtn{width:46px;height:32px;display:grid;place-items:center;color:var(--muted);border-radius:0;
   transition:background var(--dur) var(--ease),color var(--dur) var(--ease)}
 .wbtn .fi{font-size:13px}
-.wbtn:hover{background:var(--fill-hover);color:var(--text)}
+.wbtn:hover{background:var(--wbtn-hover);color:var(--text)}
+.wbtn:active{background:var(--wbtn-press)}
+.wbtn.theme{width:38px;color:var(--faint)}
+.wbtn.theme.on{color:var(--accent-text);background:var(--accent-soft)}
 .wbtn.x:hover{background:#C42B1C;color:#fff}
 
 /* InfoBadge 状态胶囊 */
@@ -303,9 +311,7 @@ html.notrans *{transition:none !important}
 
 /* ListView 分辨率 */
 .res{border:1px solid var(--stroke);border-radius:var(--r-card);overflow:hidden;background:var(--card);
-  max-height:252px;overflow-y:auto;scrollbar-width:thin}
-.res::-webkit-scrollbar{width:10px}
-.res::-webkit-scrollbar-thumb{background:var(--stroke-2);border:3px solid transparent;background-clip:content-box;border-radius:99px}
+  max-height:252px;overflow-y:auto}
 .res-row{display:flex;align-items:center;gap:10px;height:40px;padding:0 14px;
   border-bottom:1px solid var(--hair);font-family:var(--font-mono);font-size:13px;
   transition:background var(--dur) var(--ease),color var(--dur) var(--ease)}
@@ -320,13 +326,12 @@ html.notrans *{transition:none !important}
 .res-side .btnrow{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 
 /* 关于 */
-.ident{display:flex;align-items:center;gap:16px;margin-top:20px}
-.ident .logo{width:80px;height:80px}
-.ident .logo .fi{font-size:34px}
+.ident{display:flex;align-items:center;gap:12px;margin-top:20px}
+.ident .logo{width:56px;height:56px}
+.ident .logo .fi{font-size:24px}
 .ident .logo img{width:100%;height:100%;object-fit:contain}
 .ident-name{font-family:var(--font-display);font-size:28px;font-weight:600;line-height:1.2}
 .ident-ver{font-size:12px;color:var(--muted);margin-top:5px}
-.ident-desc{font-size:13px;color:var(--muted);line-height:1.6;margin-top:4px}
 .kv{display:flex;flex-direction:column;gap:4px}
 .kv .k{font-size:12px;color:var(--faint)}
 .kv .v2{font-size:14px}
@@ -357,7 +362,8 @@ html.notrans *{transition:none !important}
 /* ===================== 宿主模式 ===================== */
 html.hosted,html.hosted body{width:100%;height:100%;background:var(--bg);overflow:hidden}
 html.hosted .stage{position:static;display:block;background:transparent;gap:0}
-html.hosted .app{width:100vw;height:100vh;border-radius:0;box-shadow:none;--fit:1;transform:none}
+html.hosted .app{width:100vw;height:100vh;border-radius:8px;
+  box-shadow:inset 0 0 0 1px var(--win-line);--fit:1;transform:none}
 html.hosted .stage-note,html.hosted .reopen{display:none}
 
 @media (prefers-reduced-motion:reduce){*{animation:none !important;transition:none !important}}
@@ -380,8 +386,15 @@ const ICON={
   display:"",clone:"",eye:"",expand:"",lock:"",
   ext:"",plus:"",trash:"",target:"",save:"",
   min:"",x:"",check:"",
+  sun:"\uf185",moon:"\uf186",auto:"\uf042",
 };
 const ic=(n,cls="")=>`<span class="fi ${cls}" aria-hidden="true">${ICON[n]||""}</span>`;
+const THEME_ICON={
+  light:{icon:"sun",label:"浅色"},
+  dark:{icon:"moon",label:"深色"},
+  system:{icon:"auto",label:"自动"},
+};
+const THEME_ORDER=["system","light","dark"];
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
 /* ===================== 宿主 RPC ===================== */
@@ -524,8 +537,8 @@ function sessionHTML(s){
       </div>
       <p class="status" id="pairStatus-${s.id}"></p>
       <div class="btnrow mt">
-        <button class="btn" data-a="web" data-path="/pin#PIN">${ic("ext")}打开 WebUI 配对页</button>
-        <button class="btn" data-a="web" data-path="/config">${ic("ext")}打开 WebUI 配置</button>
+        <button class="btn" data-a="web" data-sid="${s.id}" data-path="/pin#PIN">${ic("ext")}已配对设备管理</button>
+        <button class="btn" data-a="web" data-sid="${s.id}" data-path="/config">${ic("ext")}高级设置</button>
       </div>
     </div>
   </section>`;
@@ -536,7 +549,7 @@ function vdaHTML(){
     <div class="head drag">
       <div class="grow">
         <h1 class="h1">虚拟显示器</h1>
-        <p class="sub">SudoVDA 虚拟屏工作模式与分辨率 · 仅作用于当前会话</p>
+        <p class="sub">虚拟屏工作模式与分辨率 · 仅作用于当前会话</p>
       </div>
     </div>
 
@@ -584,13 +597,6 @@ function settingsHTML(){
       <div class="grow">
         <h1 class="h1">设置</h1>
         <p class="sub">会话端口、启动项、账号与维护工具集中在这里。</p>
-      </div>
-      <div class="nodrag">
-        <div class="cap" style="margin-bottom:7px">主题</div>
-        <div class="seg">
-          ${[["system","跟随系统"],["light","浅色"],["dark","深色"]]
-            .map(t=>`<button data-a="theme" data-mode="${t[0]}"${state.theme===t[0]?' class="on"':""}>${t[1]}</button>`).join("")}
-        </div>
       </div>
     </div>
 
@@ -666,7 +672,6 @@ function aboutHTML(){
       <div>
         <div class="ident-name">萌远控 Duo</div>
         <div class="ident-ver">版本号 v1.0.0</div>
-        <div class="ident-desc">来自萌艺科技的双会话远程控制软件</div>
       </div>
     </div>
 
@@ -761,6 +766,7 @@ function render(){
       +aboutHTML()
     +`</main>`
     +`<div class="winctl nodrag">
+        <button class="wbtn theme" data-a="cycleTheme" id="themeBtn" aria-label="主题"></button>
         <button class="wbtn" data-a="min" aria-label="最小化">${ic("min")}</button>
         <button class="wbtn x" data-a="close" aria-label="关闭">${ic("x")}</button>
       </div>
@@ -790,7 +796,13 @@ function applyTheme(mode){
   requestAnimationFrame(()=>root.classList.remove("notrans"));
   /* 页面隐藏时 rAF 不会触发（WebView2 最小化也是），补一个定时器兜底 */
   setTimeout(()=>root.classList.remove("notrans"),120);
-  $$('[data-a="theme"]').forEach(b=>b.classList.toggle("on",b.dataset.mode===mode));
+  const btn=$("#themeBtn");
+  if(btn){
+    const cur=THEME_ICON[mode]||THEME_ICON.system;
+    btn.innerHTML=ic(cur.icon);
+    btn.setAttribute("aria-label",cur.label);
+    btn.title=cur.label;
+  }
 }
 
 function toast(text,ok=true){
@@ -1179,7 +1191,7 @@ const ACT={
   },
   pair:el=>submitPin(el.dataset.sid),
   web:el=>{
-    if(HOSTED){call("openWebUi",{sid:"console",path:el.dataset.path||"/config"});toast("正在打开 Apollo WebUI…");return;}
+    if(HOSTED){call("openWebUi",{sid:el.dataset.sid||"console",path:el.dataset.path||"/config"});toast("正在打开 Apollo WebUI…");return;}
     toast("预览占位：真实实现里打开 Apollo WebUI 窗口");
   },
   mode:el=>applyMode(el.dataset.mode),
@@ -1188,7 +1200,12 @@ const ACT={
   "res-del":delRes,
   "res-active":activeRes,
   "res-save":saveRes,
-  theme:el=>{applyTheme(el.dataset.mode);if(HOSTED)call("setTheme",{mode:el.dataset.mode});toast("主题已切换："+el.textContent.trim());},
+  cycleTheme:()=>{
+    const next=THEME_ORDER[(THEME_ORDER.indexOf(state.theme)+1)%THEME_ORDER.length];
+    applyTheme(next);
+    if(HOSTED)call("setTheme",{mode:next});
+    toast("主题："+THEME_ICON[next].label);
+  },
   sw:el=>swPointerClicked(el),
   "ports-save":savePorts,
   "cred-apply":applyCred,
@@ -1212,6 +1229,16 @@ document.addEventListener("click",e=>{
   const fn=ACT[el.dataset.a];
   if(fn)fn(el,e);
 });
+
+/* 滚动条不滚动时隐藏：滚动期间给容器加 .scrolling，停止 800ms 后移除 */
+const scrollTimers=new WeakMap();
+document.addEventListener("scroll",e=>{
+  const el=e.target;
+  if(!(el instanceof Element))return;
+  el.classList.add("scrolling");
+  clearTimeout(scrollTimers.get(el));
+  scrollTimers.set(el,setTimeout(()=>el.classList.remove("scrolling"),800));
+},true);
 
 document.addEventListener("input",e=>{
   const el=e.target;
