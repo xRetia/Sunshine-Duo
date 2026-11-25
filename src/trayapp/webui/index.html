@@ -94,11 +94,9 @@ html.notrans *{transition:none !important}
 .sidebar{background:var(--pane);border-right:1px solid var(--stroke);
   padding:20px 12px 16px;display:flex;flex-direction:column;gap:22px}
 .brand{display:flex;align-items:center;gap:12px;padding-left:12px}
-.logo{width:40px;height:40px;border-radius:8px;flex:none;display:grid;place-items:center;color:var(--on-accent);
-  background:linear-gradient(155deg,var(--accent-hover),var(--accent));
-  box-shadow:0 2px 8px var(--accent-soft)}
+.logo{width:40px;height:40px;flex:none;display:grid;place-items:center}
 .logo svg{width:22px;height:22px;stroke-width:1.6}
-.logo img{width:100%;height:100%;object-fit:contain;border-radius:8px}
+.logo img{width:100%;height:100%;object-fit:contain}
 .brand-name{font-family:var(--font-display);font-size:15px;font-weight:600;line-height:1.2}
 .brand-sub{font-size:12px;color:var(--muted);margin-top:3px}
 .nav{display:flex;flex-direction:column;gap:2px}
@@ -113,7 +111,8 @@ html.notrans *{transition:none !important}
 .nav-item.on svg{color:var(--accent-text)}
 .nav-item.on::after{content:"";position:absolute;left:-12px;top:50%;transform:translateY(-50%);
   width:3px;height:16px;border-radius:2px;background:var(--accent)}
-.nav-item .pill{margin-left:auto;height:20px;padding:0 8px;font-size:11px}
+.nav-item .pill{margin-left:auto;height:18px;padding:0 6px;font-size:10px;border-radius:9px;gap:4px}
+.nav-item .pill i{width:4px;height:4px}
 .side-foot{margin-top:auto;padding:0 12px}
 .hair{height:1px;background:var(--hair);margin-bottom:12px}
 .svc{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);min-height:20px}
@@ -310,9 +309,9 @@ html.notrans *{transition:none !important}
 
 /* 关于 */
 .ident{display:flex;align-items:center;gap:16px;margin-top:20px}
-.ident .logo{width:56px;height:56px;border-radius:12px}
+.ident .logo{width:56px;height:56px}
 .ident .logo svg{width:30px;height:30px}
-.ident .logo img{width:100%;height:100%;object-fit:contain;border-radius:12px}
+.ident .logo img{width:100%;height:100%;object-fit:contain}
 .ident-name{font-family:var(--font-display);font-size:28px;font-weight:600;line-height:1.2}
 .ident-ver{font-size:12px;color:var(--muted);margin-top:5px}
 .kv{display:flex;flex-direction:column;gap:4px}
