@@ -1581,7 +1581,7 @@ $xaml = @'
                       <ColumnDefinition Width="84"/>
                       <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
-                    <TextBlock Grid.Column="0" Text="SunshineDuoCore" Foreground="#94A3B8"/>
+                    <TextBlock Grid.Column="0" Text="核心服务" Foreground="#94A3B8"/>
                     <TextBlock Grid.Column="1" x:Name="lblWelcomeWg" Foreground="#E2E8F0"
                                TextWrapping="Wrap"/>
                   </Grid>
@@ -1684,6 +1684,20 @@ $xaml = @'
             <StackPanel Grid.Row="1" x:Name="grpStep2" Margin="4,0,10,0" Visibility="Collapsed">
               <TextBlock x:Name="txtStep2Title" Text="第 2 步 · 设置串流用户"
                          Foreground="#7DD3FC" FontSize="14" FontWeight="Bold" Margin="2,0,0,10"/>
+              <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+                <StackPanel>
+                  <TextBlock Text="安装模式" Foreground="#7DD3FC" FontSize="12.5"
+                             FontWeight="Bold" Margin="0,0,0,8"/>
+                  <RadioButton x:Name="rdoDualSession" GroupName="SessionMode" IsChecked="True"
+                               Margin="0,4,0,0" Content="双会话（Console + 游戏会话，推荐）"/>
+                  <TextBlock FontSize="11" Foreground="#94A3B8" Margin="20,2,0,0" TextWrapping="Wrap"
+                             Text="主会话 + 游戏会话：两个 Apollo 实例，手机 / 平板可连游戏会话串流；需 RDP 并发解锁"/>
+                  <RadioButton x:Name="rdoConsoleOnly" GroupName="SessionMode" Margin="0,10,0,0"
+                               Content="仅主会话（Console 单机串流）"/>
+                  <TextBlock FontSize="11" Foreground="#94A3B8" Margin="20,2,0,0" TextWrapping="Wrap"
+                             Text="仅安装主会话：不装游戏会话与 RDP 并发解锁，适合只在本地主机串流；日后可重跑向导补装游戏会话"/>
+                </StackPanel>
+              </Border>
               <Grid>
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="250"/>
@@ -1720,7 +1734,7 @@ $xaml = @'
                 </Border>
 
                 <!-- 右栏 · 游戏用户（RDP 串流，表单卡） -->
-                <Border Grid.Column="1" Style="{StaticResource Card}" Margin="0,0,0,12" Padding="0">
+                <Border x:Name="gameUserCard" Grid.Column="1" Style="{StaticResource Card}" Margin="0,0,0,12" Padding="0">
                   <StackPanel>
                     <Border Height="4" CornerRadius="10,10,0,0" Background="#22C55E"/>
                     <StackPanel Margin="20,16,20,16">
@@ -1855,20 +1869,6 @@ $xaml = @'
                   <CheckBox x:Name="chkReset" Margin="0,8,0,0" Content="解绑所有已配对设备"/>
                   <TextBlock FontSize="11" Foreground="#94A3B8" Margin="20,2,0,0" TextWrapping="Wrap"
                              Text="手机 / 平板 / 电视需重新配对"/>
-                </StackPanel>
-              </Border>
-              <Border Style="{StaticResource Card}" Margin="0,0,0,12">
-                <StackPanel>
-                  <TextBlock Text="安装模式" Foreground="#7DD3FC" FontSize="12.5"
-                             FontWeight="Bold" Margin="0,0,0,8"/>
-                  <RadioButton x:Name="rdoDualSession" GroupName="SessionMode" IsChecked="True"
-                               Margin="0,4,0,0" Content="双会话（Console + 游戏会话，推荐）"/>
-                  <TextBlock FontSize="11" Foreground="#94A3B8" Margin="20,2,0,0" TextWrapping="Wrap"
-                             Text="主会话 + 游戏会话：两个 Apollo 实例，手机 / 平板可连游戏会话串流；需 RDP 并发解锁"/>
-                  <RadioButton x:Name="rdoConsoleOnly" GroupName="SessionMode" Margin="0,10,0,0"
-                               Content="仅主会话（Console 单机串流）"/>
-                  <TextBlock FontSize="11" Foreground="#94A3B8" Margin="20,2,0,0" TextWrapping="Wrap"
-                             Text="仅安装主会话：不装游戏会话与 RDP 并发解锁，适合只在本地主机串流；日后可重跑向导补装游戏会话"/>
                 </StackPanel>
               </Border>
               <Border Style="{StaticResource Card}" Margin="0,0,0,12">
@@ -2115,7 +2115,7 @@ $UiControlNames = @('lblRoot','txtLog','cmbGpu','lblGpuInfo',
                    'chkConf','chkFirewall','chkRdpWrap','chkWsguard',
                    'chkGpuAccel','chkGamepad','chkGameMgr','chkReset','chkSudoVDA',
                    'chkTrayDesktop','chkTrayStart','chkTrayAuto',
-                   'txtConsoleUser','lblConsoleAvatar','txtStreamUser','pwdRdp','btnVerifyPw','lblPwState','lblCredState','chkAutoLogon',
+                   'txtConsoleUser','lblConsoleAvatar','txtStreamUser','gameUserCard','pwdRdp','btnVerifyPw','lblPwState','lblCredState','chkAutoLogon',
                    'txtWebUser','pwdWebUi','pwdWebUi2','lblWebPwState',
                    'txtWidth','txtHeight','btnBack','btnNext','btnInstall',
                    'lblStep1','lblStep2','lblStep3','lblStep4','lblStep5','grpStep1','grpStep2','grpStep3','grpStep4','grpStep5','txtStep2Title',
@@ -2568,14 +2568,17 @@ function Set-WizardStep {
     if ($Step -eq 5 -and [string]::IsNullOrEmpty($ui['txtWebUser'].Text)) {
         $ui['txtWebUser'].Text = $script:CurUser
     }
-    # 第 2 步标题：设置串流用户（填了游戏用户名就带上）
-    if ($Step -eq 2) {
-        $user = $ui['txtStreamUser'].Text.Trim()
-        if ([string]::IsNullOrEmpty($user)) {
-            $ui['txtStep2Title'].Text = '第 2 步 · 设置串流用户'
-        } else {
-            $ui['txtStep2Title'].Text = '第 2 步 · 设置串流用户（游戏用户：' + $user + '）'
-        }
+    # 第 2 步标题：单会话只留主用户，双会话带上游戏用户名
+    if ($Step -eq 2) { Update-Step2Title }
+}
+function Update-Step2Title {
+    $user = $ui['txtStreamUser'].Text.Trim()
+    $ui['txtStep2Title'].Text = if ($ui['rdoConsoleOnly'].IsChecked) {
+        '第 2 步 · 设置主用户（仅主会话，无需游戏账户）'
+    } elseif ([string]::IsNullOrEmpty($user)) {
+        '第 2 步 · 设置串流用户'
+    } else {
+        '第 2 步 · 设置串流用户（游戏用户：' + $user + '）'
     }
 }
 # SudoVDA 显示方式说明文本（Set-WizardStep 与单选切换共用）
@@ -2597,8 +2600,10 @@ foreach ($rb in $svGroup) {
 # ---- 安装模式切换：单会话时游戏端口输入框置灰，避免填错 ----
 function Update-SessionModeDesc {
     $single = [bool]$ui['rdoConsoleOnly'].IsChecked
+    $ui['gameUserCard'].Visibility = $(if ($single) { 'Collapsed' } else { 'Visible' })
     $ui['txtPortGame'].IsEnabled = -not $single
     $ui['txtPortGame'].ToolTip = $(if ($single) { '仅主会话模式不安装游戏会话，游戏端口不生效' } else { '游戏会话端口族（RTSP = 端口+21）' })
+    if ($script:WizardStep -eq 2) { Update-Step2Title }
 }
 foreach ($rb in @($ui['rdoDualSession'], $ui['rdoConsoleOnly'])) {
     $rb.Add_Checked({ Update-SessionModeDesc })
@@ -3169,7 +3174,8 @@ $ui['btnInstall'].Add_Click({
             [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
         return
     }
-    $user = $ui['txtStreamUser'].Text.Trim()
+    $single = [bool]$ui['rdoConsoleOnly'].IsChecked
+    $user = $(if ($single) { $script:CurUser } else { $ui['txtStreamUser'].Text.Trim() })
     if ([string]::IsNullOrEmpty($user)) {
         [void][System.Windows.MessageBox]::Show($window, '请先选择安装的串流用户（默认是当前登录用户）。', '提示',
             [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
@@ -3200,9 +3206,9 @@ $ui['btnInstall'].Add_Click({
     }
     $ui['lblWebPwState'].Text = '密码一致'
     $ui['lblWebPwState'].Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#22C55E')
-    # RDP 密码：非空则验证 / 留空沿用现有 rdp.cred
-    $pw = $ui['pwdRdp'].Password
-    if (-not [string]::IsNullOrEmpty($pw)) {
+    # 单会话不装游戏会话，无需 RDP 密码；双会话：非空则验证 / 留空沿用现有 rdp.cred
+    $pw = $(if ($single) { '' } else { $ui['pwdRdp'].Password })
+    if (-not $single -and -not [string]::IsNullOrEmpty($pw)) {
         if ($script:PwVerified -and "$user`:$pw" -eq $script:PwVerifiedFor) {
             # 上一步已经明文验证过（同一轮窗口）：直接沿用，不走 LogonUser
             Write-Log "OK: 沿用上一步的密码验证结果（用户 $user）"
@@ -3218,7 +3224,7 @@ $ui['btnInstall'].Add_Click({
             }
             return
         }
-    } elseif (-not (Test-Path $WgCredPath)) {
+    } elseif (-not $single -and -not (Test-Path $WgCredPath)) {
         [void][System.Windows.MessageBox]::Show($window, '请先输入登录密码并点「验证」，或已保存过密码可留空。', '需要密码',
             [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
         return

@@ -12,6 +12,7 @@
 # Modes: (none) = SCM service | --console = foreground | --setup = configure |
 #        --test = one-shot RDP connection test
 import asyncio
+import atexit
 import base64
 import ctypes
 import glob
@@ -191,6 +192,17 @@ DEFAULT_CONFIG = {
     # log_level: 'info' = every tick (verbose), 'warn' = warnings and errors
     # only (default), 'error' = errors only. Hot-reloaded every tick.
     'log_level': 'warn',
+    # Optional console-desktop hotkey substitution, both off by default and
+    # hot-reloaded by the display worker (docs/plan.md 9.2):
+    #   win_from_ralt    - R-Alt is detected and forwarded as Win
+    #   winl_from_ralt_l - R-Alt+L is detected and forwarded as Win+L (lock)
+    'win_from_ralt': False,
+    'winl_from_ralt_l': False,
+    # hide_cursor_on_stream: while a client streams the Console session, replace
+    # every system cursor with a transparent one so the captured frame carries
+    # no Windows pointer; the original cursors are restored on disconnect.
+    # Applied by the Console display worker (~120ms hot reload).
+    'hide_cursor_on_stream': False,
 }
 
 def load_config():
@@ -232,6 +244,52 @@ def save_config_display_mode(mode):
         return True
     except Exception as e:
         log_err('display mode save: write error %r' % e)
+        return False
+
+
+def save_config_hotkeys(win_from_ralt, winl_from_ralt_l):
+    """Persist the two console-desktop hotkey substitutions. The display worker
+    hot-reloads them on its next ~120ms poll, so no service restart is needed."""
+    try:
+        with open(CONFIG_PATH, 'r', encoding='utf-8-sig') as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        data = {}
+    except Exception as e:
+        log_err('hotkeys save: read error %r' % e)
+        return False
+    data['win_from_ralt'] = bool(win_from_ralt)
+    data['winl_from_ralt_l'] = bool(winl_from_ralt_l)
+    try:
+        with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=4)
+        log('hotkeys set: win_from_ralt=%s winl_from_ralt_l=%s'
+            % (data['win_from_ralt'], data['winl_from_ralt_l']))
+        return True
+    except Exception as e:
+        log_err('hotkeys save: write error %r' % e)
+        return False
+
+
+def save_config_hide_cursor(enabled):
+    """Persist hide_cursor_on_stream. The Console display worker hot-reloads it
+    on its next ~120ms poll, so a stream already in flight toggles immediately."""
+    try:
+        with open(CONFIG_PATH, 'r', encoding='utf-8-sig') as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        data = {}
+    except Exception as e:
+        log_err('hide cursor save: read error %r' % e)
+        return False
+    data['hide_cursor_on_stream'] = bool(enabled)
+    try:
+        with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=4)
+        log('hide_cursor_on_stream set to %s' % data['hide_cursor_on_stream'])
+        return True
+    except Exception as e:
+        log_err('hide cursor save: write error %r' % e)
         return False
 
 
@@ -335,7 +393,8 @@ def find_console_session():
     """WTSGetActiveConsoleSessionId，返回控制台会话 id（-1 表示未知）。"""
     _kernel32.WTSGetActiveConsoleSessionId.restype = wintypes.DWORD
     _kernel32.WTSGetActiveConsoleSessionId.argtypes = []
-    return _kernel32.WTSGetActiveConsoleSessionId()
+    sid = _kernel32.WTSGetActiveConsoleSessionId()
+    return -1 if sid in (0, 0xFFFFFFFF) else sid
 
 
 def find_user_session(username):
@@ -865,6 +924,135 @@ def _display_mode(cfg):
     return mode
 
 
+# ---- streaming cursor hiding -------------------------------------------------
+# Moonlight clients show the host cursor the server sends. When a client is
+# streaming the Console session, games and remote-desktop use often need the
+# Windows pointer out of the captured frame. SetSystemCursor is session-scoped
+# (the display worker runs on WinSta0\Default in that session), so every shape
+# is replaced with a fully transparent 32x32 monochrome cursor. The originals
+# are snapshotted first and copied back on disconnect, so the user's cursor
+# scheme survives even though the worker runs as SYSTEM.
+
+_SPI_SETCURSORS = 0x0057
+_OCR_CURSOR_IDS = (
+    32512,  # normal arrow
+    32513,  # I-beam
+    32514,  # wait
+    32515,  # cross
+    32516,  # up arrow
+    32640,  # size
+    32641,  # icon
+    32642,  # size NWSE
+    32643,  # size NESW
+    32644,  # size WE
+    32645,  # size NS
+    32646,  # size all
+    32648,  # no
+    32649,  # hand
+    32650,  # app starting
+    32651,  # help
+    32671,  # pin
+)
+_user32.SetSystemCursor.restype = wintypes.BOOL
+_user32.SetSystemCursor.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+_user32.LoadCursorW.restype = wintypes.HANDLE
+_user32.LoadCursorW.argtypes = [wintypes.HANDLE, ctypes.c_void_p]
+_user32.CopyIcon.restype = wintypes.HANDLE
+_user32.CopyIcon.argtypes = [wintypes.HANDLE]
+_user32.CreateCursor.restype = wintypes.HANDLE
+_user32.CreateCursor.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_int,
+                                 ctypes.c_int, ctypes.c_int,
+                                 ctypes.c_void_p, ctypes.c_void_p]
+_user32.DestroyCursor.argtypes = [wintypes.HANDLE]
+_user32.SystemParametersInfoW.restype = wintypes.BOOL
+_user32.SystemParametersInfoW.argtypes = [wintypes.UINT, wintypes.UINT,
+                                          ctypes.c_void_p, wintypes.UINT]
+
+
+def _blank_cursor():
+    """32x32 monochrome cursor: AND mask keeps the screen, XOR mask paints
+    nothing, so the drawn pointer is invisible for every hotspot."""
+    and_plane = ctypes.create_string_buffer(b'\xff' * 128, 128)
+    xor_plane = ctypes.create_string_buffer(b'\x00' * 128, 128)
+    return _user32.CreateCursor(None, 0, 0, 32, 32, and_plane, xor_plane)
+
+
+class SystemCursorHider:
+    def __init__(self):
+        self._saved = {}   # cursor id -> original handle copy
+        self._hidden = False
+        self._marker = os.path.join(SVC_DIR, 'cursor-hidden.marker')
+
+    def recover_leftover(self):
+        """A killed worker cannot restore handles (they die with the process).
+        The marker tells a fresh worker to reload the scheme first, otherwise
+        it would snapshot the blank cursors and restore those forever."""
+        try:
+            if os.path.exists(self._marker):
+                _user32.SystemParametersInfoW(_SPI_SETCURSORS, 0, None, 0)
+                os.remove(self._marker)
+                log_warn('cursor hide: restored cursors left hidden by a stopped worker')
+        except OSError:
+            pass
+
+    def hide(self):
+        if self._hidden:
+            return
+        saved = {}
+        changed = 0
+        for cid in _OCR_CURSOR_IDS:
+            src = _user32.LoadCursorW(None, ctypes.c_void_p(cid))
+            if not src:
+                continue
+            orig = _user32.CopyIcon(src)
+            if not orig:
+                continue
+            blank = _blank_cursor()
+            if not blank:
+                _user32.DestroyCursor(orig)
+                continue
+            if _user32.SetSystemCursor(blank, cid):
+                saved[cid] = orig
+                changed += 1
+            else:
+                _user32.DestroyCursor(blank)
+                _user32.DestroyCursor(orig)
+        if not changed:
+            log_warn('cursor hide: SetSystemCursor failed err=%d'
+                     % ctypes.get_last_error())
+            return
+        self._saved = saved
+        self._hidden = True
+        try:
+            with open(self._marker, 'w', encoding='utf-8') as f:
+                f.write(str(os.getpid()))
+        except OSError:
+            pass
+        log('cursor hide: system cursors hidden (%d shapes)' % changed)
+
+    def restore(self):
+        if not self._hidden:
+            return
+        for cid, orig in self._saved.items():
+            copy = _user32.CopyIcon(orig)
+            if copy:
+                _user32.SetSystemCursor(copy, cid)
+            _user32.DestroyCursor(orig)
+        self._saved.clear()
+        self._hidden = False
+        try:
+            os.remove(self._marker)
+        except OSError:
+            pass
+        log('cursor hide: system cursors restored')
+
+    def sync(self, enabled, streaming):
+        if enabled and streaming:
+            self.hide()
+        else:
+            self.restore()
+
+
 class DisplayExclusive:
     """Runs the configured topology per display mode and cleans up leftovers.
 
@@ -897,6 +1085,9 @@ class DisplayExclusive:
                                   # naming race, closed after this time
         self._fp_fail = 0         # consecutive EXTERNAL push failures (backoff)
         self._fp_backoff_until = 0.0
+        self._pending_restore = False  # stream just ended: restore physical now
+        self._restore_attempts = 0
+        self._next_restore_try = 0.0
         self._load_disabled()
 
     def apply_mode_request(self):
@@ -935,6 +1126,15 @@ class DisplayExclusive:
         _write_json_atomic(_MODE_RES, {
             'id': rid, 'mode': mode, 'ok': ok, 'detail': detail, 'ts': time.time(),
         })
+        if ok:
+            # Consume the request: the dedupe id only lives in this worker, so a
+            # stale request file would be re-applied by every future worker
+            # restart - each re-apply is a full topology change the user sees as
+            # a screen flash (and it can hit a Game session mid-reconnect).
+            try:
+                os.remove(_MODE_REQ)
+            except OSError:
+                pass
 
     def _console_log_path(self, cfg):
         conf = cfg.get('console_conf_path')
@@ -1001,6 +1201,14 @@ class DisplayExclusive:
             self._last_fp_detail = None          # new race: log progress again
             self._fp_fail = 0
             self._fp_backoff_until = 0.0
+        elif was_streaming and not self._streaming:
+            # the stream just ended: switch the physical display back at once
+            # and keep retrying until it succeeds (never stay on a dead 0-source
+            # topology). A new stream start cancels this in poll().
+            self._pending_restore = True
+            self._restore_attempts = 0
+            self._next_restore_try = 0.0
+            log('display: stream ended -> restoring physical display')
 
     def _state(self, vda, others):
         if vda and others:
@@ -1017,6 +1225,26 @@ class DisplayExclusive:
         self._read_stream_state(cfg)
         vda, others = _display_sources()
         state = self._state(vda, others)
+        # Feature: stream just ended -> switch the physical display back now and
+        # retry until it succeeds. A new stream start cancels the pending work.
+        if self._streaming and self._pending_restore:
+            self._pending_restore = False
+            self._restore_attempts = 0
+            self._next_restore_try = 0.0
+        if self._pending_restore:
+            now = time.time()
+            if now >= self._next_restore_try:
+                if self._try_restore_physical(vda):
+                    self._pending_restore = False
+                    self._restore_attempts = 0
+                    self._last_state = ''  # log the settled state next tick
+                else:
+                    self._restore_attempts += 1
+                    delay = min(4.0, 2.0 ** min(self._restore_attempts - 1, 2))
+                    self._next_restore_try = now + delay
+                    log_warn('display restore: attempt %d failed, retry in %.0fs'
+                             % (self._restore_attempts, delay))
+            return
         if state != self._last_state or mode != self._last_mode:
             log('display %s: state %s -> %s (vda=%s others=%d disabled=%d)' % (
                 mode, self._last_state or 'init', state, vda, len(others), len(self.disabled)))
@@ -1143,13 +1371,12 @@ class DisplayExclusive:
         if _cds_batch(changes):
             log('display: idle cleanup - re-enabled physical displays, detached %d virtual display(s)'
                 % len(changes))
-        elif self._reattach_via_topology(internal=True):
-            # CDS refused (stale/orphan VDA, often still primary): collapse the
-            # topology to the physical source, which evicts every virtual one.
-            log('display: idle cleanup - collapsed topology to internal display, '
-                'evicted %d virtual display(s)' % len(changes))
         else:
-            log_warn('display: idle cleanup incomplete, will retry')
+            # Do NOT collapse the topology with SDC_TOPOLOGY_INTERNAL here: that
+            # is machine-wide and breaks the Game session's RDP display stack
+            # (2026-11-24 incident, docs/plan.md 2.4). Physical displays are
+            # already back; retry the VDA detach on the next cadence instead.
+            log_warn('display: idle cleanup - physical restored, VDA detach refused, will retry')
 
     def _detach_vda(self, vda, why):
         changes = []
@@ -1348,15 +1575,44 @@ class DisplayExclusive:
                              if k not in [c[0] for c in changes]}
             log_warn('display exclusive: detach incomplete, state not persisted')
 
-    def _reattach_via_topology(self, internal=False):
+    def _reattach_via_topology(self):
         """Rebuild the topology via CCD. ChangeDisplaySettingsEx cannot re-attach
         a fully detached source on this machine (the AMD driver rejects it with
         DISP_CHANGE_FAILED - observed live), but the CCD topology switch does.
-        internal=False re-enables ALL available sources (extend); internal=True
-        collapses the topology to the primary physical source, which also kicks
-        orphaned virtual displays that refuse a CDS detach (e.g. a stale VDA
-        left behind as primary by a crashed Apollo)."""
-        return _set_topology_preset(SDC_TOPOLOGY_INTERNAL if internal else SDC_TOPOLOGY_EXTEND)
+        Always EXTEND (re-enable all available sources). SDC_TOPOLOGY_INTERNAL is
+        deliberately not used: it is machine-wide and breaks the Game session's
+        RDP display stack (2026-11-24 incident, docs/plan.md 2.4)."""
+        return _set_topology_preset(SDC_TOPOLOGY_EXTEND)
+
+    def _try_restore_physical(self, vda):
+        """Stream just ended: put the physical display back. EXTEND re-attaches
+        every available source (CDS cannot re-attach a detached source here),
+        then SudoVDA sources are CDS-detached. Returns True once the physical
+        display is back; callers retry with backoff while it returns False.
+        Never collapses the topology to INTERNAL (see 2.4)."""
+        if not _physical_devices_any():
+            return True  # truly headless: nothing to switch back to
+        if not self._reattach_via_topology():
+            return False
+        self.disabled.clear()
+        self.detached_vda.clear()
+        self._save_disabled()
+        changes = []
+        for name in vda:
+            dm = _devmode_of(name)
+            if dm is None or not (dm.dmPelsWidth or dm.dmPelsHeight):
+                continue
+            detach = DEVMODEW()
+            detach.dmSize = ctypes.sizeof(DEVMODEW)
+            detach.dmFields = DM_POSITION | DM_PELSWIDTH | DM_PELSHEIGHT
+            detach.dmPelsWidth = 0
+            detach.dmPelsHeight = 0
+            changes.append((name, detach))
+        if changes:
+            _cds_batch(changes)  # best effort; physical is already back
+        log('display: stream ended - physical display restored (extend topology%s)'
+            % (', detached %d VDA' % len(changes) if changes else ''))
+        return True
 
     def _restore(self):
         if not self.disabled:
@@ -1409,11 +1665,18 @@ def _write_json_atomic(path, data):
 
 
 def _write_worker_hb():
+    # silent on purpose: transient contention with a dying/overlapping worker
+    # must not spam the log every 120ms
+    tmp = _WORKER_HB + '.tmp'
     try:
-        with open(_WORKER_HB, 'w', encoding='utf-8') as f:
+        with open(tmp, 'w', encoding='utf-8') as f:
             json.dump({'pid': os.getpid(), 'ts': time.time()}, f)
+        os.replace(tmp, _WORKER_HB)
     except Exception:
-        pass
+        try:
+            os.remove(tmp)
+        except Exception:
+            pass
 
 
 def _clear_worker_stop():
@@ -1432,6 +1695,247 @@ def _signal_worker_stop():
         pass
 
 
+# ----------------------------------------------------------------------------
+# optional Win-key substitution (console desktop only)
+# The console display worker lives on the interactive desktop, so a low-level
+# keyboard hook there sees the console's keyboard (hardware and the events
+# Apollo injects for a Moonlight client) and forwards R-Alt / R-Alt+L to the
+# system as Win / Win+L. It never touches the display topology, so it cannot
+# conflict with the stream-end restore above. Both switches default off.
+
+WH_KEYBOARD_LL = 13
+WM_KEYDOWN = 0x0100
+WM_KEYUP = 0x0101
+WM_SYSKEYDOWN = 0x0104
+WM_SYSKEYUP = 0x0105
+WM_QUIT = 0x0012
+VK_RMENU = 0xA5
+VK_LWIN = 0x5B
+VK_L = 0x4C
+VK_R = 0x52
+INPUT_KEYBOARD = 1
+KEYEVENTF_KEYUP = 0x0002
+_INJECT_TAG = 0x53444D4F  # 'SDMO': marks only our own SendInput events, so an
+                          # R-Alt injected by Apollo (Moonlight) is still mapped
+
+
+class _KBDLLHOOKSTRUCT(ctypes.Structure):
+    _fields_ = [('vkCode', wintypes.DWORD), ('scanCode', wintypes.DWORD),
+                ('flags', wintypes.DWORD), ('time', wintypes.DWORD),
+                ('dwExtraInfo', ctypes.c_size_t)]
+
+
+class _KEYBDINPUT(ctypes.Structure):
+    _fields_ = [('wVk', wintypes.WORD), ('wScan', wintypes.WORD),
+                ('dwFlags', wintypes.DWORD), ('time', wintypes.DWORD),
+                ('dwExtraInfo', ctypes.c_size_t)]
+
+
+class _MOUSEINPUT(ctypes.Structure):
+    _fields_ = [('dx', wintypes.LONG), ('dy', wintypes.LONG),
+                ('mouseData', wintypes.DWORD), ('dwFlags', wintypes.DWORD),
+                ('time', wintypes.DWORD), ('dwExtraInfo', ctypes.c_size_t)]
+
+
+class _HARDWAREINPUT(ctypes.Structure):
+    _fields_ = [('uMsg', wintypes.DWORD), ('wParamL', wintypes.WORD),
+                ('wParamH', wintypes.WORD)]
+
+
+class _INPUT_UNION(ctypes.Union):
+    _fields_ = [('mi', _MOUSEINPUT), ('ki', _KEYBDINPUT), ('hi', _HARDWAREINPUT)]
+
+
+class _INPUT(ctypes.Structure):
+    _fields_ = [('type', wintypes.DWORD), ('u', _INPUT_UNION)]
+
+
+_HOOKPROC = ctypes.WINFUNCTYPE(wintypes.LPARAM, ctypes.c_int, wintypes.WPARAM, wintypes.LPARAM)
+_user32.SetWindowsHookExW.restype = wintypes.HANDLE
+_user32.SetWindowsHookExW.argtypes = [ctypes.c_int, _HOOKPROC, wintypes.HINSTANCE, wintypes.DWORD]
+_user32.UnhookWindowsHookEx.argtypes = [wintypes.HANDLE]
+_user32.CallNextHookEx.restype = wintypes.LPARAM
+_user32.CallNextHookEx.argtypes = [wintypes.HANDLE, ctypes.c_int, wintypes.WPARAM, wintypes.LPARAM]
+_user32.GetMessageW.argtypes = [ctypes.POINTER(wintypes.MSG), wintypes.HWND,
+                                wintypes.UINT, wintypes.UINT]
+_user32.PostThreadMessageW.argtypes = [wintypes.DWORD, wintypes.UINT,
+                                       wintypes.WPARAM, wintypes.LPARAM]
+_user32.SendInput.argtypes = [wintypes.UINT, ctypes.POINTER(_INPUT), ctypes.c_int]
+_user32.GetAsyncKeyState.restype = ctypes.c_int
+_user32.GetAsyncKeyState.argtypes = [wintypes.DWORD]
+_user32.LockWorkStation.restype = wintypes.BOOL
+_kernel32.GetCurrentThreadId.restype = wintypes.DWORD
+
+
+class KeyboardRemapper:
+    """Detect R-Alt gestures on the console desktop and act on them directly
+    (the proven R-Alt+L pattern: swallow the keys, inject one synthetic burst,
+    never hold translated state between events).
+
+    win_from_ralt    - bare R-Alt tap -> Win tap (Start menu etc.); any key
+                       pressed while R-Alt is held is forwarded as a Win+key
+                       chord in one SendInput batch.
+    winl_from_ralt_l - R-Alt+L locks the workstation directly; R-Alt stays a
+                       plain Alt key when win_from_ralt is off.
+    With both on, R-Alt+L still locks explicitly. Neither option changes the
+    display topology.
+    """
+
+    def __init__(self):
+        self.win_from_ralt = False
+        self.winl_from_ralt_l = False
+        self._thread = None
+        self._tid = 0
+        self._ready = threading.Event()
+        self._next_try = 0.0
+        self._hook = None
+        self._proc = None
+        self._ralt = False
+        self._win_down = False
+        self._l_held = False
+        self._chord_used = False  # a chord/lock happened during this R-Alt hold
+        self._chord_keys = set()  # vk codes swallowed while translated Win is held
+
+    def update(self, cfg):
+        win = bool(cfg.get('win_from_ralt'))
+        winl = bool(cfg.get('winl_from_ralt_l'))
+        if win != self.win_from_ralt or winl != self.winl_from_ralt_l:
+            self.win_from_ralt = win
+            self.winl_from_ralt_l = winl
+            self._ralt = self._win_down = self._l_held = False
+            self._chord_used = False
+            self._chord_keys.clear()
+            log('hotkey remap: mode win=%s winl=%s' % (win, winl))
+        if not (win or winl):
+            self.stop()
+        elif time.time() >= self._next_try and (self._thread is None or not self._thread.is_alive()):
+            self._ready.clear()
+            self._thread = threading.Thread(target=self._run, daemon=True, name='kb-remap')
+            self._thread.start()
+
+    def stop(self):
+        t = self._thread
+        if t is None:
+            return
+        if self._ready.wait(2):
+            _user32.PostThreadMessageW(self._tid, WM_QUIT, 0, 0)
+        t.join(timeout=3)
+        self._thread = None
+        self._ready.clear()
+
+    def _send(self, *events):
+        inputs = (_INPUT * len(events))()
+        for i, (vk, down) in enumerate(events):
+            inputs[i].type = INPUT_KEYBOARD
+            inputs[i].u.ki.wVk = vk
+            inputs[i].u.ki.dwExtraInfo = _INJECT_TAG
+            if not down:
+                inputs[i].u.ki.dwFlags = KEYEVENTF_KEYUP
+        sent = _user32.SendInput(len(events), inputs, ctypes.sizeof(_INPUT))
+        if sent != len(events):
+            log_warn('hotkey remap: SendInput %d/%d failed err=%d'
+                     % (sent, len(events), ctypes.get_last_error()))
+
+    def _lock(self):
+        # Win+L through the OS lock API: synthetic Win+L is not reliably honored
+        # for the secure lock gesture, so guarantee it here.
+        if not _user32.LockWorkStation():
+            log_warn('hotkey remap: LockWorkStation failed err=%d' % ctypes.get_last_error())
+
+    def _run(self):
+        self._tid = _kernel32.GetCurrentThreadId()
+        self._proc = _HOOKPROC(self._callback)
+        self._hook = _user32.SetWindowsHookExW(WH_KEYBOARD_LL, self._proc, None, 0)
+        self._ready.set()
+        if not self._hook:
+            self._next_try = time.time() + 10
+            log_err('hotkey remap: SetWindowsHookEx failed err=%d' % ctypes.get_last_error())
+            return
+        log('hotkey remap: hook installed (win=%s winl=%s)'
+            % (self.win_from_ralt, self.winl_from_ralt_l))
+        msg = wintypes.MSG()
+        try:
+            while True:
+                r = _user32.GetMessageW(ctypes.byref(msg), None, 0, 0)
+                if r == 0 or r == -1:
+                    break
+                _user32.TranslateMessage(ctypes.byref(msg))
+                _user32.DispatchMessageW(ctypes.byref(msg))
+        finally:
+            _user32.UnhookWindowsHookEx(self._hook)
+            self._hook = None
+            log('hotkey remap: hook removed')
+
+    def _callback(self, nCode, wParam, lParam):
+        if nCode < 0:
+            return _user32.CallNextHookEx(self._hook, nCode, wParam, lParam)
+        try:
+            k = ctypes.cast(lParam, ctypes.POINTER(_KBDLLHOOKSTRUCT)).contents
+            if k.dwExtraInfo != _INJECT_TAG:
+                down = wParam in (WM_KEYDOWN, WM_SYSKEYDOWN)
+                up = wParam in (WM_KEYUP, WM_SYSKEYUP)
+                vk = k.vkCode
+                if vk == VK_RMENU and (down or up):
+                    self._ralt = down
+                    if self.win_from_ralt:
+                        if down:
+                            self._win_down = True
+                            self._chord_used = False
+                        elif self._win_down:
+                            # Bare tap -> one Win tap; a chord/lock burst already
+                            # emitted its own Win pair, so send nothing here.
+                            self._win_down = False
+                            if not self._chord_used:
+                                self._send((VK_RMENU, False),
+                                           (VK_LWIN, True), (VK_LWIN, False))
+                            self._chord_keys.clear()
+                        return 1
+                    if not self._ralt:
+                        self._l_held = False
+                if vk == VK_L and (down or up):
+                    # R-Alt+L always locks, whichever substitution is on.
+                    if self._ralt and (self.win_from_ralt or self.winl_from_ralt_l):
+                        if down and not self._l_held:
+                            self._l_held = True
+                            self._chord_used = True
+                            self._lock()
+                        elif up:
+                            self._l_held = False
+                        return 1
+                if self.win_from_ralt and self._win_down and \
+                        vk not in (VK_RMENU, VK_LWIN, VK_L, 0x00):
+                    # R-Alt held: forward each physical key as one synthetic
+                    # Win+key burst (down pair on press, up on release) so the
+                    # key binds to the modifier without holding injected state.
+                    if down and vk not in self._chord_keys:
+                        self._chord_keys.add(vk)
+                        self._chord_used = True
+                        # The swallowed physical R-Alt down still leaves the
+                        # async Alt bit set; release it inside the burst or the
+                        # chord arrives as Win+Alt+key (Win+Alt+R = Game Bar).
+                        self._send((VK_RMENU, False), (VK_LWIN, True), (vk, True))
+                    elif up and vk in self._chord_keys:
+                        self._chord_keys.discard(vk)
+                        self._send((vk, False), (VK_LWIN, False))
+                    return 1
+                if vk == VK_L and (down or up):
+                    if self.winl_from_ralt_l and not self.win_from_ralt and self._ralt:
+                        if down and not self._l_held:
+                            self._l_held = True
+                            self._send((VK_LWIN, True), (VK_L, True),
+                                       (VK_L, False), (VK_LWIN, False))
+                            self._lock()
+                        elif up:
+                            self._l_held = False
+                        return 1
+        except Exception as e:
+            log_warn('hotkey remap: hook callback error %r' % e)
+        return _user32.CallNextHookEx(self._hook, nCode, wParam, lParam)
+
+
+_kb_remap = KeyboardRemapper()
+
+
 def run_display_worker():
     """Display pulse for the Console session.
 
@@ -1441,46 +1945,158 @@ def run_display_worker():
     into the console session with its SYSTEM token; the worker polls, applies
     exclusivity and keeps a heartbeat the service checks every tick.
     Cadence: ~120ms while a VDA naming race may be open (sub-second topology
-    work), 1s otherwise."""
+    work), 1s otherwise.
+    Single instance: a Global mutex makes any duplicate launch exit at once,
+    so a false-negative heartbeat on the service side can never stack workers."""
+    try:
+        _apply_log_cfg(load_config())
+    except Exception:
+        pass
+    acquired, mut = _worker_mutex_acquire()
+    if not acquired:
+        log('display worker: another worker already active, exiting pid=%d'
+            % os.getpid())
+        return
     log('display worker: started pid=%d' % os.getpid())
-    while True:
-        if os.path.exists(_WORKER_STOP):
-            log('display worker: stop signaled, exiting')
-            break
-        try:
-            _dx.apply_mode_request()
-            cfg = load_config()
-            _apply_log_cfg(cfg)
-            mode = _display_mode(cfg)
-            if mode == 'mirror' or not _dx._fast_pass(mode, *_display_sources()):
-                _dx.poll(cfg)
+    hider = SystemCursorHider()
+    hider.recover_leftover()
+    atexit.register(hider.restore)
+    try:
+        while True:
             _write_worker_hb()
-        except Exception as e:
-            log_err('display worker poll error: %r' % e)
-        time.sleep(0.12)
+            if os.path.exists(_WORKER_STOP):
+                log('display worker: stop signaled, exiting')
+                break
+            try:
+                cfg = load_config()
+                _apply_log_cfg(cfg)
+                # stream state must track even on fast-pass ticks (the fast
+                # pass returns before poll(), and cursor hiding keys off it)
+                _dx._read_stream_state(cfg)
+                _kb_remap.update(cfg)
+                _dx.apply_mode_request()
+                mode = _display_mode(cfg)
+                if mode == 'mirror' or not _dx._fast_pass(mode, *_display_sources()):
+                    _dx.poll(cfg)
+                hider.sync(bool(cfg.get('hide_cursor_on_stream')), _dx._streaming)
+            except Exception as e:
+                log_err('display worker poll error: %r' % e)
+            time.sleep(0.12)
+    finally:
+        hider.restore()
+        _kb_remap.stop()
+        _worker_mutex_release(mut)
 
 
-def _worker_alive():
+# Backstop constants for the display worker (each launch is a real process
+# that nothing reaps until service stop, so false-negative heartbeats used to
+# stack workers without bound).
+_WORKER_HB_FRESH = 10         # heartbeat younger than this = healthy worker
+_WORKER_DEAD_AFTER = 60       # heartbeat-less this long = stuck worker, kill it
+_WORKER_LAUNCH_COOLDOWN = 30  # min spacing between worker launches
+_WORKER_LAUNCH_MAX = 5        # circuit breaker: launches per window
+_WORKER_LAUNCH_WINDOW = 600   # circuit breaker window (seconds)
+_WORKER_MUTEX_NAME = r'Global\SunshineDuoCore-display-worker'
+_WAIT_ABANDONED = 0x00000080
+
+_kernel32.CreateMutexW.restype = wintypes.HANDLE
+_kernel32.CreateMutexW.argtypes = [ctypes.c_void_p, wintypes.BOOL, wintypes.LPCWSTR]
+_kernel32.ReleaseMutex.restype = wintypes.BOOL
+_kernel32.ReleaseMutex.argtypes = [wintypes.HANDLE]
+
+
+def _worker_mutex_acquire():
+    """Try to take the global single-worker mutex. Returns (acquired, handle);
+    the handle must stay open for the process lifetime. The mutex is created
+    with the same permissive SDDL as the control pipe (Everyone+SYSTEM), so a
+    lower-integrity duplicate can still open and be rejected by it. A dead
+    prior owner yields WAIT_ABANDONED, which still grants ownership. If the
+    mutex cannot be created at all, fall back to a process census: run only
+    when no other worker exists in this session."""
+    try:
+        sa_pack = _pipe_sa()
+        sa_ptr = None
+        if sa_pack is not None:
+            sa_ptr = ctypes.cast(ctypes.byref(sa_pack[0]), ctypes.c_void_p)
+        h = _kernel32.CreateMutexW(sa_ptr, False, _WORKER_MUTEX_NAME)
+        if not h:
+            if _worker_pids_in_session(find_console_session()):
+                return False, None
+            return True, None
+        if _kernel32.WaitForSingleObject(h, 0) in (0, _WAIT_ABANDONED):
+            return True, h
+        _kernel32.CloseHandle(h)
+        return False, None
+    except Exception:
+        return True, None
+
+
+def _worker_mutex_release(h):
+    try:
+        if h:
+            _kernel32.ReleaseMutex(h)
+            _kernel32.CloseHandle(h)
+    except Exception:
+        pass
+
+
+def _worker_hb_age():
+    """(state, age_seconds). state: 'ok' = parsed a heartbeat, 'missing' = no
+    file yet, 'unreadable' = corrupt/locked. age = time since the stamp."""
     try:
         with open(_WORKER_HB, 'r', encoding='utf-8') as f:
             hb = json.load(f)
-        if time.time() - float(hb.get('ts', 0)) > 10:
-            return False
-        pid = int(hb.get('pid', 0))
-        console_sid = find_console_session()
-        if pid <= 0 or console_sid == -1:
-            return False
-        h = _kernel32.OpenProcess(0x1000, False, pid)  # QUERY_LIMITED_INFORMATION
+        return 'ok', max(0.0, time.time() - float(hb.get('ts', 0)))
+    except FileNotFoundError:
+        return 'missing', float('inf')
+    except Exception:
+        return 'unreadable', float('inf')
+
+
+def _worker_pids_in_session(session_id):
+    """All OTHER SunshineDuoCore.exe processes in the given session. The
+    service itself lives in session 0, so any console-session copy of this
+    exe is a display worker (sunshine.exe is a different image)."""
+    my_pid = os.getpid()
+    size = 2048
+    while True:
+        arr = (wintypes.DWORD * size)()
+        cb = wintypes.DWORD(0)
+        if not _psapi.EnumProcesses(arr, ctypes.sizeof(arr), ctypes.byref(cb)):
+            return []
+        if cb.value < ctypes.sizeof(arr):
+            break
+        size *= 2
+    pids = []
+    for i in range(cb.value // ctypes.sizeof(wintypes.DWORD)):
+        pid = arr[i]
+        if pid == 0 or pid == my_pid:
+            continue
+        h = _kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
         if not h:
-            return False
+            continue
         try:
             sid = wintypes.DWORD(0)
-            ok = _kernel32.ProcessIdToSessionId(pid, ctypes.byref(sid))
-            return bool(ok and sid.value == console_sid)
+            if not _kernel32.ProcessIdToSessionId(pid, ctypes.byref(sid)) or sid.value != session_id:
+                continue
+            buf = ctypes.create_unicode_buffer(1024)
+            n = wintypes.DWORD(1024)
+            if _kernel32.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(n)):
+                if buf.value.lower().endswith('\\sunshineduocore.exe'):
+                    pids.append(pid)
         finally:
             _kernel32.CloseHandle(h)
-    except Exception:
+    return pids
+
+
+def _terminate_pid(pid):
+    h = _kernel32.OpenProcess(0x0001 | 0x1000, False, pid)  # TERMINATE | QUERY_LIMITED
+    if not h:
         return False
+    try:
+        return bool(_kernel32.TerminateProcess(h, 0))
+    finally:
+        _kernel32.CloseHandle(h)
 
 
 def launch_display_worker(session_id):
@@ -1491,12 +2107,62 @@ def launch_display_worker(session_id):
     return launch_apollo(session_id, system_token=True, force=True, exe=exe, extra_args=args)
 
 
+_worker_launch_times = deque()
+_worker_no_hb_since = {}
+_worker_last_launch = 0.0
+
+
 def ensure_display_worker(cfg):
     # worker runs in every display mode: it applies the streaming topology
     # (only/extend) and cleans up leftover virtual displays while idle.
+    #
+    # Runaway-spawn backstops (a heartbeat is the ONLY liveness signal, and a
+    # stale/missing one used to trigger a fresh launch every tick with no
+    # reaping of the old worker):
+    #   1. the worker itself holds a Global mutex, so duplicates exit at once;
+    #   2. live SunshineDuoCore.exe processes in the console session are
+    #      enumerated first - a merely slow worker (boot, long topology op,
+    #      suspend/resume) never gets a duplicate stacked on top;
+    #   3. a worker heartbeat-less for _WORKER_DEAD_AFTER is killed so a
+    #      replacement can take over;
+    #   4. launches are cooldown-limited and circuit-broken (max N per window)
+    #      so a broken bundle cannot pump processes indefinitely.
+    global _worker_last_launch
     sid = find_console_session()
-    if sid == -1 or _worker_alive():
+    if sid == -1:
         return
+    now = time.time()
+    state, hb_age = _worker_hb_age()
+    if state == 'ok' and hb_age <= _WORKER_HB_FRESH:
+        _worker_no_hb_since.clear()
+        return
+    workers = _worker_pids_in_session(sid)
+    if workers:
+        for wpid in workers:
+            _worker_no_hb_since.setdefault(wpid, now)
+        for wpid in [p for p in _worker_no_hb_since if p not in workers]:
+            del _worker_no_hb_since[wpid]
+        stuck = [p for p, t in _worker_no_hb_since.items() if now - t > _WORKER_DEAD_AFTER]
+        if stuck:
+            log_warn('display worker: no heartbeat for %.0fs, killing stuck worker pid(s) %s'
+                     % (now - min(_worker_no_hb_since[p] for p in stuck), stuck))
+            for wpid in stuck:
+                _terminate_pid(wpid)
+                _worker_no_hb_since.pop(wpid, None)
+            workers = [p for p in workers if p not in stuck]
+        if workers:
+            return
+    if now - _worker_last_launch < _WORKER_LAUNCH_COOLDOWN:
+        return
+    while _worker_launch_times and now - _worker_launch_times[0] > _WORKER_LAUNCH_WINDOW:
+        _worker_launch_times.popleft()
+    if len(_worker_launch_times) >= _WORKER_LAUNCH_MAX:
+        log_err('display worker: %d launches in %ds and still no stable worker; '
+                'pausing launches (check watch.log / bundle integrity)'
+                % (len(_worker_launch_times), _WORKER_LAUNCH_WINDOW))
+        return
+    _worker_launch_times.append(now)
+    _worker_last_launch = now
     pid = launch_display_worker(sid)
     log('display worker: launch requested session=%d pid=%s' % (sid, pid))
 
@@ -1512,6 +2178,8 @@ def run_displaycheck():
     print('disabled (pending restore): %s' % _dx.disabled)
     print('streaming=%s vda_created=%s vda_failed=%s' % (
         _dx._streaming, _dx._vda_created, _dx._vda_failed))
+    print('hotkeys: win_from_ralt=%s winl_from_ralt_l=%s' % (
+        cfg.get('win_from_ralt'), cfg.get('winl_from_ralt_l')))
     state = _dx._state(vda, others)
     print('state: %s' % state)
     if state == 'mixed-stream':
@@ -2336,6 +3004,12 @@ def tick():
 #        queues a CCD/SetDisplayConfig topology request for the console-session
 #        display worker, then runs one tick so Apollo's virtual-display flag and
 #        the worker are updated immediately.
+#   {"cmd":"set_hotkeys","win_from_ralt":bool,"winl_from_ralt_l":bool}
+#     -> persists the two console-desktop hotkey substitutions; the display
+#        worker hot-reloads them on its next poll (no restart).
+#   {"cmd":"set_hide_cursor","enabled":bool}
+#     -> persists hide_cursor_on_stream; the display worker hides/restores the
+#        Console session's system cursors around streaming within ~120ms.
 #   {"cmd":"sessions"}
 #     -> session registry (id / enabled guard / conf+state paths / stream and
 #        WebUI ports) so the tray builds its menus from one source of truth.
@@ -2481,6 +3155,16 @@ def _ctrl_dispatch(req):
             except Exception as e:
                 log_err('set_display_mode tick error: %r' % e)
         return {'ok': ok, 'cmd': 'set_display_mode', 'mode': mode, 'request': rid}
+    if cmd == 'set_hotkeys':
+        win = bool(req.get('win_from_ralt'))
+        winl = bool(req.get('winl_from_ralt_l'))
+        ok = save_config_hotkeys(win, winl)
+        return {'ok': ok, 'cmd': 'set_hotkeys',
+                'win_from_ralt': win, 'winl_from_ralt_l': winl}
+    if cmd == 'set_hide_cursor':
+        enabled = bool(req.get('enabled'))
+        ok = save_config_hide_cursor(enabled)
+        return {'ok': ok, 'cmd': 'set_hide_cursor', 'enabled': enabled}
     if cmd == 'set_resolution':
         raw = req.get('resolutions')
         resolutions = [r for r in raw if isinstance(r, str)] if isinstance(raw, list) else None

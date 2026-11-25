@@ -96,6 +96,18 @@ public static class GuardPipe
         return SendAndCheckAsync($"{{\"cmd\":\"set_display_mode\",\"mode\":\"{mode}\"}}");
     }
 
+    public static Task<string> SetHotkeys(bool winFromRAlt, bool winLFromRAltL)
+    {
+        var win = winFromRAlt ? "true" : "false";
+        var winl = winLFromRAltL ? "true" : "false";
+        return SendAndCheckAsync($"{{\"cmd\":\"set_hotkeys\",\"win_from_ralt\":{win},\"winl_from_ralt_l\":{winl}}}");
+    }
+
+    public static Task<string> SetHideCursor(bool enabled)
+    {
+        return SendAndCheckAsync($"{{\"cmd\":\"set_hide_cursor\",\"enabled\":{(enabled ? "true" : "false")}}}");
+    }
+
     public static Task<string> SetResolution(int width, int height, string[]? resolutions = null)
     {
         return SendAndCheckAsync($"{{\"cmd\":\"set_resolution\",\"width\":{width},\"height\":{height},\"resolutions\":{System.Text.Json.JsonSerializer.Serialize(resolutions ?? Array.Empty<string>())}}}");

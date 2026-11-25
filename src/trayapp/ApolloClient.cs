@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace SunshineDuoTray;
 
@@ -9,6 +10,8 @@ public class Device
     public string Name { get; set; } = "";
     public string Uuid { get; set; } = "";
     public bool Connected { get; set; }
+    public long Perm { get; set; }
+    public JsonElement Raw { get; set; }
 }
 
 public class ApolloClient : IDisposable
@@ -153,6 +156,8 @@ public class ApolloClient : IDisposable
                         Connected = el.TryGetProperty("connected", out var c) &&
                                     (c.ValueKind == JsonValueKind.True ||
                                      (c.ValueKind == JsonValueKind.String && c.GetString() == "true")),
+                        Perm = ParsePerm(el),
+                        Raw = el.Clone(),
                     });
                 }
             }
@@ -162,6 +167,65 @@ public class ApolloClient : IDisposable
             return (devices, "解析失败: " + e.Message);
         }
         return (devices, "");
+    }
+
+    private static long ParsePerm(JsonElement el)
+    {
+        if (!el.TryGetProperty("perm", out var p)) return 0;
+        if (p.ValueKind == JsonValueKind.Number && p.TryGetInt64(out var v)) return v;
+        if (p.ValueKind == JsonValueKind.String && long.TryParse(p.GetString(), out var sv)) return sv;
+        return 0;
+    }
+
+    // Apollo 设备权限位，与 WebUI pin 页常量一致：全部输入 + 全部操作 + list/view/launch
+    public const long PermAll = 119480064;
+
+    private static JsonNode? RawField(JsonElement e, string prop, JsonNode? fallback)
+    {
+        if (e.ValueKind != JsonValueKind.Object) return fallback;
+        if (!e.TryGetProperty(prop, out var v)) return fallback;
+        if (v.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null) return fallback;
+        return JsonNode.Parse(v.GetRawText());
+    }
+
+    // Apollo 新配对设备默认仅 list|view（不能启动应用、无输入权限），
+    // trayapp 配对不走 WebUI 的授权页，这里补一次 /api/clients/update 授全权。
+    public async Task<string> GrantAllPermissions(Device d)
+    {
+        var payload = new JsonObject
+        {
+            ["uuid"] = d.Uuid,
+            ["name"] = d.Name,
+            ["display_mode"] = RawField(d.Raw, "display_mode", ""),
+            ["allow_client_commands"] = RawField(d.Raw, "allow_client_commands", false),
+            ["enable_legacy_ordering"] = RawField(d.Raw, "enable_legacy_ordering", false),
+            ["always_use_virtual_display"] = RawField(d.Raw, "always_use_virtual_display", false),
+            ["perm"] = PermAll,
+            ["do"] = RawField(d.Raw, "do", new JsonArray()),
+            ["undo"] = RawField(d.Raw, "undo", new JsonArray()),
+        };
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"{_base}/api/clients/update")
+        {
+            Content = new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json"),
+        };
+        var (body, status, sendErr) = await SendAsync(req);
+        if (sendErr != "") return sendErr;
+        if (status != HttpStatusCode.OK) return $"HTTP {(int)status}: {body}";
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            var root = doc.RootElement;
+            var ok = root.TryGetProperty("status", out var s) &&
+                     (s.ValueKind == JsonValueKind.True ||
+                      (s.ValueKind == JsonValueKind.String && s.GetString() == "true"));
+            if (ok) return null!;
+            var msg = root.TryGetProperty("message", out var m) ? m.GetString() : null;
+            return string.IsNullOrEmpty(msg) ? "Apollo 拒绝授权" : msg;
+        }
+        catch
+        {
+            return "授权响应解析失败: " + body;
+        }
     }
 
     public async Task<string> Unpair(string uuid)

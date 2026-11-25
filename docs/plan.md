@@ -75,6 +75,19 @@
 
 只用 WTS query。避免 `guard_apollo_console` 在 Console 没登录时启动（服务在 Windows 启动时本身运行于 Session 0，必须避免错误拉起）。
 
+### 2.4 反面教材：跨会话改拓扑会打断另一个会话（2026-11-24 事故）
+
+现场背景：Console 会话承载物理屏 + SudoVDA 虚拟屏，Game 会话是 RDP 会话（aardwolf keepalive 维持），两者都靠同一台机器的显示拓扑存活。
+
+**现象**：Game 会话 Apollo 反复报 `QueryDisplayConfig`/`dd_configuration_option` 查询失败（`ERROR_ACCESS_DENIED`）→ 虚拟屏创建失败 → 客户端连不上 RTSP，表现为 503；同时 Console 的 keepalive 开始每 ~70 秒断线重连（此前 30 分钟一次）。
+
+**根因**：某次人工验证为了测试「断开后切回物理屏」，在 Console 会话里对全机拓扑做了 `SetDisplayConfig(SDC_TOPOLOGY_INTERNAL)` + 手动切 display mode。CCD/SetDisplayConfig 是**整机级**操作，会改写 Game 会话 RDP 显示堆栈赖以工作的状态；游戏会话的显示查询随之持续被拒，工程化后表现为流无法建立。事后回滚到基线后待命拓扑不再被搅动，keepalive 恢复长周期、`ACCESS_DENIED` 消失、RTSP 恢复正常（14:40:14 起正常开流）。
+
+**结论（约束条件）**：
+- 「断流/断会话后切回物理屏」**不得**在 Console 侧依据跨会话状态（如 Game 会话的 WTS 状态）或全机级 CCD 预设来触发；
+- 各会话的拓扑可动范围以该会话自身的 Apollo 流生命周期为准；Console 侧已有该语义的 `DisplayExclusive`（按虚拟屏存在与流式标记驱动，不碰 Game 会话状态），风险点是任何"跨会话监视者 + 全机预设"的推广思路；
+- 监视/诊断类代码不要让自身变成拓扑变动源：被动观察与变更操作分开。
+
 ---
 
 ## 3. 全新架构的 `sunshine setup` 向导（推翻重写）
@@ -196,6 +209,7 @@ function Install-SudoVDA {
 - **两个 Apollo 的 state 写锁**：`file_state` 已按实例拆开（Console / Game 各写各的），不再争同一 `sunshine_state.json`；SunshineDuoCore 在拉起前还会把两份 state 中被 Web UI 写成字符串的布尔/数字归一化回原生类型，避免 0.4.6 启动崩溃。
 - **证书共享**：`credentials/cacert.pem/cakey.pem` 共用，但已配对设备记录在各自的 state 文件里；Moonlight 两台主机分别配对，名称由 `sunshine_name` 决定。
 - **防火墙**：需要在安装时放行两个端口族（不只是单个 Apollo 默认48100）；`add-firewall-rule.bat` 改为范围放行。
+- **显示拓扑的会话边界**：CCD/SetDisplayConfig 是整机级操作，跨会话改拓扑会连带伤害另一个会话（Game 的 RDP 显示栈依赖它）。任何拓扑动作只能由所属会话自身的 Apollo 流生命周期驱动，不得按跨会话状态或全机事件触发；详见 2.4 事故记录。
 - **托盘**：PowerShell 托盘需要用 WPF/WinForms，考虑兼容性问题。
 
 ---
@@ -230,8 +244,47 @@ function Install-SudoVDA {
 | 6 | WebUI 用户名密码 `--creds` 集成 | **已完成** |
 | 7 | 防火墙已为程序级规则，无需修改 | 已完成 |
 | 8 | README 文档更新 | 已完成 |
+| — | 变更记录 2026-11-24 | 「会话断开自动切回物理屏」（跨会话 WTS 监视 + 全机 CCD 预设）与 R-Alt 热键替代（WH_KEYBOARD_LL 两档 opt-in + 被动键盘采集诊断脚本）整体回滚到基线；`bin\` 运行时产物已用基线源码重新编译替换。 |
 
 后续优化：主用户/游戏用户分组（步骤 2 引导）、`LogonUser` 验证由后台线程运行不再卡界面、托盘管理。
+
+---
+
+## 9. 增量职责设计 v2（2026-11-24 事故后重做）
+
+### 9.0 硬约束（来自 2.4 事故）
+
+- CCD / `SetDisplayConfig` 是**整机级**操作，Console 侧调用会波及 Game 会话的 RDP 显示栈。**禁止再使用 `SDC_TOPOLOGY_INTERNAL`**。
+- core 的拓扑动作只能由 **Console 自身 Apollo 的流生命周期**驱动；不得监听 Game 会话 WTS 状态来改拓扑。
+- 输入干预（钩子/注入）只作用于 Console 会话桌面；必须默认关闭、可热关、失败退避、进程退出即自动卸载。
+
+### 9.1 职责 1：断流自动恢复物理屏
+
+- **触发**：仅 Console Apollo 日志的流结束标记（`CLIENT DISCONNECTED` / `Session pausing for app` / `Virtual Display removed successfully`）。不监听 Game 会话状态。
+- **执行**：Console 会话 display worker（复用 `DisplayExclusive`）。
+- **行为**：检测到断流即刻恢复一次（不等 2s 防抖）：先 `SDC_TOPOLOGY_EXTEND` 重附物理源，再 CDS 摘除 VDA；失败按 1s/2s/4s 退避重试直至成功，不允许停在 `none-active` 放弃。
+- **红线**：恢复路径不得使用 INTERNAL 预设（2.4 事故根因）。
+- **验收**：连接→断开反复多次，物理屏每次都恢复；期间 Game 会话 Apollo 无 `ACCESS_DENIED`、keepalive 重连周期不缩短。
+
+### 9.2 职责 2：热键替代（两开关独立，默认 false）
+
+| 开关 | 语义 | 实现机制 |
+| --- | --- | --- |
+| `win_from_ralt` | R-Alt 整体当 Win（含组合键） | 首选 Scancode Map（驱动层，最稳）；备选 Console LL 钩子同步注入 |
+| `winl_from_ralt_l` | 仅 R-Alt+L → 锁屏 | Console LL 钩子：R-Alt 按住时 L 按下 → 直接 `LockWorkStation()` |
+
+机制对比：
+- **Scancode Map**（`HKLM\SYSTEM\CurrentControlSet\Control\Keyboard Layout`，把 R-Alt `0xE0 0x38` 映射为 L-Win `0xE0 0x5B`）：驱动层映射，组合键天然成立、无钩子、无输入延迟风险；代价是需管理员写入 + **重启生效**、不能运行时热切换、整机（含 Game 会话）生效，且 R-Alt 不再作 AltGr。
+- **LL 钩子**（Console 会话 WinSta0\Default）：可热切换、只影响 Console；代价是合成 Win 的部分系统组合键（尤其锁屏）可能不被接受，必须**同步注入**避免时序错位。
+- 推荐组合：`win_from_ralt` 走 Scancode Map（一次重启换稳定）；`winl_from_ralt_l` 走钩子 + `LockWorkStation()`（组合语义 scancode 表达不了，且直接调 API 不依赖合成键被系统接受）。
+- 与职责 1 不冲突：热键只动输入层，不碰显示拓扑；两组开关与显示模式互不读写。
+- 安全：钩子回调只做键值判断与注入，禁止阻塞；worker 退出/崩溃由系统自动摘钩；开关关闭即卸载。
+
+### 9.3 验证清单
+
+- 断流恢复：连接→断开 ×5，物理屏每次都恢复；期间 Game 会话 Apollo 无 `ACCESS_DENIED`、keepalive 重连周期稳定。
+- 热键：单按 R-Alt = Win；按住 R-Alt 点 R/E 等组合成立；R-Alt+L 锁屏成功；关闭开关后 R-Alt 恢复原义。
+- 回归：`--displaycheck` 状态机输出正常；`config.json` 无残留键。
 
 ---
 

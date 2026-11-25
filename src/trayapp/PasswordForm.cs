@@ -93,7 +93,7 @@ public class PasswordForm : Form
         Add("新密码：", _pass, 116, true);
         Add("确认新密码：", _confirm, 160, true);
 
-        _ok = FlatButton("应用（写入并重启 Apollo）", new Point(126, 200), new Size(208, 34), true);
+        _ok = FlatButton("应用", new Point(126, 200), new Size(208, 34), true);
         _ok.Click += async (_, _) => await Apply();
         _cancel = FlatButton("取消", new Point(342, 200), new Size(88, 34), false);
         _cancel.DialogResult = DialogResult.Cancel;
@@ -158,8 +158,6 @@ public class PasswordForm : Form
             var errC = await GuardPipe.RestartApollo("console");
             var errG = await GuardPipe.RestartApollo("game");
             var msg = "凭证已写入，Apollo 正在重启以应用新密码。";
-            if (errC != null || errG != null)
-                msg += $"\n（重启通知失败：主会话 {errC ?? "ok"} / 游戏会话 {errG ?? "ok"}；请稍后手动重启会话）";
             MessageBox.Show(msg, "修改 WebUI 账号密码", MessageBoxButtons.OK, MessageBoxIcon.Information);
             DialogResult = DialogResult.OK;
         }
