@@ -590,46 +590,48 @@ internal static class Glyphs
     public static void Mirror(Graphics g, RectangleF r, Color c)
     {
         var w = Math.Max(1.3f, r.Width / 17f);
-        var back = new RectangleF(r.X + r.Width * 0.34f, r.Y + r.Height * 0.10f,
-                                  r.Width * 0.56f, r.Height * 0.52f);
+        var back = new RectangleF(r.X + r.Width * 0.40f, r.Y + r.Height * 0.04f,
+                                  r.Width * 0.56f, r.Height * 0.32f);
         using (var pen = new Pen(Color.FromArgb(130, c), w) { LineJoin = LineJoin.Round })
         using (var p = UiKit.RoundRect(back, back.Width * 0.10f))
             g.DrawPath(pen, p);
-        var front = new RectangleF(r.X + r.Width * 0.10f, r.Y + r.Height * 0.34f,
-                                   r.Width * 0.56f, r.Height * 0.52f);
+        var front = new RectangleF(r.X + r.Width * 0.08f, r.Y + r.Height * 0.38f,
+                                   r.Width * 0.56f, r.Height * 0.32f);
         Screen(g, front, c, w);
-        using var pen2 = Stroke(c, w * 0.9f);
-        g.DrawLine(pen2, back.X + back.Width * 0.18f, back.Bottom + back.Height * 0.10f,
-                        front.X + front.Width * 0.82f, front.Y - front.Height * 0.06f);
+        var cx = front.X + front.Width / 2f;
+        using var pen2 = Stroke(c, w);
+        g.DrawLine(pen2, cx, front.Bottom, cx, r.Y + r.Height * 0.80f);
+        g.DrawLine(pen2, cx - front.Width * 0.20f, r.Y + r.Height * 0.84f,
+                        cx + front.Width * 0.20f, r.Y + r.Height * 0.84f);
     }
 
     public static void Exclusive(Graphics g, RectangleF r, Color c)
     {
         Monitor(g, r, c);
-        var w = Math.Max(1.3f, r.Width / 17f);
         var inner = new RectangleF(r.X + r.Width * 0.26f, r.Y + r.Height * 0.22f,
                                    r.Width * 0.48f, r.Height * 0.36f);
         using var brush = new SolidBrush(Color.FromArgb(150, c));
         using var p = UiKit.RoundRect(inner, 2.5f);
         g.FillPath(brush, p);
-        using var pen = Stroke(c, w);
-        g.DrawLine(pen, inner.X, inner.Bottom + inner.Height * 0.35f, inner.Right, inner.Bottom + inner.Height * 0.35f);
     }
 
     public static void Extend(Graphics g, RectangleF r, Color c)
     {
         var w = Math.Max(1.3f, r.Width / 18f);
-        var left = new RectangleF(r.X + r.Width * 0.04f, r.Y + r.Height * 0.22f,
-                                  r.Width * 0.42f, r.Height * 0.42f);
-        var right = new RectangleF(r.X + r.Width * 0.54f, r.Y + r.Height * 0.22f,
-                                   r.Width * 0.42f, r.Height * 0.42f);
+        var left = new RectangleF(r.X + r.Width * 0.04f, r.Y + r.Height * 0.14f,
+                                  r.Width * 0.42f, r.Height * 0.40f);
+        var right = new RectangleF(r.X + r.Width * 0.54f, r.Y + r.Height * 0.14f,
+                                   r.Width * 0.42f, r.Height * 0.40f);
         Screen(g, left, c, w);
         Screen(g, right, c, w);
         using var pen = Stroke(c, w);
-        g.DrawLine(pen, left.X + left.Width / 2f, left.Bottom + left.Height * 0.14f,
-                        left.X + left.Width / 2f, r.Y + r.Height * 0.92f);
-        g.DrawLine(pen, right.X + right.Width / 2f, right.Bottom + right.Height * 0.14f,
-                        right.X + right.Width / 2f, r.Y + r.Height * 0.92f);
+        foreach (var side in new[] { left, right })
+        {
+            var cx = side.X + side.Width / 2f;
+            g.DrawLine(pen, cx, side.Bottom, cx, r.Y + r.Height * 0.70f);
+            g.DrawLine(pen, cx - side.Width * 0.22f, r.Y + r.Height * 0.74f,
+                            cx + side.Width * 0.22f, r.Y + r.Height * 0.74f);
+        }
     }
 
     public static void Refresh(Graphics g, RectangleF r, Color c)
