@@ -1884,11 +1884,13 @@ class KeyboardRemapper:
                         elif self._win_down:
                             # Bare tap -> one Win tap; a chord/lock burst already
                             # emitted its own Win pair, so send nothing here.
+                            # Chord keys still held are NOT cleared: their key-up
+                            # must stay visible to this hook so the injected Win
+                            # gets released (release order R-Alt first, key last).
                             self._win_down = False
                             if not self._chord_used:
                                 self._send((VK_RMENU, False),
                                            (VK_LWIN, True), (VK_LWIN, False))
-                            self._chord_keys.clear()
                         return 1
                     if not self._ralt:
                         self._l_held = False
@@ -1902,12 +1904,14 @@ class KeyboardRemapper:
                         elif up:
                             self._l_held = False
                         return 1
-                if self.win_from_ralt and self._win_down and \
+                if self.win_from_ralt and (self._win_down or vk in self._chord_keys) and \
                         vk not in (VK_RMENU, VK_LWIN, VK_L, 0x00):
                     # R-Alt held: forward each physical key as one synthetic
                     # Win+key burst (down pair on press, up on release) so the
                     # key binds to the modifier without holding injected state.
-                    if down and vk not in self._chord_keys:
+                    # vk in _chord_keys (R-Alt already up) keeps release events
+                    # inside the hook so the pending injected Win-up is sent.
+                    if down and self._win_down and vk not in self._chord_keys:
                         self._chord_keys.add(vk)
                         self._chord_used = True
                         # The swallowed physical R-Alt down still leaves the
