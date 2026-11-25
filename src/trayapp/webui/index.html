@@ -128,11 +128,12 @@ html.notrans *{transition:none !important}
 
 /* ===================== 内容区 ===================== */
 .content{position:relative;overflow-y:auto;overflow-x:hidden;padding:0 24px;scrollbar-width:thin}
-.content::-webkit-scrollbar{width:12px}
+.content::-webkit-scrollbar{width:10px}
 .content::-webkit-scrollbar-track{background:transparent}
-.content::-webkit-scrollbar-thumb{background:var(--stroke-2);border:5px solid transparent;
+.content::-webkit-scrollbar-thumb{background:transparent;border:3px solid transparent;
   background-clip:content-box;border-radius:99px}
-.content::-webkit-scrollbar-thumb:hover{background:var(--muted);border:4px solid transparent;background-clip:content-box}
+.content:hover::-webkit-scrollbar-thumb{background:var(--stroke-2)}
+.content::-webkit-scrollbar-thumb:hover{background:var(--muted);border:2px solid transparent;background-clip:content-box}
 .page{display:none;padding:20px 0 24px}
 .page.on{display:block;animation:pageIn .18s var(--ease)}
 @keyframes pageIn{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
@@ -264,13 +265,15 @@ html.notrans *{transition:none !important}
 .modes{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
 .mode{padding:18px 14px 16px;border-radius:var(--r-card);background:var(--card);border:1px solid var(--stroke);
   text-align:center;transition:background var(--dur) var(--ease),border-color var(--dur) var(--ease),box-shadow var(--dur) var(--ease)}
-.mode .fi{font-size:40px;width:40px;height:40px;margin:0 auto 12px;color:var(--muted);transition:color var(--dur) var(--ease)}
+.mode .mode-ic{position:relative;display:inline-flex;width:40px;height:40px;margin:0 auto 12px;align-items:center;justify-content:center;color:var(--muted);transition:color var(--dur) var(--ease)}
+.mode .mode-ic>.fi:not(.mode-badge){font-size:40px;width:40px;height:40px}
+.mode .mode-ic>.mode-badge{position:absolute;right:-9px;bottom:-5px;font-size:15px;width:18px;height:18px;color:var(--accent-text);text-shadow:0 0 3px var(--card)}
 .mode b{display:block;font-size:14px;font-weight:600}
 .mode span:not(.fi){display:block;font-size:12px;color:var(--muted);line-height:1.55;margin-top:6px}
 .mode:hover{background:var(--card2)}
 .mode:active{transform:scale(.995)}
 .mode.on{background:var(--accent-soft);border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
-.mode.on .fi,.mode.on b{color:var(--accent-text)}
+.mode.on .mode-ic,.mode.on .mode-ic>.fi,.mode.on b{color:var(--accent-text)}
 
 /* 地址条 */
 .addr{display:flex;align-items:center;gap:16px;padding:14px 16px;margin-top:12px}
@@ -297,8 +300,8 @@ html.notrans *{transition:none !important}
 /* ListView 分辨率 */
 .res{border:1px solid var(--stroke);border-radius:var(--r-card);overflow:hidden;background:var(--card);
   max-height:252px;overflow-y:auto;scrollbar-width:thin}
-.res::-webkit-scrollbar{width:12px}
-.res::-webkit-scrollbar-thumb{background:var(--stroke-2);border:5px solid transparent;background-clip:content-box;border-radius:99px}
+.res::-webkit-scrollbar{width:10px}
+.res::-webkit-scrollbar-thumb{background:var(--stroke-2);border:3px solid transparent;background-clip:content-box;border-radius:99px}
 .res-row{display:flex;align-items:center;gap:10px;height:40px;padding:0 14px;
   border-bottom:1px solid var(--hair);font-family:var(--font-mono);font-size:13px;
   transition:background var(--dur) var(--ease),color var(--dur) var(--ease)}
@@ -319,6 +322,7 @@ html.notrans *{transition:none !important}
 .ident .logo img{width:100%;height:100%;object-fit:contain}
 .ident-name{font-family:var(--font-display);font-size:28px;font-weight:600;line-height:1.2}
 .ident-ver{font-size:12px;color:var(--muted);margin-top:5px}
+.ident-desc{font-size:13px;color:var(--muted);line-height:1.6;margin-top:4px}
 .kv{display:flex;flex-direction:column;gap:4px}
 .kv .k{font-size:12px;color:var(--faint)}
 .kv .v2{font-size:14px}
@@ -369,9 +373,9 @@ const wait=ms=>new Promise(r=>setTimeout(r,ms));
 /* 图标一律用 Font Awesome 6 Solid 字形；映射值取自仓库内 fa-solid-900.ttf 的 cmap */
 const ICON={
   monitor:"",gamepad:"",stack:"",gear:"",info:"",
-  mirror:"",exclusive:"",extend:"",lock:"",
+  display:"",clone:"",eye:"",expand:"",lock:"",
   ext:"",plus:"",trash:"",target:"",save:"",
-  min:"",x:"",check:"",
+  min:"",x:"",check:"",
 };
 const ic=(n,cls="")=>`<span class="fi ${cls}" aria-hidden="true">${ICON[n]||""}</span>`;
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -418,9 +422,9 @@ const NAV=[
   {id:"about",t:"关于",i:"info"},
 ];
 const MODES=[
-  {id:"mirror",t:"镜像",d:"显示器和远程<br>显示同样内容",i:"mirror"},
-  {id:"only",t:"独占",d:"关闭显示器<br>只在远程设备显示",i:"exclusive"},
-  {id:"extend",t:"扩展",d:"将远程设备<br>作为扩展屏",i:"extend"},
+  {id:"mirror",t:"镜像",d:"显示器和远程<br>显示同样内容",i:"display",b:"clone"},
+  {id:"only",t:"独占",d:"关闭显示器<br>只在远程设备显示",i:"display",b:"eye"},
+  {id:"extend",t:"扩展",d:"将远程设备<br>作为扩展屏",i:"display",b:"expand"},
 ];
 
 /* 预览时的默认值；宿主模式由 C# 下发真实快照 */
@@ -534,7 +538,7 @@ function vdaHTML(){
 
     <div class="sec-h"><h2 class="h2">工作模式</h2></div>
     <div class="modes nodrag">
-      ${MODES.map(m=>`<button class="mode${m.id===state.vda.mode?" on":""}" data-a="mode" data-mode="${m.id}">${ic(m.i)}<b>${m.t}</b><span>${m.d}</span></button>`).join("")}
+      ${MODES.map(m=>`<button class="mode${m.id===state.vda.mode?" on":""}" data-a="mode" data-mode="${m.id}"><span class="mode-ic">${ic(m.i)}<span class="fi mode-badge">${ICON[m.b]||""}</span></span><b>${m.t}</b><span>${m.d}</span></button>`).join("")}
     </div>
     <p class="status" id="modeStatus"></p>
 
@@ -658,7 +662,8 @@ function aboutHTML(){
       <div class="logo"><img src="sun.png" alt="Sunshine"></div>
       <div>
         <div class="ident-name">萌远控 Duo</div>
-        <div class="ident-ver">v1.0.0 · 来自萌艺科技的双会话远程控制软件</div>
+        <div class="ident-ver">版本号 v1.0.0</div>
+        <div class="ident-desc">来自萌艺科技的双会话远程控制软件</div>
       </div>
     </div>
 
