@@ -19,7 +19,7 @@ public static class Paths
     public class SessionInfo
     {
         public string Id { get; set; } = "";        // console | game
-        public string Name { get; set; } = "";      // 主会话 | 游戏会话
+        public string Name { get; set; } = "";      // 当前会话 | 游戏会话
         public string ConfPath { get; set; } = "";
         public int StreamPort { get; set; }         // conf 里的 port=，0 表示未知
         public int WebPort { get; set; }            // WebUI 端口（探测/打开后台用）
@@ -76,7 +76,7 @@ public static class Paths
     public static List<SessionInfo> GetSessions(AppConfig cfg)
     {
         var list = new List<SessionInfo>();
-        if (ConsoleEnabled) list.Add(MakeSession("console", "主会话", ConsoleConf, cfg.ConsolePort));
+        if (ConsoleEnabled) list.Add(MakeSession("console", "当前会话", ConsoleConf, cfg.ConsolePort));
         if (GameEnabled) list.Add(MakeSession("game", "游戏会话", GameConf, cfg.GamePort));
         return list;
     }

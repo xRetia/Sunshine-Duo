@@ -213,7 +213,7 @@ public class PairForm : Form
 
     private void UpdateSessionText()
     {
-        _session.Text = $"{(_console ? "主会话" : "游戏会话")}  [https://*:{Port}]";
+        _session.Text = $"{(_console ? "当前会话" : "游戏会话")}  [https://*:{Port}]";
     }
 
     private void ShowSessionMenu()
@@ -224,7 +224,7 @@ public class PairForm : Form
             ForeColor = TextC,
             RenderMode = ToolStripRenderMode.Professional,
         };
-        var c = new ToolStripMenuItem("主会话") { ForeColor = TextC };
+        var c = new ToolStripMenuItem("当前会话") { ForeColor = TextC };
         c.Click += (_, _) => { _console = true; UpdateSessionText(); };
         menu.Items.Add(c);
         if (_gameEnabled)
@@ -323,7 +323,7 @@ public class PairForm : Form
 
     private void OpenAdvanced()
     {
-        var title = _console ? "主会话配对" : "游戏会话配对";
+        var title = _console ? "当前会话配对" : "游戏会话配对";
         try
         {
             using var f = new WebViewForm(_cfg, title, Port, "/pin#PIN");

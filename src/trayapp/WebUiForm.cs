@@ -286,7 +286,7 @@ internal sealed class WebUiForm : Form, IMainUi
             case "restartApollo":
             {
                 var id = Str(a, "id", "console");
-                var name = id == "console" ? "主会话" : "游戏会话";
+                var name = id == "console" ? "当前会话" : "游戏会话";
                 var err = await GuardPipe.RestartApollo(id);
                 if (err != null) throw new Exception(err);
                 return name + "重启指令已执行。";
@@ -372,7 +372,7 @@ internal sealed class WebUiForm : Form, IMainUi
             {
                 id = s.Id,
                 name = s.Name,
-                sub = s.Id == "console" ? "物理屏与虚拟屏串流 · Console SYSTEM 会话" : "RDP 用户桌面 · 游戏会话",
+                sub = s.Id == "console" ? "远程控制当前用户" : "远程控制独立运行游戏的用户",
                 stream = s.StreamPort,
                 web = s.WebPort,
             };
@@ -504,7 +504,7 @@ internal sealed class WebUiForm : Form, IMainUi
     {
         var errors = new List<string>();
         var changed = new List<string>();
-        foreach (var (id, name) in new[] { ("console", "主会话"), ("game", "游戏会话") })
+        foreach (var (id, name) in new[] { ("console", "当前会话"), ("game", "游戏会话") })
         {
             var s = Paths.GetSessions(_cfg).FirstOrDefault(x => x.Id == id);
             var port = id == "console" ? cp : gp;
@@ -516,7 +516,7 @@ internal sealed class WebUiForm : Form, IMainUi
             }
         }
         _cfg.Save();
-        foreach (var (id, name) in new[] { ("console", "主会话"), ("game", "游戏会话") })
+        foreach (var (id, name) in new[] { ("console", "当前会话"), ("game", "游戏会话") })
             if (changed.Contains(name))
             {
                 var err = await GuardPipe.RestartApollo(id);
@@ -568,7 +568,7 @@ internal sealed class WebUiForm : Form, IMainUi
         foreach (var id in new[] { "console", "game" })
         {
             var re = await GuardPipe.RestartApollo(id);
-            if (re != null) failures.Add((id == "console" ? "主会话：" : "游戏会话：") + re);
+            if (re != null) failures.Add((id == "console" ? "当前会话：" : "游戏会话：") + re);
         }
         return failures.Count == 0
             ? "凭证已应用，Apollo 正在重启。"

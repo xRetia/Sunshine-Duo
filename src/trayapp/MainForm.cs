@@ -116,7 +116,7 @@ internal sealed class MainForm : Form, IMainUi
         });
 
         var y = 108;
-        AddNav(MainPage.Console, "主会话", Glyphs.Monitor, ref y, Paths.ConsoleEnabled);
+        AddNav(MainPage.Console, "当前会话", Glyphs.Monitor, ref y, Paths.ConsoleEnabled);
         AddNav(MainPage.Game, "游戏会话", Glyphs.Gamepad, ref y, Paths.GameEnabled);
         AddNav(MainPage.VirtualDisplay, "虚拟显示器", Glyphs.StackedDisplays, ref y, Paths.ConsoleEnabled);
         AddNav(MainPage.Settings, "设置", Glyphs.Gear, ref y, true);
@@ -285,7 +285,7 @@ internal sealed class MainForm : Form, IMainUi
 
     private Paths.SessionInfo Session(string id)
         => _sessions.FirstOrDefault(s => s.Id == id)
-           ?? new Paths.SessionInfo { Id = id, Name = id == "console" ? "主会话" : "游戏会话" };
+           ?? new Paths.SessionInfo { Id = id, Name = id == "console" ? "当前会话" : "游戏会话" };
 
     private void RefreshSessionInfo()
     {

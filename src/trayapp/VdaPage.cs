@@ -27,7 +27,7 @@ internal sealed class VdaPage : Panel
         title.Location = new Point(0, 24);
         Controls.Add(title);
 
-        var sub = UiKit.Sub("SudoVDA 虚拟屏工作模式与分辨率 · 仅作用于主会话");
+        var sub = UiKit.Sub("SudoVDA 虚拟屏工作模式与分辨率 · 仅作用于当前会话");
         sub.Location = new Point(0, 62);
         Controls.Add(sub);
 

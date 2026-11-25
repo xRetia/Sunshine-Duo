@@ -26,11 +26,11 @@ internal sealed class SessionPage : Panel
         Font = UiKit.YaHei(9F);
         AutoScroll = true;
 
-        _title = UiKit.Title(isConsole ? "主会话" : "游戏会话");
+        _title = UiKit.Title(isConsole ? "当前会话" : "游戏会话");
         _title.Location = new Point(0, 24);
         Controls.Add(_title);
 
-        _sub = UiKit.Sub(isConsole ? "物理屏与虚拟屏串流 · Console SYSTEM 会话" : "RDP 用户桌面 · 游戏会话");
+        _sub = UiKit.Sub(isConsole ? "远程控制当前用户" : "远程控制独立运行游戏的用户");
         _sub.Location = new Point(0, 62);
         Controls.Add(_sub);
 
@@ -248,7 +248,7 @@ internal sealed class SessionPage : Panel
         _localIp.Text = local;
         _port.Text = session.StreamPort > 0 ? session.StreamPort.ToString() : "未知";
         _addr.Text = session.StreamPort > 0 ? $"{local}:{session.StreamPort}" : local;
-        _sub.Text = (_isConsole ? "物理屏与虚拟屏串流 · Console SYSTEM 会话" : "RDP 用户桌面 · 游戏会话")
+        _sub.Text = (_isConsole ? "远程控制当前用户" : "远程控制独立运行游戏的用户")
                     + (session.StreamPort > 0 ? "" : "（未读取到 conf 端口）");
     }
 

@@ -51,7 +51,7 @@ internal sealed class SettingsPage : Panel
         _consolePort.Font = UiKit.Mono(10.5F);
         _gamePort = UiKit.Field();
         _gamePort.Font = UiKit.Mono(10.5F);
-        var consoleLabel = AddLabeled(ports, "主会话串流端口", _consolePort, 16, 74, 150);
+        var consoleLabel = AddLabeled(ports, "当前会话串流端口", _consolePort, 16, 74, 150);
         var gameLabel = AddLabeled(ports, "游戏会话串流端口", _gamePort, 194, 74, 150);
         if (!Paths.ConsoleEnabled)
         {
@@ -80,7 +80,7 @@ internal sealed class SettingsPage : Panel
         start.Controls.Add(_autoStart);
 
         var keys = Card(0, 438, 360, 222, "键盘与鼠标",
-            "仅作用于主会话桌面；勾选即生效，无需重启。");
+            "仅作用于当前会话桌面；勾选即生效，无需重启。");
         _winRalt = new SwitchRow("R-Alt 替代 Win", Paths.CoreFlag("win_from_ralt", false))
         {
             Location = new Point(16, 62),
@@ -133,10 +133,10 @@ internal sealed class SettingsPage : Panel
         _svcBtn.Click += async (_, _) => await ToggleServiceAsync();
         svc.Controls.Add(_svcBtn);
 
-        var restartConsole = UiKit.Ghost("重启主会话");
+        var restartConsole = UiKit.Ghost("重启当前会话");
         restartConsole.Location = new Point(16, 118);
         restartConsole.Size = new Size(140, 32);
-        restartConsole.Click += async (_, _) => await RestartSessionAsync("console", "主会话");
+        restartConsole.Click += async (_, _) => await RestartSessionAsync("console", "当前会话");
         restartConsole.Enabled = Paths.ConsoleEnabled;
         svc.Controls.Add(restartConsole);
 
@@ -285,7 +285,7 @@ internal sealed class SettingsPage : Panel
         var gpOk = int.TryParse(_gamePort.Text.Trim(), out gpv) && gpv is >= 1024 and <= 65535;
         if (Paths.ConsoleEnabled && !cpOk)
         {
-            SetStatus(_portStatus, "主会话端口必须是 1024-65535 的数字。", UiKit.Danger);
+            SetStatus(_portStatus, "当前会话端口必须是 1024-65535 的数字。", UiKit.Danger);
             return;
         }
         if (Paths.GameEnabled && !gpOk)
@@ -306,8 +306,8 @@ internal sealed class SettingsPage : Panel
             var s = Paths.GetSessions(_cfg).FirstOrDefault(x => x.Id == "console");
             if (s != null && s.StreamPort != cpv)
             {
-                if (WriteConfPort(s.ConfPath, cpv)) changed.Add(("console", "主会话"));
-                else errors.Add("写入主会话 conf 失败");
+                if (WriteConfPort(s.ConfPath, cpv)) changed.Add(("console", "当前会话"));
+                else errors.Add("写入当前会话 conf 失败");
                 _cfg.ConsolePort = cpv;
             }
         }
@@ -422,7 +422,7 @@ internal sealed class SettingsPage : Panel
             if (Paths.ConsoleEnabled)
             {
                 var e = await GuardPipe.RestartApollo("console");
-                if (e != null) failures.Add("主会话：" + e);
+                if (e != null) failures.Add("当前会话：" + e);
             }
             if (Paths.GameEnabled)
             {

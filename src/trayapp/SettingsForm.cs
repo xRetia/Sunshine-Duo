@@ -8,7 +8,7 @@ public class SettingsForm : Form
 {
     private readonly AppConfig _cfg;
     private readonly bool _showConsole = true, _showGame = true;
-    private readonly TextBox _user, _pass, _consolePort, _gamePort;
+    private readonly TextBox _consolePort, _gamePort;
     private readonly CheckBox _autoStart;
     private readonly Button _ok, _cancel;
 
@@ -87,17 +87,12 @@ public class SettingsForm : Form
             Controls.Add(box);
         }
 
-        _user = new TextBox { Text = cfg.WebUser };
-        _pass = new TextBox { Text = cfg.WebPass };
-        Add("WebUI 用户名：", _user, 72);
-        Add("WebUI 密码：", _pass, 116, true);
-
         _consolePort = new TextBox { Text = cfg.ConsolePort.ToString() };
         _gamePort = new TextBox { Text = cfg.GamePort.ToString() };
-        var y = 160;
+        var y = 72;
         _showConsole = Paths.ConsoleEnabled;
         _showGame = Paths.GameEnabled;
-        if (_showConsole) Add("主会话串流端口：", _consolePort, y);
+        if (_showConsole) Add("当前会话串流端口：", _consolePort, y);
         if (_showConsole) y += 44;
         if (_showGame) Add("游戏会话串流端口：", _gamePort, y);
         if (_showGame) y += 44;
@@ -105,7 +100,7 @@ public class SettingsForm : Form
         _autoStart = new CheckBox
         {
             Text = "开机自启（当前用户登录时）",
-            Location = new Point(24, y + 42),
+            Location = new Point(24, y + 8),
             AutoSize = true,
             Checked = IsAutoStartEnabled(),
             ForeColor = TextC,
@@ -115,9 +110,9 @@ public class SettingsForm : Form
         _autoStart.MouseDown += DragAnywhere;
         Controls.Add(_autoStart);
 
-        _ok = FlatButton("保存", new Point(246, 294), new Size(88, 34), true);
+        _ok = FlatButton("保存", new Point(246, y + 52), new Size(88, 34), true);
         _ok.Click += (_, _) => Save();
-        _cancel = FlatButton("取消", new Point(348, 294), new Size(88, 34), false);
+        _cancel = FlatButton("取消", new Point(348, y + 52), new Size(88, 34), false);
         _cancel.DialogResult = DialogResult.Cancel;
         Controls.Add(_ok);
         Controls.Add(_cancel);
@@ -178,8 +173,6 @@ public class SettingsForm : Form
         }
         if (cp.HasValue) { _cfg.ConsolePort = cp.Value; }
         if (gp.HasValue) { _cfg.GamePort = gp.Value; }
-        _cfg.WebUser = _user.Text.Trim();
-        _cfg.SetPass(_pass.Text);
         _cfg.AutoStart = _autoStart.Checked;
         _cfg.Save();
         SetAutoStart(_autoStart.Checked);
