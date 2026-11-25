@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sunshine Duo</title>
+<title>萌远控 Duo</title>
 <style>
 /* ===================== Fluent 2 / WinUI 3 设计令牌 ===================== */
 :root{
@@ -100,11 +100,11 @@ html.notrans *{transition:none !important}
 .brand-name{font-family:var(--font-display);font-size:15px;font-weight:600;line-height:1.2}
 .brand-sub{font-size:12px;color:var(--muted);margin-top:3px}
 .nav{display:flex;flex-direction:column;gap:2px}
-.nav-item{position:relative;display:flex;align-items:center;gap:12px;height:36px;padding:0 12px;
-  border-radius:var(--r-ctl);font-size:14px;color:var(--text);text-align:left;width:100%;
+.nav-item{position:relative;display:flex;align-items:center;gap:12px;height:40px;padding:0 12px;
+  border-radius:var(--r-ctl);font-size:15px;color:var(--text);text-align:left;width:100%;
   transition:background var(--dur) var(--ease)}
 .nav-item:focus-visible{outline:2px solid var(--text-primary);outline-offset:-2px}
-.nav-item svg{width:16px;height:16px;color:var(--muted);transition:color var(--dur) var(--ease)}
+.nav-item svg{width:18px;height:18px;color:var(--muted);transition:color var(--dur) var(--ease)}
 .nav-item:hover{background:var(--subtle-2)}
 .nav-item:active{background:var(--subtle)}
 .nav-item.on{background:var(--subtle)}
@@ -133,9 +133,9 @@ html.notrans *{transition:none !important}
 .page{display:none;padding:20px 0 24px}
 .page.on{display:block;animation:pageIn .18s var(--ease)}
 @keyframes pageIn{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
-.head{display:flex;align-items:flex-start;gap:16px;margin-bottom:20px;padding-right:92px;
-  position:sticky;top:0;z-index:5;background:var(--bg);padding-top:20px;
-  box-shadow:0 1px 0 var(--hair)}
+.head{display:flex;align-items:flex-start;gap:16px;margin-bottom:14px;padding-right:92px;
+  position:sticky;top:0;z-index:5;background:var(--bg);padding-top:20px;padding-bottom:32px;
+  box-shadow:0 1px 0 var(--hair),0 10px 16px -12px var(--shadow)}
 .h1{font-family:var(--font-display);font-size:28px;font-weight:600;letter-spacing:-.01em;line-height:1.2}
 .sub{font-size:14px;color:var(--muted);margin-top:5px}
 .h2{font-size:16px;font-weight:600;line-height:1.3}
@@ -194,9 +194,9 @@ html.notrans *{transition:none !important}
 .btn.pri svg{color:var(--on-accent)}
 .btn.sm{height:26px;padding:0 8px;font-size:12px;border-radius:var(--r-ctl)}
 .btn.lg{height:36px;padding:0 20px;font-size:14px}
-.btn-icn{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;
+.btn-icn{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;
   padding:0;border-radius:var(--r-ctl);background:var(--fill);border:1px solid var(--stroke);
-  font-family:"Segoe Fluent Icons","Segoe MDL2 Assets",sans-serif;font-size:16px;color:var(--muted);
+  font-family:"Segoe Fluent Icons","Segoe MDL2 Assets",sans-serif;font-size:13px;color:var(--muted);
   cursor:pointer;transition:background var(--dur) var(--ease),color var(--dur) var(--ease),
   transform var(--dur) var(--ease)}
 .btn-icn:hover{background:var(--fill-hover);color:var(--text)}
@@ -272,7 +272,9 @@ html.notrans *{transition:none !important}
 /* 地址条 */
 .addr{display:flex;align-items:center;gap:16px;padding:14px 16px;margin-top:12px}
 .addr .k{font-size:12px;color:var(--muted)}
-.addr .seg{margin-top:8px}
+.addr .addr-row{display:flex;align-items:center;gap:12px;margin-top:8px;flex-wrap:wrap}
+.addr .addr-row .seg{margin-top:0}
+.addr .addr-row .v{margin-top:0}
 .addr .v{font-family:var(--font-mono);font-size:18px;font-weight:600;margin-top:3px;
   user-select:text;-webkit-user-select:text}
 .addr .btn{margin-left:auto}
@@ -462,7 +464,7 @@ function sidebarHTML(){
     <div class="brand">
       <div class="logo"><img src="sun.png" alt="Sunshine" class="logo-img"></div>
       <div>
-        <div class="brand-name">Sunshine Duo</div>
+        <div class="brand-name">萌远控 Duo</div>
         <div class="brand-sub">双会话串流</div>
       </div>
     </div>
@@ -509,11 +511,13 @@ function sessionHTML(s){
     <div class="card addr nodrag">
       <div>
         <div class="k">Moonlight 连接地址</div>
-        <div class="seg">
-          <button data-a="addr-mode" data-mode="lan" data-sid="${s.id}"${(s.addrMode||"lan")==="lan"?' class="on"':""}>局域网</button>
-          <button data-a="addr-mode" data-mode="wan" data-sid="${s.id}"${(s.addrMode||"lan")==="wan"?' class="on"':""}>公网</button>
+        <div class="addr-row">
+          <div class="seg">
+            <button data-a="addr-mode" data-mode="lan" data-sid="${s.id}"${(s.addrMode||"lan")==="lan"?' class="on"':""}>局域网</button>
+            <button data-a="addr-mode" data-mode="wan" data-sid="${s.id}"${(s.addrMode||"lan")==="wan"?' class="on"':""}>公网</button>
+          </div>
+          <div class="v" id="v-addr-${s.id}">${(s.addrMode||"lan")==="wan"?state.net.wan:state.net.lan}:${s.stream}</div>
         </div>
-        <div class="v" id="v-addr-${s.id}">${(s.addrMode||"lan")==="wan"?state.net.wan:state.net.lan}:${s.stream}</div>
       </div>
       <button class="btn-icn" data-a="copy" data-src="v-addr-${s.id}" aria-label="复制">\uE8C8</button>
     </div>
@@ -663,14 +667,14 @@ function aboutHTML(){
     <div class="head drag">
       <div class="grow">
         <h1 class="h1">关于</h1>
-        <p class="sub">Sunshine Duo 托盘 · 双 Apollo 串流管理</p>
+        <p class="sub">萌远控 Duo 托盘 · 双 Apollo 串流管理</p>
       </div>
     </div>
 
     <div class="ident nodrag">
       <div class="logo"><img src="sun.png" alt="Sunshine"></div>
       <div>
-        <div class="ident-name">Sunshine Duo</div>
+        <div class="ident-name">萌远控 Duo</div>
         <div class="ident-ver">托盘 v1.0.0 · 莫氏萌艺风格的双会话串流派生</div>
       </div>
     </div>
@@ -780,7 +784,7 @@ function render(){
       </div>
       <div class="toast" id="toast"><span id="toastIcon"></span><span id="toastText"></span></div>`;
   $("#stageNote").innerHTML=
-    "<b>Sunshine Duo · WebView2 界面预览</b>　拖拽 / 窗口按钮 / 右键屏蔽 / 主题切换：宿主侧由 WebView2 + WinForms 承担";
+    "<b>萌远控 Duo · WebView2 界面预览</b>　拖拽 / 窗口按钮 / 右键屏蔽 / 主题切换：宿主侧由 WebView2 + WinForms 承担";
   resRows();
   renderService();
   fit();
@@ -1168,13 +1172,13 @@ const ACT={
   nav:el=>navigate(el.dataset.nav),
   copy:el=>{
     const v=$("#"+el.dataset.src).textContent.trim();
-    if(!v||v==="获取中…"||v==="获取失败")return;
+    if(!v||v==="获取中"||v==="获取失败")return;
     copyText(v);
     toast("已复制："+v);
   },
   wan:async el=>{
     const box=$("#"+el.dataset.src);
-    el.disabled=true;box.textContent="获取中…";
+    el.disabled=true;box.textContent="获取中";
     if(HOSTED){
       try{const ip=await call("getWanIp",{force:true});state.net.wan=ip;box.textContent=ip;}
       catch(e){box.textContent="获取失败";toast(e.message,false);}
