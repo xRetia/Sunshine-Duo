@@ -131,7 +131,7 @@ html.notrans *{transition:none !important}
 .svc .fi{font-size:14px;color:var(--faint);margin-left:auto}
 
 /* ===================== 内容区 ===================== */
-.content{position:relative;overflow-y:auto;overflow-x:hidden;padding:0 24px}
+.content{position:relative;overflow-y:scroll;overflow-x:hidden;padding:0 24px}
 .content::-webkit-scrollbar,.res::-webkit-scrollbar{width:10px;height:10px;background:transparent}
 .content::-webkit-scrollbar-track,.res::-webkit-scrollbar-track{background:transparent}
 .content::-webkit-scrollbar-button,.res::-webkit-scrollbar-button{display:none;width:0;height:0}
@@ -332,6 +332,9 @@ html.notrans *{transition:none !important}
 .ident .logo img{width:100%;height:100%;object-fit:contain}
 .ident-name{font-family:var(--font-display);font-size:28px;font-weight:600;line-height:1.2}
 .ident-ver{font-size:12px;color:var(--muted);margin-top:5px}
+.upd-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--danger);
+  margin-left:8px;vertical-align:1px;box-shadow:0 0 0 3px color-mix(in srgb,var(--danger) 18%,transparent)}
+.nav-item .upd-dot{margin-left:auto;flex:none}
 .kv{display:flex;flex-direction:column;gap:4px}
 .kv .k{font-size:12px;color:var(--faint)}
 .kv .v2{font-size:14px}
@@ -467,6 +470,7 @@ let state={
     defaultServer:"tcp://easytier.zcm.cloudns.ch:11010",peers:[],ipv4:"",tcpHolePunch:false,
     virtualIp:"",publicIp:""},
   tunnelAdv:false,
+  update:{has:false,remote:"",local:""},
 };
 
 /* ===================== 模板 ===================== */
@@ -480,7 +484,7 @@ function sidebarHTML(){
       </div>
     </div>
     <nav class="nav nodrag">
-      ${NAV.map(n=>`<button class="nav-item${n.id===state.page?" on":""}" data-a="nav" data-nav="${n.id}">${ic(n.i)}<span>${n.t}</span>${n.id==="console"||n.id==="game"?`<span class="pill ok" id="pill-${n.id}"><i></i><span id="pillText-${n.id}">运行中</span></span>`:n.id==="tunnel"?`<span class="pill ok nodrag" id="pill-tunnel" style="display:none"><i></i>运行中</span>`:""}</button>`).join("")}
+      ${NAV.map(n=>`<button class="nav-item${n.id===state.page?" on":""}" data-a="nav" data-nav="${n.id}">${ic(n.i)}<span>${n.t}</span>${n.id==="console"||n.id==="game"?`<span class="pill ok" id="pill-${n.id}"><i></i><span id="pillText-${n.id}">运行中</span></span>`:n.id==="tunnel"?`<span class="pill ok nodrag" id="pill-tunnel" style="display:none"><i></i>运行中</span>`:n.id==="about"?`<span class="upd-dot" id="upd-nav-dot" style="display:${(state.update&&state.update.has)?"":"none"}" title="有新版本"></span>`:""}</button>`).join("")}
     </nav>
     <div class="side-foot nodrag">
       <div class="hair"></div>
@@ -746,6 +750,7 @@ function settingsHTML(){
 }
 
 function aboutHTML(){
+  const u=state.update||{};
   return `<section class="page${state.page==="about"?" on":""}" data-page="about">
     <div class="head drag">
       <div class="grow">
@@ -758,7 +763,8 @@ function aboutHTML(){
       <div class="logo"><img src="sun.png" alt="Sunshine"></div>
       <div>
         <div class="ident-name">萌远控 Duo</div>
-        <div class="ident-ver">版本号 v1.0.0</div>
+        <div class="ident-ver">版本号 v${esc(u.local||"1.0.0")}${u.has?`<span class="upd-dot" title="有新版本 v${esc(u.remote)}"></span>`:""}</div>
+        ${u.has?`<button class="btn" data-a="run-update" style="margin-top:8px">${ic("ext")}发现新版本 v${esc(u.remote)}，点击更新</button>`:""}
       </div>
     </div>
 
@@ -1427,6 +1433,18 @@ const ACT={
     if(HOSTED){call("openHomepage");toast("正在打开项目主页…");return;}
     toast("预览占位：不调用外部浏览器");
   },
+  "run-update":async el=>{
+    el.disabled=true;
+    if(HOSTED){
+      try{
+        await call("runUpdate");
+        toast("安装向导已启动，请在弹出的窗口中继续更新。");
+      }catch(e){toast(e.message,false);el.disabled=false;}
+      return;
+    }
+    toast("预览占位：不调用安装向导");
+    el.disabled=false;
+  },
 };
 
 /* ===================== 事件绑定 ===================== */
@@ -1501,11 +1519,43 @@ lightMQ.addEventListener("change",()=>{if(state.theme==="system")applyTheme("sys
 $("#reopen").addEventListener("click",()=>$("#stage").classList.remove("closed"));
 
 if(HOSTED){
-  call("init").then(s=>{applySnapshot(s);pollRemote();})
+  call("init").then(s=>{applySnapshot(s);pollRemote();checkUpdate();})
     .catch(e=>{toast("初始化失败："+e.message,false);call("log",{message:"UI init failed: "+e.message});});
 }else{
   render();
   applyTheme(state.theme);
+}
+
+/* ===================== 检测更新 ===================== */
+/* HOSTED 时由宿主代查（托盘进程里比较 .NET 程序集版本）；预览态直连 GitHub raw */
+const VERSION_URL="https://raw.githubusercontent.com/xRetia/Sunshine-Duo/main/.VERSION";
+const VER_RE=/^v?(\d+(?:\.\d+){0,3})/i;
+const verCmp=(a,b)=>{
+  const pa=a.split(".").map(Number),pb=b.split(".").map(Number),n=Math.max(pa.length,pb.length);
+  for(let i=0;i<n;i++){const d=((pa[i]||0)-(pb[i]||0));if(d)return d>0?1:-1;}
+  return 0;
+};
+async function checkUpdate(){
+  if(HOSTED){
+    try{
+      const u=await call("checkUpdate");
+      if(!u||!u.has)return;
+      state.update=u;
+      render();
+      const dot=$("#upd-nav-dot");
+      if(dot)dot.style.display="";
+      if(state.page==="about")navigate("about");
+    }catch{}
+    return;
+  }
+  try{
+    const r=await fetch(VERSION_URL,{cache:"no-store"});
+    const t=(await r.text()).trim();
+    const m=VER_RE.exec(t);
+    const remote=m?m[1]:"";
+    const local=(state.update&&state.update.local)||"1.0.0";
+    if(remote&&verCmp(remote,local)>0){state.update={has:true,remote,local};render();}
+  }catch{}
 }
 </script>
 </body>

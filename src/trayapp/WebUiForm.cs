@@ -421,6 +421,19 @@ internal sealed class WebUiForm : Form, IMainUi
                 { UseShellExecute = true });
                 return true;
 
+            case "checkUpdate":
+            {
+                var (has, remote, local) = await UpdateCheck.CheckAsync();
+                return new { has, remote, local };
+            }
+
+            case "runUpdate":
+            {
+                var err = UpdateCheck.StartUpdate();
+                if (err != null) throw new Exception(err);
+                return true;
+            }
+
             case "windowMinimize":
                 WindowState = FormWindowState.Minimized;
                 return true;

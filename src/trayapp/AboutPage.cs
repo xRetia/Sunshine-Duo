@@ -1,10 +1,12 @@
 using System.Diagnostics;
-using System.Reflection;
 
 namespace SunshineDuoTray;
 
 internal sealed class AboutPage : Panel
 {
+    private Label _versionLabel = null!;
+    private Panel? _updateDot;
+
     public AboutPage()
     {
         BackColor = UiKit.WindowBg;
@@ -37,16 +39,24 @@ internal sealed class AboutPage : Panel
             AutoSize = true,
         });
 
-        var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "1.0.0";
-        Controls.Add(new Label
+        _versionLabel = new Label
         {
-            Text = "托盘 v" + version + " · 莫氏萌艺风格的双会话串流派生",
+            Text = "托盘 v" + UpdateCheck.LocalVersion + " · 莫氏萌艺风格的双会话串流派生",
             ForeColor = UiKit.Muted,
             BackColor = Color.Transparent,
             Font = UiKit.YaHei(9F),
             Location = new Point(82, 146),
             AutoSize = true,
-        });
+            Cursor = Cursors.Hand,
+        };
+        _versionLabel.Click += (_, _) => StartUpdate();
+        Controls.Add(_versionLabel);
+
+        _updateDot = NewUpdateDot();
+        _updateDot.Location = new Point(82 + _versionLabel.PreferredWidth + 8, 148);
+        Controls.Add(_updateDot);
+
+        _ = CheckUpdateAsync();
 
         var author = new RoundCard { Location = new Point(0, 204), Size = new Size(736, 104) };
         Controls.Add(author);
@@ -107,6 +117,34 @@ internal sealed class AboutPage : Panel
             AutoSize = true,
         });
     }
+
+    private Panel NewUpdateDot()
+    {
+        var dot = new Panel
+        {
+            Size = new Size(8, 8),
+            BackColor = UiKit.Danger,
+            Visible = false,
+            Cursor = Cursors.Hand,
+        };
+        using var path = UiKit.RoundRect(new RectangleF(0, 0, 8, 8), 4);
+        dot.Region = new Region(path);
+        dot.Click += (_, _) => StartUpdate();
+        return dot;
+    }
+
+    private async Task CheckUpdateAsync()
+    {
+        var (has, _, _) = await UpdateCheck.CheckAsync();
+        if (has && IsHandleCreated && !IsDisposed)
+            BeginInvoke(() =>
+            {
+                _updateDot!.Visible = true;
+                _updateDot.BringToFront();
+            });
+    }
+
+    private void StartUpdate() => UpdateCheck.StartUpdate();
 
     private static void OpenUrl(string url)
     {

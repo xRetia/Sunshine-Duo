@@ -176,15 +176,12 @@ internal sealed class UpdatePage : Panel
         _badge.Set("更新中", Ui.Accent);
         _txtLog.AppendText("[更新] 开始更新到 " + _remoteTag + Environment.NewLine);
         var tag = _remoteTag;
-        Task.Run(async () =>
+        Task.Run(() =>
         {
             try
             {
-                var asset = await Updater.FindAssetUrlAsync(tag, CancellationToken.None);
-                if (asset is null)
-                    throw new Exception($"未找到 {tag} 的发布包；请到 {Updater.ReleasesPageUrl} 手动下载。");
-                BeginInvoke(() => _lblStatus.Text = "下载更新包 ...");
-                Updater.Apply(tag, asset, Paths.Root, s => BeginInvoke(() =>
+                BeginInvoke(() => _lblStatus.Text = "下载 main.zip ...");
+                Updater.Apply(tag, Paths.Root, s => BeginInvoke(() =>
                 {
                     _txtLog.AppendText(s + Environment.NewLine);
                 }), CancellationToken.None);
