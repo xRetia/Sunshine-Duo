@@ -102,7 +102,7 @@ internal sealed class MainForm : Form
 
         _sidebar.Controls.Add(new Panel
         {
-            Location = new Point(24, ContentHeight - 92),
+            Location = new Point(24, ContentHeight - 58),
             Size = new Size(SidebarWidth - 48, 1),
             BackColor = Ui.Line,
         });
@@ -110,7 +110,7 @@ internal sealed class MainForm : Form
         {
             Text = "版权所有 (c) 苏羽茜工作室",
             ForeColor = Color.FromArgb(160, 160, 160), BackColor = Color.Transparent,
-            Font = Ui.F(8F), Location = new Point(24, ContentHeight - 72), AutoSize = true,
+            Font = Ui.F(8F), Location = new Point(24, ContentHeight - 38), AutoSize = true,
         });
 
         _contentHost = new Panel

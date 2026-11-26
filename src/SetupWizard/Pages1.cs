@@ -192,7 +192,7 @@ internal sealed class AboutPage : Panel
 
         var credit = new Label
         {
-            Text = "版权所有 (c) 苏羽茜工作室 · 基于 Sunshine / Apollo（GPL-3.0）",
+            Text = "版权所有 (c) 苏羽茜工作室",
             ForeColor = Ui.Text3, BackColor = Color.Transparent,
             Font = Ui.F(8.5F), Location = new Point(Lay.X0 + 2, 494), AutoSize = true,
         };
