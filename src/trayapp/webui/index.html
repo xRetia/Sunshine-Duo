@@ -528,9 +528,9 @@ function sessionHTML(s){
         <div class="addr-row">
           <div class="seg">
             <button data-a="addr-mode" data-mode="lan" data-sid="${s.id}"${(s.addrMode||"lan")==="lan"?' class="on"':""}>局域网</button>
-            <button data-a="addr-mode" data-mode="wan" data-sid="${s.id}"${(s.addrMode||"lan")==="wan"?' class="on"':""}>公网</button>
+            <button data-a="addr-mode" data-mode="wan" data-sid="${s.id}"${(s.addrMode||"lan")==="wan"?' class="on"':""}>${tunnelOn()?"内网穿透":"公网"}</button>
           </div>
-          <div class="v" id="v-addr-${s.id}">${(s.addrMode||"lan")==="wan"?state.net.wan:state.net.lan}:${s.stream}</div>
+          <div class="v" id="v-addr-${s.id}">${addrValue(s.id)}</div>
         </div>
       </div>
       <button class="btn-icn" data-a="copy" data-src="v-addr-${s.id}" aria-label="复制">\uF0C5</button>
@@ -594,12 +594,16 @@ function vdaHTML(){
 }
 
 function tunnelOn(){return !!(state.tunnel.enabled||state.tunnel.running);}
+function addrValue(sid){
+  const s=state.sessions[sid], mode=state.addrMode[sid]||"lan";
+  if(mode==="wan")return (tunnelOn()?(state.tunnel.virtualIp||state.net.wan):state.net.wan)+":"+s.stream;
+  return state.net.lan+":"+s.stream;
+}
 
 function advancedHTML(t){
   const custom=t.serverMode==="custom";
   const manual=!!t.ipv4;
-  return `<div class="divider"></div>
-    <div class="sec-h"><h2 class="h2">服务器</h2></div>
+  return `<div class="sec-h" style="margin-top:2px"><h2 class="h2">服务器</h2></div>
     <div class="seg" id="etServerSeg">
       <button data-a="et-server" data-v="public" class="${custom?"":"on"}">公共服务器</button>
       <button data-a="et-server" data-v="custom" class="${custom?"on":""}">指定</button>
@@ -624,14 +628,11 @@ function tunnelHTML(){
   const t=state.tunnel;
   const adv=state.tunnelAdv;
   return `<section class="page${state.page==="tunnel"?" on":""}" data-page="tunnel">
+    <div class="seg nodrag" style="position:absolute;top:44px;right:24px;z-index:6"><button data-a="et-level" data-v="0" class="${adv?"":"on"}">标准</button><button data-a="et-level" data-v="1" class="${adv?"on":""}">高级</button></div>
     <div class="head drag">
       <div class="grow">
         <h1 class="h1">内网穿透</h1>
         <p class="sub">通过 P2P 技术使用萌远控</p>
-      </div>
-      <div class="seg nodrag" style="margin-right:12px">
-        <button data-a="et-level" data-v="0" class="${adv?"":"on"}">标准</button>
-        <button data-a="et-level" data-v="1" class="${adv?"on":""}">高级</button>
       </div>
     </div>
 
@@ -645,7 +646,6 @@ function tunnelHTML(){
             <div class="field"><label for="etNet">网络名称</label><input class="input" id="etNet" value="${esc(t.network)}" placeholder="${esc(t.machine||"留空使用计算机名")}" autocomplete="off"></div>
             <div class="field"><label for="etSecret">网络密钥</label><input class="input" id="etSecret" type="password" autocomplete="new-password" placeholder="${t.secretSet?"已设置，留空不修改":"留空为无密钥"}"></div>
           </div>
-          <div id="etAdv" style="${adv?"":"display:none"}">${advancedHTML(t)}</div>
           <div class="mt"><button class="btn pri" data-a="et-save">${ic("save")}保存并应用</button></div>
           <p class="status" id="etStatus"></p>
         </div>
@@ -655,7 +655,11 @@ function tunnelHTML(){
           <div class="card-top"><span class="card-t">虚拟 IP</span>
             <button class="btn-icn" data-a="copy" data-src="etVip" aria-label="复制">\uF0C5</button></div>
           <p class="val" id="etVip">—</p>
+          <div class="divider" style="margin:14px 0 12px"></div>
+          <div style="font-size:12px;color:var(--muted)">中转服务器</div>
+          <p class="val" id="etServer" style="font-size:14px;margin-top:6px">—</p>
         </div>
+        <div id="etAdv" class="card mt16" style="${adv?"":"display:none"}">${advancedHTML(t)}</div>
       </div>
     </div>
 
@@ -663,7 +667,6 @@ function tunnelHTML(){
       <button class="btn" data-a="ext-link" data-url="https://github.com/qiin2333/moonlight-vplus/releases">${ic("ext")}Moonlight V+</button>
       <button class="btn" data-a="ext-link" data-url="https://easytier.cn/guide/download.html">${ic("ext")}EasyTier 客户端</button>
     </div>
-    <p class="note">输出与错误见 bin\\SunshineDuoCore\\easytier.out；核心由服务自动保活。</p>
   </section>`;
 }
 
@@ -942,6 +945,12 @@ function patchWanCards(){
       v.textContent=state.net.wan;
       if(b)b.style.display="";
     }
+    const wseg=document.querySelector('[data-a="addr-mode"][data-mode="wan"][data-sid="'+id+'"]');
+    if(wseg){
+      wseg.textContent=tunnelOn()?"内网穿透":"公网";
+      const av=$("#v-addr-"+id), ses=state.sessions[id];
+      if(av&&ses&&(state.addrMode[id]||"lan")==="wan")av.textContent=addrValue(id);
+    }
   }
 }
 function renderTunnel(){
@@ -949,6 +958,12 @@ function renderTunnel(){
   if(navPill)navPill.style.display=t.running?"":"none";
   const vip=$("#etVip");
   if(vip)vip.textContent=t.virtualIp||(t.running?"等待分配…":"—");
+  const srv=$("#etServer");
+  if(srv){
+    const v=t.serverMode==="custom"?(t.peers&&t.peers.length?t.peers.join("，"):"（未填写节点地址）"):(t.defaultServer||"");
+    srv.textContent=v||"—";
+    srv.style.color=t.running?"":"var(--muted)";
+  }
   const sw=document.querySelector('.sw[data-key="etEnabled"]');
   if(sw){
     const on=sw.getAttribute("aria-checked")==="true";
@@ -1011,7 +1026,7 @@ function resRows(){
 function syncSessions(){
   for(const s of Object.values(state.sessions)){
     $("#v-port-"+s.id).textContent=String(s.stream);
-    $("#v-addr-"+s.id).textContent=state.net.lan+":"+s.stream;
+    $("#v-addr-"+s.id).textContent=addrValue(s.id);
   }
 }
 
@@ -1351,9 +1366,11 @@ const ACT={
   "addr-mode":el=>{
     state.addrMode[el.dataset.sid]=el.dataset.mode;
     const sid=el.dataset.sid, s=state.sessions[sid];
-    const v=$('#v-addr-'+sid);
-    v.textContent=(el.dataset.mode==="wan"?state.net.wan:state.net.lan)+":"+s.stream;
-    el.parentElement.querySelectorAll("button").forEach(b=>b.classList.toggle("on",b===el));
+    $('#v-addr-'+sid).textContent=addrValue(sid);
+    el.parentElement.querySelectorAll("button").forEach(b=>{
+      b.classList.toggle("on",b===el);
+      if(b.dataset.mode==="wan")b.textContent=tunnelOn()?"内网穿透":"公网";
+    });
   },
   pair:el=>submitPin(el.dataset.sid),
   web:el=>{

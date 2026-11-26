@@ -9,19 +9,21 @@ internal sealed class TunnelPage : Panel
     private const string MoonVPlusUrl = "https://github.com/qiin2333/moonlight-vplus/releases";
     private const string EasyTierUrl = "https://easytier.cn/guide/download.html";
 
-    private readonly SegBar _segLevel, _segServer, _segIp;
+    private readonly SegBar _segServer, _segIp;
     private readonly SwitchRow _enable, _tcp;
     private readonly TextBox _network, _secret, _peers, _manualIp;
     private readonly Button _save;
-    private readonly Label _status, _vipValue, _serverHint, _ipHint, _note;
+    private readonly Label _status, _vipValue, _serverValue, _serverHint, _ipHint;
     private readonly Button _btnMoon, _btnEt;
     private readonly ToolTip _tip = new();
-    private readonly List<Control> _advanced = new();
+    private readonly List<Control> _advancedList = new();
     private GuardPipe.EasyTierState? _st;
     private bool _busy, _suppress;
+    private bool _advanced;
 
-    public TunnelPage()
+    public TunnelPage(bool advanced = false)
     {
+        _advanced = advanced;
         BackColor = UiKit.WindowBg;
         Font = UiKit.YaHei(9F);
         AutoScroll = true;
@@ -33,14 +35,6 @@ internal sealed class TunnelPage : Panel
         var sub = UiKit.Sub("通过 P2P 技术使用萌远控");
         sub.Location = new Point(0, 62);
         Controls.Add(sub);
-
-        _segLevel = new SegBar("标准", "高级")
-        {
-            Location = new Point(560, 61),
-            Size = new Size(176, 28),
-        };
-        _segLevel.Changed += (_, _) => Relayout();
-        Controls.Add(_segLevel);
 
         _enable = new SwitchRow("启用内网穿透", false)
         {
@@ -76,6 +70,29 @@ internal sealed class TunnelPage : Panel
         vipCopy.Click += (_, _) => CopyVip();
         vipCard.Controls.Add(vipCopy);
 
+        var srvCard = new RoundCard { Location = new Point(376, 216), Size = new Size(360, 88) };
+        Controls.Add(srvCard);
+        srvCard.Controls.Add(new Label
+        {
+            Text = "中转服务器",
+            ForeColor = UiKit.Text,
+            BackColor = Color.Transparent,
+            Font = UiKit.YaHei(9.5F, FontStyle.Bold),
+            Location = new Point(16, 12),
+            AutoSize = true,
+        });
+        _serverValue = new Label
+        {
+            ForeColor = UiKit.Text,
+            BackColor = Color.Transparent,
+            Font = UiKit.Mono(10.5F, FontStyle.Bold),
+            Location = new Point(16, 38),
+            Size = new Size(320, 20),
+            AutoEllipsis = true,
+            Text = "—",
+        };
+        srvCard.Controls.Add(_serverValue);
+
         Controls.Add(FieldLabel("网络名称", 150));
         _network = UiKit.Field();
         _network.Location = new Point(0, 172);
@@ -106,10 +123,10 @@ internal sealed class TunnelPage : Panel
         Controls.Add(_status);
 
         // ---- 高级设置（标准模式下隐藏）----
-        AddAdvanced(FieldLabel("服务器", 356));
+        AddAdvanced(FieldLabel("服务器", 312));
         _segServer = new SegBar("公共服务器", "指定")
         {
-            Location = new Point(0, 378),
+            Location = new Point(376, 334),
             Size = new Size(200, 30),
         };
         _segServer.Changed += (_, _) => Relayout();
@@ -120,22 +137,22 @@ internal sealed class TunnelPage : Panel
             ForeColor = UiKit.Muted,
             BackColor = Color.Transparent,
             Font = UiKit.YaHei(8.5F),
-            Location = new Point(0, 416),
-            Size = new Size(736, 36),
+            Location = new Point(376, 372),
+            Size = new Size(360, 36),
             Text = "默认公共服务器：tcp://easytier.zcm.cloudns.ch:11010",
         };
         AddAdvanced(_serverHint);
 
         _peers = UiKit.Field();
         _peers.Font = UiKit.Mono(9.5F);
-        _peers.Location = new Point(0, 416);
+        _peers.Location = new Point(376, 372);
         _peers.Width = 360;
         AddAdvanced(_peers);
 
-        AddAdvanced(FieldLabel("虚拟 IP 地址", 462));
+        AddAdvanced(FieldLabel("虚拟 IP 地址", 416));
         _segIp = new SegBar("自动（DHCP）", "手动")
         {
-            Location = new Point(0, 484),
+            Location = new Point(376, 438),
             Size = new Size(200, 30),
         };
         _segIp.Changed += (_, _) => Relayout();
@@ -143,7 +160,7 @@ internal sealed class TunnelPage : Panel
 
         _manualIp = UiKit.Field();
         _manualIp.Font = UiKit.Mono(9.5F);
-        _manualIp.Location = new Point(216, 484);
+        _manualIp.Location = new Point(592, 438);
         _manualIp.Width = 144;
         AddAdvanced(_manualIp);
 
@@ -152,15 +169,15 @@ internal sealed class TunnelPage : Panel
             ForeColor = UiKit.Muted,
             BackColor = Color.Transparent,
             Font = UiKit.YaHei(8.5F),
-            Location = new Point(0, 520),
-            Size = new Size(736, 20),
+            Location = new Point(376, 476),
+            Size = new Size(360, 20),
             Text = "自动模式由内网穿透自动分配（10.126.126.0/24 起）。",
         };
         AddAdvanced(_ipHint);
 
         _tcp = new SwitchRow("使用 TCP 打洞", false)
         {
-            Location = new Point(0, 546),
+            Location = new Point(376, 502),
             Size = new Size(360, 30),
         };
         _tcp.CheckedChanged += async (_, _) => await ApplyAsync();
@@ -174,9 +191,6 @@ internal sealed class TunnelPage : Panel
         _btnEt = UiKit.GhostIcon("EasyTier 客户端", Glyphs.External);
         _btnEt.Click += (_, _) => OpenUrl(EasyTierUrl);
         Controls.Add(_btnEt);
-
-        _note = UiKit.Caption("输出与错误见 bin\\SunshineDuoCore\\easytier.out；核心由服务自动保活。");
-        Controls.Add(_note);
 
         Relayout();
         _ = RefreshStatus();
@@ -194,7 +208,7 @@ internal sealed class TunnelPage : Panel
 
     private void AddAdvanced(Control c)
     {
-        _advanced.Add(c);
+        _advancedList.Add(c);
         Controls.Add(c);
     }
 
@@ -223,10 +237,10 @@ internal sealed class TunnelPage : Panel
 
     private void Relayout()
     {
-        var adv = _segLevel.SelectedIndex == 1;
+        var adv = _advanced;
         var custom = _segServer.SelectedIndex == 1;
         var manual = _segIp.SelectedIndex == 1;
-        foreach (var c in _advanced) c.Visible = adv;
+        foreach (var c in _advancedList) c.Visible = adv;
         _segServer.Visible = adv;
         _peers.Visible = adv && custom;
         _serverHint.Visible = adv && !custom;
@@ -236,10 +250,15 @@ internal sealed class TunnelPage : Panel
         var y = adv ? 600 : 356;
         _btnMoon.Location = new Point(0, y);
         _btnEt.Location = new Point(_btnMoon.Width + 12, y);
-        _note.Location = new Point(0, y + 46);
     }
 
     public void Reload() => _ = RefreshStatus();
+
+    public void SetAdvanced(bool on)
+    {
+        _advanced = on;
+        Relayout();
+    }
 
     public async Task RefreshStatus()
     {
@@ -292,6 +311,11 @@ internal sealed class TunnelPage : Panel
             _vipValue.ForeColor = UiKit.Muted;
             _vipValue.Text = st.Running ? "等待分配…" : "—";
         }
+        var server = st.ServerMode == "custom"
+            ? (st.Peers.Length > 0 ? string.Join("，", st.Peers) : "（未填写节点地址）")
+            : st.DefaultServer;
+        _serverValue.Text = server.Length > 0 ? server : "—";
+        _serverValue.ForeColor = st.Running ? UiKit.Text : UiKit.Muted;
     }
 
     private void CopyVip()

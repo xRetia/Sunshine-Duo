@@ -29,6 +29,8 @@ internal sealed class MainForm : Form, IMainUi
     private SessionPage? _consolePage, _gamePage;
     private VdaPage? _vdaPage;
     private TunnelPage? _tunnelPage;
+    private bool _tunnelAdvanced;
+    private SegBar? _tunnelLevelBar;
     private SettingsPage? _settingsPage;
     private AboutPage? _aboutPage;
     private Label? _svcText;
@@ -212,6 +214,19 @@ internal sealed class MainForm : Form, IMainUi
         close.BringToFront();
         minimize.BringToFront();
 
+        // 内网穿透标准/高级分段：窗口右上角、最小化/关闭按钮下方
+        _tunnelLevelBar = new SegBar("标准", "高级")
+        {
+            Location = new Point(SidebarWidth + ContentWidth - 12 - 204, 52),
+        };
+        if (_tunnelAdvanced) _tunnelLevelBar.SelectedIndex = 1;
+        _tunnelLevelBar.Changed += (_, _) =>
+        {
+            _tunnelAdvanced = _tunnelLevelBar.SelectedIndex == 1;
+            _tunnelPage?.SetAdvanced(_tunnelAdvanced);
+        };
+        Controls.Add(_tunnelLevelBar);
+
         Navigate(initial);
         ResumeLayout(true);
     }
@@ -272,7 +287,7 @@ internal sealed class MainForm : Form, IMainUi
             MainPage.Console => _consolePage = new SessionPage(_cfg, Session("console"), true),
             MainPage.Game => _gamePage = new SessionPage(_cfg, Session("game"), false),
             MainPage.VirtualDisplay => _vdaPage = new VdaPage(),
-            MainPage.Tunnel => _tunnelPage = new TunnelPage(),
+            MainPage.Tunnel => _tunnelPage = new TunnelPage(_tunnelAdvanced),
             MainPage.Settings => _settingsPage = new SettingsPage(_cfg, RefreshSessionInfo, OnThemeChanged),
             MainPage.About => _aboutPage = new AboutPage(),
             _ => throw new ArgumentOutOfRangeException(nameof(page)),
@@ -319,6 +334,7 @@ internal sealed class MainForm : Form, IMainUi
             _consolePage = _gamePage = null;
             _vdaPage = null;
             _tunnelPage = null;
+            _tunnelLevelBar = null;
             _settingsPage = null;
             _aboutPage = null;
             _sidebar = null;
