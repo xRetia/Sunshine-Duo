@@ -52,3 +52,6 @@ Links/*
 # ---- 安装器（src\SetupWizard）：源码入库；构建现场与 pdb 忽略 ----
 src/SetupWizard/bin/
 src/SetupWizard/obj/
+
+# ---- 本机崩溃转储 ----
+.wsguard-build/
