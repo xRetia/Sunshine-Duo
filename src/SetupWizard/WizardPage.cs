@@ -338,7 +338,7 @@ internal sealed class WizardPage : Panel
         _stepPanels[2] = p;
 
         _gpus = GpuEnum.Physical();
-        var showGpu = _gpus.Count > 1;
+        var showGpu = _gpus.Count > 0;
 
         var stack = new VStack(12) { Location = new Point(0, 0), Size = new Size(Lay.CW, 480) };
         p.Controls.Add(stack);
@@ -358,6 +358,7 @@ internal sealed class WizardPage : Panel
             _cmbGpu.Items.Add(g + "  [" + vendor + "]");
         }
         if (_cmbGpu.Items.Count > 0) _cmbGpu.SelectedIndex = 0;
+        _cmbGpu.Enabled = _gpus.Count > 1;
         _gpuCard.Controls.Add(_cmbGpu);
         _gpuCard.Controls.Add(MutedAt(16, 74, "检测到多块图形设备时，请选择用于画面渲染的那一块"));
         if (showGpu) stack.Add(_gpuCard);
