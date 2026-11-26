@@ -385,6 +385,7 @@ const ICON={
   monitor:"",gamepad:"",stack:"",gear:"",info:"",
   display:"",clone:"",eye:"",expand:"",lock:"",
   ext:"",plus:"",trash:"",target:"",save:"",
+  globe:"\uf0ac",
   min:"",x:"",check:"",
   sun:"\uf185",moon:"\uf186",auto:"\uf042",
 };
@@ -435,6 +436,7 @@ const NAV=[
   {id:"console",t:"当前会话",i:"monitor"},
   {id:"game",t:"游戏会话",i:"gamepad"},
   {id:"vda",t:"虚拟显示器",i:"stack"},
+  {id:"tunnel",t:"内网穿透",i:"globe"},
   {id:"settings",t:"设置",i:"gear"},
   {id:"about",t:"关于",i:"info"},
 ];
@@ -460,6 +462,8 @@ let state={
     list:["2560x1080@60","1280x720@60","1920x1080@60","1920x1200@60","1440x648@60","1440x648@90"]},
   core:{cport:48100,gport:48200,autoStart:true,ralt:false,raltl:true,hideCursor:false,
     service:"运行中",user:"sunshine"},
+  tunnel:{enabled:false,network:"",secretSet:false,running:false,pid:0,managed:false,
+    exeExists:true,exe:""},
 };
 
 /* ===================== 模板 ===================== */
@@ -580,6 +584,42 @@ function vdaHTML(){
     </div>
     <p class="status" id="resStatus"></p>
     <p class="note">工作模式切换会立即调整显示拓扑；分辨率在下一场串流建立时生效。</p>
+  </section>`;
+}
+
+function tunnelHTML(){
+  const t=state.tunnel;
+  return `<section class="page${state.page==="tunnel"?" on":""}" data-page="tunnel">
+    <div class="head drag">
+      <div class="grow">
+        <h1 class="h1">内网穿透</h1>
+        <p class="sub">EasyTier 组网 · 组网核心由后台服务托管</p>
+      </div>
+      <span class="pill nodrag" id="etPill"></span>
+    </div>
+
+    <div class="cols nodrag">
+      <div>
+        <div class="card">
+          <div class="card-t">组网</div>
+          <p class="card-d">对端设备安装 EasyTier 并加入相同网络后，即可经虚拟 IP 互访。</p>
+          <div class="mt">${swHTML("etEnabled","启用组网",t.enabled)}</div>
+          <div class="stack mt16">
+            <div class="field"><label for="etNet">网络名称</label><input class="input" id="etNet" value="${esc(t.network)}" placeholder="例如 moeart-home" autocomplete="off"></div>
+            <div class="field"><label for="etSecret">网络密钥</label><input class="input" id="etSecret" type="password" autocomplete="new-password" placeholder="${t.secretSet?"已设置密钥":"留空为公开网络"}"></div>
+          </div>
+          <div class="mt"><button class="btn pri" data-a="et-save">${ic("save")}保存并应用</button></div>
+          <p class="status" id="etStatus"></p>
+        </div>
+      </div>
+      <div>
+        <div class="card">
+          <div class="card-t">运行状态</div>
+          <div class="svc mt" id="etSvc"><span class="dot"></span><span id="etSvcText"></span></div>
+          <p class="note">启用后由核心服务自动拉起并保活；输出与错误见 bin\\SunshineDuoCore\\easytier.out 与 watch.log。</p>
+        </div>
+      </div>
+    </div>
   </section>`;
 }
 
@@ -724,6 +764,7 @@ function onEvent(name,data){
     return;
   }
   if(name==="service"){state.core.service=data;renderService();return;}
+  if(name==="tunnel"){applyTunnel(data||{});return;}
   if(name==="wan"){
     state.net.wan=data;
     $$('.val[id^="v-wan-"]').forEach(el=>{el.textContent=data});
@@ -762,6 +803,7 @@ function render(){
       +sessionHTML(state.sessions.console)
       +sessionHTML(state.sessions.game)
       +vdaHTML()
+      +tunnelHTML()
       +settingsHTML()
       +aboutHTML()
     +`</main>`
@@ -775,6 +817,7 @@ function render(){
     "<b>萌远控 Duo · WebView2 界面预览</b>　拖拽 / 窗口按钮 / 右键屏蔽 / 主题切换：宿主侧由 WebView2 + WinForms 承担";
   resRows();
   renderService();
+  renderTunnel();
   fit();
 }
 
@@ -831,6 +874,64 @@ function renderService(){
   const btn=$("#svcBtn");
   btn.textContent=(s==="运行中"||s==="启动中"?"停止":"启动")+"服务";
   btn.disabled=s==="未安装"||s==="查询失败";
+}
+
+/* 内网穿透页 */
+function applyTunnel(st){
+  state.tunnel={...state.tunnel,...st};
+  renderTunnel();
+}
+function renderTunnel(){
+  const t=state.tunnel, pill=$("#etPill"), svc=$("#etSvc");
+  if(!pill)return;
+  if(!t.exeExists){
+    pill.className="pill bad";pill.innerHTML="<i></i>组件缺失";
+  }else if(t.running){
+    pill.className="pill ok";pill.innerHTML=`<i></i>运行中 · PID ${t.pid}`;
+  }else{
+    pill.className="pill";pill.innerHTML="<i></i>已停止";
+  }
+  if(svc){
+    svc.className="svc mt "+(t.running?"ok":t.enabled?"warn":"");
+    $("#etSvcText").textContent=t.running
+      ?"组网核心运行中"+(t.managed?"":"（服务收养的既有实例）")
+      :t.enabled?"已启用，等待组网核心就绪":"未运行";
+  }
+  const sw=document.querySelector('.sw[data-key="etEnabled"]');
+  if(sw){
+    const on=sw.getAttribute("aria-checked")==="true";
+    if(on!==!!t.enabled){
+      sw.setAttribute("aria-checked",String(!!t.enabled));
+      swSetVisual(sw,t.enabled?SW_MAX_TX:SW_MIN_TX,!!t.enabled,"is-on");
+    }
+  }
+  const secret=$("#etSecret");
+  if(secret&&!secret.value)secret.placeholder=t.secretSet?"已设置密钥":"留空为公开网络";
+}
+async function etApply(enabled){
+  const st=$("#etStatus");
+  const network=($("#etNet").value||"").trim();
+  if(enabled&&!network){setStatus(st,"启用前先填写网络名称。","warn");
+    const sw=document.querySelector('.sw[data-key="etEnabled"]');
+    if(sw){sw.setAttribute("aria-checked","false");swSetVisual(sw,SW_MIN_TX,false,"is-on");}
+    return;}
+  setStatus(st,"正在应用…","");
+  if(HOSTED){
+    try{
+      const r=await call("easytierSet",{enabled,network,secret:$("#etSecret").value||""});
+      applyTunnel(r.state||{});
+      setStatus(st,r.message,r.failed?"bad":"ok");
+    }catch(e){
+      setStatus(st,"应用失败："+e.message,"bad");
+      const sw=document.querySelector('.sw[data-key="etEnabled"]');
+      if(sw){sw.setAttribute("aria-checked",String(!enabled));swSetVisual(sw,!enabled?SW_MAX_TX:SW_MIN_TX,!enabled,"is-on");}
+    }
+    return;
+  }
+  await wait(800);
+  state.tunnel.enabled=enabled;state.tunnel.network=network;state.tunnel.running=enabled;
+  renderTunnel();
+  setStatus(st,enabled?"组网已启动。":"组网已停止。","ok");
 }
 
 function resRows(){
@@ -1065,6 +1166,7 @@ function swCommit(el,next){
 }
 async function actSwChanged(el,next){
   const key=el.dataset.key;
+  if(key==="etEnabled"){await etApply(next);return;}
   state.core[key]=next;
   if(HOSTED){
     try{
@@ -1210,6 +1312,10 @@ const ACT={
   "ports-save":savePorts,
   "cred-apply":applyCred,
   "svc-toggle":toggleService,
+  "et-save":()=>{
+    const sw=document.querySelector('.sw[data-key="etEnabled"]');
+    etApply(sw&&sw.getAttribute("aria-checked")==="true");
+  },
   restart:el=>restartSession(el),
   min:minimize,
   close:()=>{
@@ -1262,8 +1368,8 @@ document.addEventListener("paste",e=>{
 });
 
 document.addEventListener("keydown",e=>{
-  if((e.ctrlKey||e.metaKey)&&!/^[1-5]$/.test(e.key))return;
-  if((e.ctrlKey||e.metaKey)&&/^[1-5]$/.test(e.key)){navigate(NAV[+e.key-1].id);e.preventDefault();return;}
+  if((e.ctrlKey||e.metaKey)&&!/^[1-6]$/.test(e.key))return;
+  if((e.ctrlKey||e.metaKey)&&/^[1-6]$/.test(e.key)){navigate(NAV[+e.key-1].id);e.preventDefault();return;}
   const el=document.activeElement;
   if(!el||!el.classList.contains("pinbox"))return;
   const boxes=pinBoxes(el.dataset.sid), i=boxes.indexOf(el);
