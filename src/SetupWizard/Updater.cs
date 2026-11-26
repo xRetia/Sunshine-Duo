@@ -5,20 +5,35 @@ using System.Runtime.InteropServices;
 
 namespace SunshineDuoSetup;
 
-// 更新模块：检测 https://github.com/xRetia/Sunshine-Duo 的 .VERSION 文件，
-// 有新 tag 则下载对应 Release zip 并替换本机旧程序（保留 config/ 与本机生成文件）。
+// 更新模块：比较本机与远程 .VERSION，有新版则下载 main 分支打包 zip
+// 并替换本机旧程序（保留 config/ 与本机生成文件）。
 internal static class Updater
 {
-    public const string RepoOwner = "xRetia";
-    public const string RepoName = "Sunshine-Duo";
+    public const string RepoUrl = "https://github.com/xRetia/Sunshine-Duo";
     public const string VersionUrl = "https://raw.githubusercontent.com/xRetia/Sunshine-Duo/main/.VERSION";
-    public const string ReleasesApiUrl = "https://api.github.com/repos/xRetia/Sunshine-Duo/releases";
-    public const string ReleasesPageUrl = "https://github.com/xRetia/Sunshine-Duo/releases";
+    // main 分支打包 zip（无 tag，更新直接用它）
+    public const string MainZipUrl = "https://github.com/xRetia/Sunshine-Duo/archive/refs/heads/main.zip";
 
-    public static string LocalVersion =>
-        typeof(Updater).Assembly.GetName().Version?.ToString(3) ?? "1.0.0";
+    // 本地版本：读仓库根 .VERSION（更新时随镜像替换自动刷新），缺省退回程序集版本
+    public static string LocalVersion
+    {
+        get
+        {
+            try
+            {
+                var text = File.ReadAllText(Path.Combine(Paths.Root, ".VERSION")).Trim();
+                var line = text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .FirstOrDefault() ?? "";
+                var tag = line.StartsWith('v') ? line : "v" + line;
+                if (System.Text.RegularExpressions.Regex.IsMatch(tag, @"^v\d+(\.\d+){0,3}$"))
+                    return tag.TrimStart('v');
+            }
+            catch { }
+            return typeof(Updater).Assembly.GetName().Version?.ToString(3) ?? "1.0.0";
+        }
+    }
 
-    public sealed record RemoteVersion(string Tag, string Url, string Error)
+    public sealed record RemoteVersion(string Tag, string Error)
     {
         public bool Ok => Error.Length == 0;
     }
@@ -33,12 +48,12 @@ internal static class Updater
             var line = text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault() ?? "";
             var tag = line.StartsWith('v') ? line : "v" + line;
             if (!System.Text.RegularExpressions.Regex.IsMatch(tag, @"^v\d+(\.\d+){0,3}$"))
-                return new RemoteVersion("", "", $".VERSION 内容无效：「{line}」");
-            return new RemoteVersion(tag, $"{ReleasesPageUrl}/tag/{tag}", "");
+                return new RemoteVersion("", $".VERSION 内容无效：「{line}」");
+            return new RemoteVersion(tag, "");
         }
         catch (Exception ex)
         {
-            return new RemoteVersion("", "", ex.Message);
+            return new RemoteVersion("", ex.Message);
         }
     }
 
@@ -60,37 +75,8 @@ internal static class Updater
         return false;
     }
 
-    // 找到 tag 对应 Release 的 zip 资产（任选一个 *.zip；约定 zip 解压根即仓库布局根）
-    public static async Task<string?> FindAssetUrlAsync(string tag, CancellationToken ct)
-    {
-        try
-        {
-            using var http = NewHttp();
-            http.DefaultRequestHeaders.Add("Accept", "application/vnd.github+json");
-            var json = await http.GetStringAsync(ReleasesApiUrl, ct);
-            var arr = JsonNode.Parse(json) as JsonArray;
-            if (arr is null) return null;
-            foreach (var rel in arr.OfType<JsonObject>())
-            {
-                var relTag = (string?)rel["tag_name"];
-                if (!string.Equals(relTag, tag, StringComparison.OrdinalIgnoreCase)
-                    && !string.Equals(relTag, tag.TrimStart('v'))) continue;
-                if (rel["assets"] is not JsonArray assets) continue;
-                foreach (var asset in assets.OfType<JsonObject>())
-                {
-                    var name = (string?)asset["name"] ?? "";
-                    var url = (string?)asset["browser_download_url"];
-                    if (url is not null && name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
-                        return url;
-                }
-            }
-        }
-        catch { }
-        return null;
-    }
-
-    // 执行更新：下载 → 解压到临时目录 → 停进程 → 镜像替换 → 清理
-    public static void Apply(string tag, string zipUrl, string workRoot, Action<string> log, CancellationToken ct)
+    // 执行更新：下载 main.zip → 解压 → 停进程 → 镜像替换 → 恢复服务与托盘
+    public static void Apply(string tag, string workRoot, Action<string> log, CancellationToken ct)
     {
         var staging = Path.Combine(Path.GetTempPath(), "SunshineDuoUpdate-" + Guid.NewGuid().ToString("N")[..8]);
         Directory.CreateDirectory(staging);
@@ -99,9 +85,9 @@ internal static class Updater
             var zipPath = Path.Combine(staging, "update.zip");
             if (staging.StartsWith(Path.GetTempPath(), StringComparison.OrdinalIgnoreCase) is false)
                 throw new Exception("临时目录异常，终止更新（安全保护）");
-            log($"下载 {zipUrl} ...");
+            log($"下载 {MainZipUrl} ...");
             using (var http = NewHttp())
-            using (var resp = http.GetAsync(zipUrl, HttpCompletionOption.ResponseHeadersRead, ct).Result)
+            using (var resp = http.GetAsync(MainZipUrl, HttpCompletionOption.ResponseHeadersRead, ct).Result)
             {
                 resp.EnsureSuccessStatusCode();
                 using var src = resp.Content.ReadAsStream(ct);

@@ -158,7 +158,7 @@ internal sealed class AboutPage : Panel
     public AboutPage()
     {
         DoubleBuffered = true;
-        var version = typeof(Updater).Assembly.GetName().Version?.ToString(3) ?? "1.0.0";
+        var version = Updater.LocalVersion;
 
         var title = Ui.Title("关于", 20);
         title.Location = new Point(Lay.X0, 32);

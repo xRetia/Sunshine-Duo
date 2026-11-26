@@ -84,6 +84,8 @@ internal static class SelfTest
         Check("版本比较 IsNewer", () =>
             Updater.IsNewer("v1.2.0", "1.1.9") && !Updater.IsNewer("v1.2.0", "1.2.0") && !Updater.IsNewer("v1.1.0", "1.2.0"));
 
+        Console.WriteLine($"  [INFO] 本地版本（.VERSION）= {Updater.LocalVersion}");
+
         if (_fail > 0)
         {
             Console.WriteLine($"== SelfTest FAILED ({_fail} 项) ==");
