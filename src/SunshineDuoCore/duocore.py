@@ -500,6 +500,8 @@ def easytier_args(et):
         args += ['-p', ET_PUBLIC_SERVER]
     if not bool(et.get('tcp_hole_punch')):
         args += ['--disable-tcp-hole-punching']
+    # 虚拟网卡显示名（设备管理器里不再是自动生成的 et_xxx Tunn）
+    args += ['--dev-name', 'MoeArt Remote Tunnel']
     for a in (et.get('extra_args') or []):
         s = str(a).strip()
         if s:
