@@ -47,3 +47,7 @@ bin/SunshineDuoTray/SunshineDuoTray.exe.bak
 # ---- 游戏快捷方式（指向本机游戏，别人机器无效；目录本身靠 README.md 占位入库）----
 Links/*
 !Links/README.md
+
+# ---- 安装器（src\SetupWizard）：源码入库；构建现场与 pdb 忽略 ----
+src/SetupWizard/bin/
+src/SetupWizard/obj/
