@@ -224,6 +224,8 @@ internal sealed class RoundCard : Panel
 // 自动换行标签：TextRenderer 强制 WordBreak，中文长句也按宽度断行（原生 Label 不保证）
 internal sealed class WrapLabel : Control
 {
+    private bool _sizing;
+
     public WrapLabel(string text, Color color, float size)
     {
         SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
@@ -233,6 +235,24 @@ internal sealed class WrapLabel : Control
         BackColor = Color.Transparent;
         Font = Ui.F(size);
     }
+
+    // 按当前宽度实测换行高度并自适应，避免第二行被裁
+    private void FitHeight()
+    {
+        if (_sizing || Width <= 0) return;
+        _sizing = true;
+        try
+        {
+            var h = TextRenderer.MeasureText(Text, Font, new Size(Width, int.MaxValue),
+                TextFormatFlags.Left | TextFormatFlags.WordBreak | TextFormatFlags.NoPadding).Height + 4;
+            if (Height != h) Height = h;
+        }
+        finally { _sizing = false; }
+    }
+
+    protected override void OnSizeChanged(EventArgs e) { base.OnSizeChanged(e); FitHeight(); }
+    protected override void OnTextChanged(EventArgs e) { base.OnTextChanged(e); FitHeight(); }
+    protected override void OnFontChanged(EventArgs e) { base.OnFontChanged(e); FitHeight(); }
 
     protected override void OnPaint(PaintEventArgs e)
     {

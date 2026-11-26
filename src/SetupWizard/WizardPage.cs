@@ -73,14 +73,14 @@ internal sealed class WizardPage : Panel
         DoubleBuffered = true;
 
         var title = Ui.Title("安装配置", 18);
-        title.Location = new Point(Lay.X0, 28);
+        title.Location = new Point(Lay.X0, 18);
         Controls.Add(title);
 
         // 步骤指示：01-04 圆点 + 名称（横排；连接线只画在圆点之间，不穿过圆点）
         var dotStart = Lay.X0 + 26;
         const int spacing = 146;
-        const int dotTop = 66;      // 圆点 y（直径 30，圆心 81）
-        const int nameTop = 104;
+        const int dotTop = 82;      // 圆点 y（与标题拉开间距）
+        const int nameTop = 120;
         for (var i = 0; i < StepCount; i++)
         {
             var dot = new StepDot("0" + (i + 1)) { Location = new Point(dotStart + spacing * i, dotTop) };
@@ -210,26 +210,26 @@ internal sealed class WizardPage : Panel
         const int rightX = 298;
 
         // 游戏账号（仅双会话，左列）
-        _gameCard = new RoundCard { Location = new Point(leftX, 0), Size = new Size(colW, 224) };
+        _gameCard = new RoundCard { Location = new Point(leftX, 0), Size = new Size(colW, 316) };
         _gameCard.Controls.Add(Head(16, 14, "远程游戏账号"));
         _gameCard.Controls.Add(SubAt(16, 40, "手机 / 平板连接时使用的本机账户（需已有此账户）", colW - 32, 2));
-        _gameCard.Controls.Add(LabelAt(16, 78, "用户名"));
+        _gameCard.Controls.Add(LabelAt(16, 96, "用户名"));
         _txtStreamUser = Ui.FieldBox();
-        _txtStreamUser.Location = new Point(16, 98);
+        _txtStreamUser.Location = new Point(16, 116);
         _txtStreamUser.Size = new Size(colW - 32, 26);
         _gameCard.Controls.Add(_txtStreamUser);
-        _gameCard.Controls.Add(LabelAt(16, 136, "登录密码"));
+        _gameCard.Controls.Add(LabelAt(16, 172, "登录密码"));
         _pwdRdp = Ui.FieldBox(password: true);
-        _pwdRdp.Location = new Point(16, 156);
+        _pwdRdp.Location = new Point(16, 192);
         _pwdRdp.Size = new Size(colW - 32 - 78, 26);
         _gameCard.Controls.Add(_pwdRdp);
         _btnVerify = Ui.Secondary("验证");
-        _btnVerify.Location = new Point(colW - 16 - 72, 156);
+        _btnVerify.Location = new Point(colW - 16 - 72, 192);
         _btnVerify.Size = new Size(72, 26);
         _btnVerify.Click += (_, _) => VerifyPassword();
         _gameCard.Controls.Add(_btnVerify);
-        _lblCredState = SmallAt(16, 190);
-        _lblPwState = SmallAt(16, 206);
+        _lblCredState = SmallAt(16, 232);
+        _lblPwState = SmallAt(16, 250);
         _gameCard.Controls.Add(_lblCredState);
         _gameCard.Controls.Add(_lblPwState);
         // 开机自动登录此账户：隐藏，默认开启（AutoLogon 恒 true）
@@ -259,24 +259,24 @@ internal sealed class WizardPage : Panel
         var admin = new RoundCard { Location = new Point(rightX, 0), Size = new Size(colW, 316) };
         admin.Controls.Add(Head(16, 14, "网页控制台账号"));
         admin.Controls.Add(SubAt(16, 40, "在浏览器中管理设备配对与串流设置；与远程游戏账号无关", colW - 32, 2));
-        admin.Controls.Add(LabelAt(16, 82, "用户名"));
+        admin.Controls.Add(LabelAt(16, 88, "用户名"));
         _txtWebUser = Ui.FieldBox();
-        _txtWebUser.Location = new Point(16, 102);
+        _txtWebUser.Location = new Point(16, 108);
         _txtWebUser.Size = new Size(colW - 32, 26);
         admin.Controls.Add(_txtWebUser);
-        admin.Controls.Add(LabelAt(16, 138, "密码"));
+        admin.Controls.Add(LabelAt(16, 144, "密码"));
         _pwdWebUi = Ui.FieldBox(password: true);
-        _pwdWebUi.Location = new Point(16, 158);
+        _pwdWebUi.Location = new Point(16, 164);
         _pwdWebUi.Size = new Size(colW - 32, 26);
         admin.Controls.Add(_pwdWebUi);
-        admin.Controls.Add(LabelAt(16, 194, "确认密码"));
+        admin.Controls.Add(LabelAt(16, 200, "确认密码"));
         _pwdWebUi2 = Ui.FieldBox(password: true);
-        _pwdWebUi2.Location = new Point(16, 214);
+        _pwdWebUi2.Location = new Point(16, 220);
         _pwdWebUi2.Size = new Size(colW - 32, 26);
         admin.Controls.Add(_pwdWebUi2);
-        _lblWebPwState = SmallAt(16, 248);
+        _lblWebPwState = SmallAt(16, 254);
         admin.Controls.Add(_lblWebPwState);
-        admin.Controls.Add(MutedAt(16, 268, "安装完成页会列出控制台地址；两处画面共用这一个账号", colW - 32, 2));
+        admin.Controls.Add(MutedAt(16, 274, "安装完成页会列出控制台地址；两处画面共用这一个账号", colW - 32, 2));
         p.Controls.Add(admin);
         _adminCard = admin;
 
