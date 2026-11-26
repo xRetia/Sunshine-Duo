@@ -59,6 +59,12 @@ internal static class Shot
                     Console.WriteLine("DUMP " + wizard.DebugDump(i));
                     Snap(h, form, Path.Combine(dir, "wizard-" + (i + 1) + ".png"));
                 }
+                // 单会话态的账户页（左卡留白与右卡等高）
+                wizard.DebugSelectMode(dual: false);
+                wizard.DebugStep(1);
+                ForceRepaint(form);
+                Snap(h, form, Path.Combine(dir, "wizard-2-single.png"));
+                wizard.DebugSelectMode(dual: true);
             }
 
             // 结果页：用样例数据渲染（双会话成功态）

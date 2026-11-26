@@ -22,13 +22,13 @@ internal sealed class WelcomePage : Panel
         {
             Text = "跟随安装向导，在这台电脑上完成萌远控 Duo 的部署与配置。",
             ForeColor = Ui.Text2, BackColor = Color.Transparent,
-            Font = Ui.F(10.5F), Location = new Point(Lay.X0 + 2, 66),
+            Font = Ui.F(10.5F), Location = new Point(Lay.X0 + 2, 72),
             Size = new Size(Lay.CW, 20),
         };
         Controls.Add(sub);
 
         // 安装位置单行
-        var info = new RoundCard { Location = new Point(Lay.X0, 96), Size = new Size(Lay.CW, 42) };
+        var info = new RoundCard { Location = new Point(Lay.X0, 118), Size = new Size(Lay.CW, 42) };
         Controls.Add(info);
         var lblRoot = new Label
         {
@@ -40,7 +40,7 @@ internal sealed class WelcomePage : Panel
         info.Controls.Add(lblRoot);
 
         // 组件检测：行区按 7 行 × 30px 收紧，不再留大片空白
-        var checkCard = new RoundCard { Location = new Point(Lay.X0, 152), Size = new Size(Lay.CW, 296) };
+        var checkCard = new RoundCard { Location = new Point(Lay.X0, 174), Size = new Size(Lay.CW, 296) };
         Controls.Add(checkCard);
         var checkHead = Ui.Head("组件检测", 11F);
         checkHead.Location = new Point(16, 14);
@@ -55,7 +55,7 @@ internal sealed class WelcomePage : Panel
         _checksHost = new Panel { Location = new Point(16, 44), Size = new Size(Lay.CW - 32, 240), BackColor = Ui.Card };
         checkCard.Controls.Add(_checksHost);
 
-        Controls.Add(TipBanner(Lay.X0, 468, "安装前请保存工作", "安装会注册系统服务与驱动；如提示重启，请在完成后重启电脑。"));
+        Controls.Add(TipBanner(Lay.X0, 484, "安装前请保存工作", "安装会注册系统服务与驱动；如提示重启，请在完成后重启电脑。"));
 
         var btn = Ui.Primary("开始安装配置 >");
         btn.Size = new Size(210, 38);

@@ -27,13 +27,13 @@ internal sealed class UninstallPage : Panel
         {
             Text = "选择要移除的功能（不删除程序文件、配置与已保存的密码）",
             ForeColor = Ui.Text3, BackColor = Color.Transparent,
-            Font = Ui.F(9F), Location = new Point(Lay.X0 + 2, 56), AutoSize = true,
+            Font = Ui.F(9F), Location = new Point(Lay.X0 + 2, 60), AutoSize = true,
         };
         Controls.Add(sub);
 
         var scroll = new Panel
         {
-            Location = new Point(Lay.X0, 88), Size = new Size(Lay.CW, 540),
+            Location = new Point(Lay.X0, 100), Size = new Size(Lay.CW, 528),
             BackColor = Ui.Bg, AutoScroll = true,
         };
         Controls.Add(scroll);

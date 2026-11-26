@@ -201,7 +201,7 @@ internal sealed class WizardPage : Panel
     // ------------------------------------------------------------------
     private void BuildStep1()
     {
-        var p = new Panel { Location = new Point(Lay.X0, 150), Size = new Size(Lay.CW, 480), BackColor = Ui.Bg, AutoScroll = true };
+        var p = new Panel { Location = new Point(Lay.X0, 156), Size = new Size(Lay.CW, 480), BackColor = Ui.Bg, AutoScroll = true };
         _stepPanels[1] = p;
 
         // 左右结构：左列远程游戏账号 / 单会话占位，右列网页控制台账号
@@ -213,30 +213,30 @@ internal sealed class WizardPage : Panel
         _gameCard = new RoundCard { Location = new Point(leftX, 0), Size = new Size(colW, 316) };
         _gameCard.Controls.Add(Head(16, 14, "远程游戏账号"));
         _gameCard.Controls.Add(SubAt(16, 40, "手机 / 平板连接时使用的本机账户（需已有此账户）", colW - 32, 2));
-        _gameCard.Controls.Add(LabelAt(16, 96, "用户名"));
+        _gameCard.Controls.Add(LabelAt(16, 92, "用户名"));
         _txtStreamUser = Ui.FieldBox();
-        _txtStreamUser.Location = new Point(16, 116);
+        _txtStreamUser.Location = new Point(16, 112);
         _txtStreamUser.Size = new Size(colW - 32, 26);
         _gameCard.Controls.Add(_txtStreamUser);
-        _gameCard.Controls.Add(LabelAt(16, 172, "登录密码"));
+        _gameCard.Controls.Add(LabelAt(16, 156, "登录密码"));
         _pwdRdp = Ui.FieldBox(password: true);
-        _pwdRdp.Location = new Point(16, 192);
+        _pwdRdp.Location = new Point(16, 176);
         _pwdRdp.Size = new Size(colW - 32 - 78, 26);
         _gameCard.Controls.Add(_pwdRdp);
         _btnVerify = Ui.Secondary("验证");
-        _btnVerify.Location = new Point(colW - 16 - 72, 192);
+        _btnVerify.Location = new Point(colW - 16 - 72, 176);
         _btnVerify.Size = new Size(72, 26);
         _btnVerify.Click += (_, _) => VerifyPassword();
         _gameCard.Controls.Add(_btnVerify);
-        _lblCredState = SmallAt(16, 232);
-        _lblPwState = SmallAt(16, 250);
+        _lblCredState = SmallAt(16, 216);
+        _lblPwState = SmallAt(16, 234);
         _gameCard.Controls.Add(_lblCredState);
         _gameCard.Controls.Add(_lblPwState);
         // 开机自动登录此账户：隐藏，默认开启（AutoLogon 恒 true）
         p.Controls.Add(_gameCard);
 
         // 单会话占位提示（左列）
-        _consoleHintCard = new RoundCard { Location = new Point(leftX, 0), Size = new Size(colW, 172) };
+        _consoleHintCard = new RoundCard { Location = new Point(leftX, 0), Size = new Size(colW, 316) };
         _consoleHintCard.Controls.Add(Head(16, 14, "当前登录用户"));
         var who = new Label
         {
@@ -334,7 +334,7 @@ internal sealed class WizardPage : Panel
     // ------------------------------------------------------------------
     private void BuildStep2()
     {
-        var p = new Panel { Location = new Point(Lay.X0, 150), Size = new Size(Lay.CW, 480), BackColor = Ui.Bg, AutoScroll = true };
+        var p = new Panel { Location = new Point(Lay.X0, 156), Size = new Size(Lay.CW, 480), BackColor = Ui.Bg, AutoScroll = true };
         _stepPanels[2] = p;
 
         _gpus = GpuEnum.Physical();
@@ -399,7 +399,7 @@ internal sealed class WizardPage : Panel
     // ------------------------------------------------------------------
     private void BuildStep3()
     {
-        var p = new Panel { Location = new Point(Lay.X0, 150), Size = new Size(Lay.CW, 480), BackColor = Ui.Bg };
+        var p = new Panel { Location = new Point(Lay.X0, 156), Size = new Size(Lay.CW, 480), BackColor = Ui.Bg };
         _stepPanels[3] = p;
 
         var card = new RoundCard { Location = new Point(0, 0), Size = new Size(Lay.CW, 342) };
@@ -483,6 +483,9 @@ internal sealed class WizardPage : Panel
         _stack2?.Relayout();
         if (_step == 3) UpdateSummary();
     }
+
+    // 自检用：切换安装模式后渲染
+    internal void DebugSelectMode(bool dual) => SelectMode(dual);
 
     // 自检用：转储某步面板的直接子控件布局
     internal string DebugDump(int step)

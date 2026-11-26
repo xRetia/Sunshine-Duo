@@ -30,11 +30,11 @@ internal sealed class UpdatePage : Panel
         {
             Text = "检测新版本并替换本机程序（保留配置与已配对数据）；更新完成后会自动恢复核心服务与托盘",
             ForeColor = Ui.Text2, BackColor = Color.Transparent,
-            Font = Ui.F(9F), Location = new Point(Lay.X0 + 2, 60), AutoSize = true,
+            Font = Ui.F(9F), Location = new Point(Lay.X0 + 2, 64), AutoSize = true,
         };
         Controls.Add(sub);
 
-        var card = new RoundCard { Location = new Point(Lay.X0, 96), Size = new Size(Lay.CW, 184) };
+        var card = new RoundCard { Location = new Point(Lay.X0, 106), Size = new Size(Lay.CW, 184) };
         card.Controls.Add(new Label
         {
             Text = "本机版本", ForeColor = Ui.Text3, BackColor = Color.Transparent,
@@ -83,7 +83,7 @@ internal sealed class UpdatePage : Panel
         card.Controls.Add(_btnApply);
         Controls.Add(card);
 
-        var logCard = new RoundCard { Location = new Point(Lay.X0, 296), Size = new Size(Lay.CW, 326) };
+        var logCard = new RoundCard { Location = new Point(Lay.X0, 306), Size = new Size(Lay.CW, 318) };
         _txtLog = new TextBox
         {
             Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical,
