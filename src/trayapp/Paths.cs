@@ -57,6 +57,10 @@ public static class Paths
         catch { return fallback; }
     }
 
+    // 实时读取会话开关（避免静态缓存的 ConsoleEnabled/GameEnabled 在会话模式切换后过期）
+    public static bool IsConsoleEnabled() => CoreFlag("guard_apollo_console", true);
+    public static bool IsGameEnabled() => CoreFlag("guard_apollo", true);
+
     public static string CoreString(string key, string fallback)
     {
         try

@@ -433,7 +433,7 @@ internal static class Ops
         if (File.Exists(Paths.CoreCfgPath))
         {
             var cfg = JsonNode.Parse(File.ReadAllText(Paths.CoreCfgPath)) as JsonObject ?? new JsonObject();
-            if (o.GameEnabled) cfg["guard_apollo"] = true;
+            cfg["guard_apollo"] = o.GameEnabled;
             cfg["guard_apollo_console"] = true;
             cfg["auto_logon"] = o.AutoLogon;
             cfg["default_display_mode"] = "mirror";

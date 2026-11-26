@@ -283,17 +283,17 @@ internal sealed class SettingsPage : Panel
         int cpv = 0, gpv = 0;
         var cpOk = int.TryParse(_consolePort.Text.Trim(), out cpv) && cpv is >= 1024 and <= 65535;
         var gpOk = int.TryParse(_gamePort.Text.Trim(), out gpv) && gpv is >= 1024 and <= 65535;
-        if (Paths.ConsoleEnabled && !cpOk)
+        if (Paths.IsConsoleEnabled() && !cpOk)
         {
             SetStatus(_portStatus, "当前会话端口必须是 1024-65535 的数字。", UiKit.Danger);
             return;
         }
-        if (Paths.GameEnabled && !gpOk)
+        if (Paths.IsGameEnabled() && !gpOk)
         {
             SetStatus(_portStatus, "游戏会话端口必须是 1024-65535 的数字。", UiKit.Danger);
             return;
         }
-        if (Paths.ConsoleEnabled && Paths.GameEnabled && Math.Abs(cpv - gpv) < 50)
+        if (Paths.IsConsoleEnabled() && Paths.IsGameEnabled() && Math.Abs(cpv - gpv) < 50)
         {
             SetStatus(_portStatus, "两个端口差需 ≥ 50，避免端口族重叠。", UiKit.Danger);
             return;
@@ -301,7 +301,7 @@ internal sealed class SettingsPage : Panel
 
         var changed = new List<(string id, string name)>();
         var errors = new List<string>();
-        if (Paths.ConsoleEnabled)
+        if (Paths.IsConsoleEnabled())
         {
             var s = Paths.GetSessions(_cfg).FirstOrDefault(x => x.Id == "console");
             if (s != null && s.StreamPort != cpv)
@@ -311,7 +311,7 @@ internal sealed class SettingsPage : Panel
                 _cfg.ConsolePort = cpv;
             }
         }
-        if (Paths.GameEnabled)
+        if (Paths.IsGameEnabled())
         {
             var s = Paths.GetSessions(_cfg).FirstOrDefault(x => x.Id == "game");
             if (s != null && s.StreamPort != gpv)
@@ -419,12 +419,12 @@ internal sealed class SettingsPage : Panel
             _confirm.Clear();
 
             var failures = new List<string>();
-            if (Paths.ConsoleEnabled)
+            if (Paths.IsConsoleEnabled())
             {
                 var e = await GuardPipe.RestartApollo("console");
                 if (e != null) failures.Add("当前会话：" + e);
             }
-            if (Paths.GameEnabled)
+            if (Paths.IsGameEnabled())
             {
                 var e = await GuardPipe.RestartApollo("game");
                 if (e != null) failures.Add("游戏会话：" + e);
