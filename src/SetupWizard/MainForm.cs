@@ -159,12 +159,13 @@ internal sealed class MainForm : Form
         _uninstall.BindOwner(this);
         _updatePage.BindOwner(this);
 
-        _pump.RunFinished += hasFail => BeginInvoke(() =>
+        _pump.RunFinished += _ =>
         {
-            var rows = _run?.Rows() ?? [];
-            _result.ShowResult(_pump.IsInstall, hasFail, aborted: false, _pump.LastOpts, rows);
+            // 结果取自泵内的权威列表，不依赖进度页控件上的 Tag
+            var results = _pump.Results.Select(r => (r.Key, r.Label, r.Ok)).ToList();
+            _result.ShowResult(_pump.IsInstall, results.Any(r => !r.Ok), aborted: false, _pump.LastOpts, results);
             Navigate("f");
-        });
+        };
 
         Navigate(initial);
         ResumeLayout(true);
@@ -382,7 +383,9 @@ internal sealed class RunPump
     public bool Running { get; private set; }
     public bool IsInstall { get; private set; }
     public Opts? LastOpts { get; set; }
-    private readonly SynchronizationContext? _sync = SynchronizationContext.Current;
+    // 不能在这里捕获 SynchronizationContext.Current：本对象由 MainForm 字段初始化器构造，
+    // 那时控件尚未创建、WinForms 上下文还没安装，捕获到的会是 null，Post 全部静默丢弃。
+    private SynchronizationContext? _sync;
     private readonly List<(string Key, string Label, bool Ok)> _results = [];
     private Dictionary<string, string> _labels = [];
 
@@ -398,6 +401,9 @@ internal sealed class RunPump
         Running = true;
         IsInstall = isInstall;
         _results.Clear();
+        // Start 必须由 UI 线程调用：此时 WinForms 上下文已安装，事件才能回到 UI 线程派发
+        _sync = SynchronizationContext.Current
+            ?? throw new InvalidOperationException("RunPump.Start 必须在 UI 线程调用");
         _reporter = new Reporter(this);
         return _reporter;
     }
@@ -409,16 +415,20 @@ internal sealed class RunPump
     public void Finish(bool hasFail)
     {
         Running = false;
-        RunFinished?.Invoke(hasFail);
+        // 结束通知同样入 UI 线程队列：确保此前投递的 StepDone 回调已全部执行，结果列表完整
+        Post(_ => RunFinished?.Invoke(hasFail), null);
     }
+
+    private void Post(SendOrPostCallback cb, object? state)
+        => (_sync ?? throw new InvalidOperationException("RunPump 未启动")).Post(cb, state);
 
     private sealed class Reporter(RunPump owner) : IRunReporter
     {
-        public void Log(string message) => owner._sync?.Post(_ => owner.Logged?.Invoke(message), null);
-        public void StepStart(string key) => owner._sync?.Post(_ => owner.StepStarted?.Invoke(key), null);
+        public void Log(string message) => owner.Post(_ => owner.Logged?.Invoke(message), null);
+        public void StepStart(string key) => owner.Post(_ => owner.StepStarted?.Invoke(key), null);
         public void StepDone(string key, bool ok)
         {
-            owner._sync?.Post(_ =>
+            owner.Post(_ =>
             {
                 var label = owner._labels.TryGetValue(key, out var l) ? l : key;
                 owner._results.Add((key, label, ok));

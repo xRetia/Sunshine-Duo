@@ -5,6 +5,8 @@ internal sealed class RunPage : Panel
 {
     private readonly RunPump _pump;
     private readonly Dictionary<string, StepRow> _rows = [];
+    private readonly List<string> _order = [];
+    private int _running; // 当前执行步骤的序号（1 起，0 = 没有在执行的步骤）
     private Label _lblTitle = null!;
     private Label _lblCurrent = null!;
     private Label _lblStepCount = null!;
@@ -63,7 +65,13 @@ internal sealed class RunPage : Panel
         });
         _pump.StepStarted += key => BeginInvoke(() =>
         {
-            if (_rows.TryGetValue(key, out var r)) r.SetRunning();
+            if (_rows.TryGetValue(key, out var r))
+            {
+                r.SetRunning();
+                _lblCurrent.Text = "正在处理：" + r.Text;
+                var idx = _order.IndexOf(key);
+                if (idx >= 0) _running = idx + 1;
+            }
             UpdateProgress();
         });
         _pump.StepFinished += (key, ok) => BeginInvoke(() =>
@@ -72,6 +80,7 @@ internal sealed class RunPage : Panel
             {
                 if (ok) r.SetOk(); else r.SetFail();
             }
+            _running = 0;
             UpdateProgress();
         });
         _pump.RunFinished += _ => BeginInvoke(UpdateProgress);
@@ -80,6 +89,8 @@ internal sealed class RunPage : Panel
     public void Prepare(bool isInstall, IEnumerable<(string Key, string Label)> steps)
     {
         _rows.Clear();
+        _order.Clear();
+        _running = 0;
         _stepsHost.Controls.Clear();
         _txtLog.Clear();
         _bar.Value = 0;
@@ -93,29 +104,23 @@ internal sealed class RunPage : Panel
             var row = new StepRow(label) { Location = new Point(2, y), Size = new Size(Lay.CW - 4, 26) };
             _stepsHost.Controls.Add(row);
             _rows[key] = row;
+            _order.Add(key);
             y += 26;
         }
     }
 
     private void UpdateProgress()
     {
-        var total = _rows.Count;
+        var total = _order.Count;
         if (total == 0) return;
-        var finished = 0;
-        foreach (var r in _rows.Values)
-        {
-            if (r.Tag is string s && (s == "ok" || s == "fail"))
-            {
-                finished++;
-                _lblCurrent.Text = "正在处理：" + r.Text;
-            }
-        }
+        var finished = _order.Count(k => _rows[k].Tag is "ok" or "fail");
         _bar.Value = finished * 100.0 / total;
-        _lblStepCount.Text = $"步骤 {finished} / {total}";
+        // 与旧版一致：显示当前正在执行的步骤序号；没有执行中的步骤时显示已完成数
+        _lblStepCount.Text = $"步骤 {(_running > 0 ? _running : finished)} / {total}";
     }
 
     public List<(string Key, string Label, bool Ok)> Rows()
-        => _rows.Select(kv => (kv.Key, kv.Value.Text, kv.Value.Tag as string == "ok")).ToList();
+        => _order.Select(k => (k, _rows[k].Text, _rows[k].Tag as string == "ok")).ToList();
 }
 
 // 结果页（亮色）
