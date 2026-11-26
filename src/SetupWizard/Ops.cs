@@ -419,7 +419,15 @@ internal static class Ops
         {
             log.Log("密码留空: 沿用此前保存的登录凭据");
         }
-        else throw new Exception("未提供密码且无已保存凭据，无法继续");
+        else
+        {
+            // 单会话不持续依赖远程游戏账号密码，允许留空继续安装（无需管理员授权启动游戏）
+            if (!o.GameEnabled)
+            {
+                log.Log("未提供密码且无已保存凭据（单会话）：跳过凭据写入，继续安装");
+            }
+            else throw new Exception("未提供密码且无已保存凭据，无法继续");
+        }
 
         // config.json
         if (File.Exists(Paths.CoreCfgPath))

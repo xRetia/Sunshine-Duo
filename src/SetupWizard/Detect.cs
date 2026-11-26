@@ -9,6 +9,58 @@ internal static class Detect
 {
     public sealed record State(bool Installed, string Detail);
 
+    // 操作系统版本：Win10 1803（build 17134）及以上
+    public static State OsVersion()
+    {
+        var v = Environment.OSVersion.Version;
+        var ok = v >= new Version(10, 0, 17134);
+        return new State(ok, ok ? $"Windows {v}" : $"过低（{v}，需 10.0.17134/1803 以上）");
+    }
+
+    // .NET 9 桌面运行时：安装程序必须存在，缺失则阻断安装
+    public static State DotNetDesktop9()
+    {
+        var roots = new[]
+        {
+            @"C:\Program Files\dotnet\shared\Microsoft.WindowsDesktop.App",
+            @"C:\Program Files (x86)\dotnet\shared\Microsoft.WindowsDesktop.App",
+        };
+        foreach (var root in roots)
+        {
+            if (!Directory.Exists(root)) continue;
+            foreach (var dir in Directory.GetDirectories(root))
+            {
+                var name = Path.GetFileName(dir);
+                if (name.StartsWith("9.", StringComparison.Ordinal))
+                    return new State(true, "已安装 " + name);
+            }
+        }
+        return new State(false, "未安装（需下载并安装 .NET 9 桌面运行时）");
+    }
+
+    // WebView2 运行时：推荐安装，缺失只提示不阻断，界面将采用老旧风格
+    public static State WebView2()
+    {
+        const string clsid = "{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}";
+        foreach (var hive in new[] { Registry.LocalMachine, Registry.CurrentUser })
+        {
+            try
+            {
+                var key = @"SOFTWARE" + (hive == Registry.LocalMachine ? @"\WOW6432Node" : "") +
+                          $@"\Microsoft\EdgeUpdate\Clients\{clsid}";
+                using var k = hive.OpenSubKey(key);
+                if (k is not null)
+                {
+                    var pv = k.GetValue("pv") as string ?? "";
+                    return new State(true, pv.Length > 0 ? "已安装 " + pv : "已安装");
+                }
+            }
+            catch { }
+        }
+        return new State(false, "未安装（界面将采用老旧风格，建议先安装）");
+    }
+
+
     // ViGEmBus 虚拟手柄驱动：drivers\ViGEmBus.sys 存在即视为已装
     public static State ViGEmBus()
     {

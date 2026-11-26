@@ -25,9 +25,56 @@ internal static class Program
             return 1;
         }
 
+        // 前置依赖检测（自检与截图模式不做，仅正式安装/更新路径）
+        if (!EnsurePrerequisites())
+            return 1;
+
         ApplicationConfiguration.Initialize();
         Application.Run(new MainForm(updateMode));
         return 0;
+    }
+
+    // 确认安装前置依赖：OS 版本 + .NET 9 运行时阻断；WebView2 缺失只提示不阻断
+    private static bool EnsurePrerequisites()
+    {
+        var os = Detect.OsVersion();
+        if (!os.Installed)
+        {
+            MessageBox.Show(
+                "操作系统版本过低，安装无法继续。\n\n" +
+                "当前版本：" + os.Detail + "\n" +
+                "要求：Windows 10 1803（版本 17134）或更高。\n请升级系统后再运行本程序。",
+                "系统版本过低", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return false;
+        }
+
+        var dotnet = Detect.DotNetDesktop9();
+        if (!dotnet.Installed)
+        {
+            MessageBox.Show(
+                "缺少必需的运行时组件，安装无法继续。\n\n" +
+                dotnet.Detail + "\n\n" +
+                "请先下载并安装 .NET 9 桌面运行时（x64），再重新运行本程序。\n" +
+                "下载地址：\nhttps://aka.ms/dotnet/9.0/windowsdesktop-runtime-win-x64.exe",
+                "缺少 .NET 9 运行时", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return false;
+        }
+
+        var webview2 = Detect.WebView2();
+        if (!webview2.Installed)
+        {
+            var dr = MessageBox.Show(
+                "建议先安装 Microsoft Edge WebView2 运行时，本程序界面基于它呈现。\n\n" +
+                webview2.Detail + "\n" +
+                "若不安装，界面将采用老旧风格，可能影响体验和感观，但仍可继续安装。\n\n" +
+                "下载地址：\nhttps://go.microsoft.com/fwlink/?linkid=2124703\n\n" +
+                "点「确定」继续安装（老旧界面）；点「取消」退出，装好 WebView2 后再运行本程序。",
+                "推荐安装 WebView2 运行时", MessageBoxButtons.OKCancel, MessageBoxIcon.Warning,
+                MessageBoxDefaultButton.Button2);
+            return dr == DialogResult.OK;
+        }
+
+        return true;
     }
 
     public static bool IsAdmin()
