@@ -340,11 +340,15 @@ internal sealed class WizardPage : Panel
         _gpus = GpuEnum.Physical();
         var showGpu = _gpus.Count > 0;
 
-        var stack = new VStack(12) { Location = new Point(0, 0), Size = new Size(Lay.CW, 480) };
+        var stack = new VStack(10)
+        {
+            Location = new Point(0, 0), Size = new Size(Lay.CW, 480),
+            Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top,
+        };
         p.Controls.Add(stack);
         _stack2 = stack;
 
-        _gpuCard = new RoundCard { Size = new Size(Lay.CW, 96) };
+        _gpuCard = new RoundCard { Size = new Size(Lay.CW, 96), Anchor = CardAnchor };
         _gpuCard.Controls.Add(Head(16, 14, "图形设备"));
         _cmbGpu = new ComboBox
         {
@@ -358,12 +362,11 @@ internal sealed class WizardPage : Panel
             _cmbGpu.Items.Add(g + "  [" + vendor + "]");
         }
         if (_cmbGpu.Items.Count > 0) _cmbGpu.SelectedIndex = 0;
-        _cmbGpu.Enabled = _gpus.Count > 1;
         _gpuCard.Controls.Add(_cmbGpu);
-        _gpuCard.Controls.Add(MutedAt(16, 74, "检测到多块图形设备时，请选择用于画面渲染的那一块"));
+        _gpuCard.Controls.Add(MutedAt(16, 74, "用于画面渲染的图形设备；检测到多块时请选择正确的那一块"));
         if (showGpu) stack.Add(_gpuCard);
 
-        var ports = new RoundCard { Size = new Size(Lay.CW, 128) };
+        var ports = new RoundCard { Size = new Size(Lay.CW, 118), Anchor = CardAnchor };
         ports.Controls.Add(Head(16, 14, "端口设置"));
         ports.Controls.Add(LabelAt(16, 50, "主画面端口"));
         _txtPortMain = Ui.FieldBox("48100");
@@ -378,22 +381,24 @@ internal sealed class WizardPage : Panel
         ports.Controls.Add(MutedAt(16, 82, "保持默认即可。两端口基址需相距至少 50；网页控制台使用「端口+1」。"));
         stack.Add(ports);
 
-        var tray = new RoundCard { Size = new Size(Lay.CW, 144) };
+        var tray = new RoundCard { Size = new Size(Lay.CW, 132), Anchor = CardAnchor };
         tray.Controls.Add(Head(16, 14, "快捷方式"));
-        _swTrayDesktop = new SwitchRow("创建桌面快捷方式", true) { Location = new Point(16, 46), Size = new Size(540, 28) };
+        _swTrayDesktop = new SwitchRow("创建桌面快捷方式", true) { Location = new Point(16, 44), Size = new Size(540, 28) };
         tray.Controls.Add(_swTrayDesktop);
-        _swTrayStart = new SwitchRow("创建开始菜单快捷方式", true) { Location = new Point(16, 78), Size = new Size(540, 28) };
+        _swTrayStart = new SwitchRow("创建开始菜单快捷方式", true) { Location = new Point(16, 74), Size = new Size(540, 28) };
         tray.Controls.Add(_swTrayStart);
-        tray.Controls.Add(MutedAt(36, 108, "托盘程序用于查看会话状态、打开网页控制台与切换显示模式"));
+        tray.Controls.Add(MutedAt(36, 106, "托盘程序用于查看会话状态、打开网页控制台与切换显示模式"));
         stack.Add(tray);
 
-        _gmCard = new RoundCard { Size = new Size(Lay.CW, 112) };
+        _gmCard = new RoundCard { Size = new Size(Lay.CW, 100), Anchor = CardAnchor };
         _gmCard.Controls.Add(Head(16, 14, "游戏启动器"));
         _swGameMgr = new SwitchRow("安装游戏启动器（推荐）", true) { Location = new Point(16, 44), Size = new Size(540, 28) };
         _gmCard.Controls.Add(_swGameMgr);
         _gmCard.Controls.Add(MutedAt(36, 74, "可直接启动需要管理员权限的游戏；双会话模式会自动安装"));
         stack.Add(_gmCard);
     }
+
+    private const AnchorStyles CardAnchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top;
 
     // ------------------------------------------------------------------
     // 04 确认安装
