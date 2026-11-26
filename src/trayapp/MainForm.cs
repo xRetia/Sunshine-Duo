@@ -8,6 +8,7 @@ internal enum MainPage
     Console,
     Game,
     VirtualDisplay,
+    Tunnel,
     Settings,
     About,
 }
@@ -27,6 +28,7 @@ internal sealed class MainForm : Form, IMainUi
     private readonly Dictionary<MainPage, NavItem> _nav = new();
     private SessionPage? _consolePage, _gamePage;
     private VdaPage? _vdaPage;
+    private TunnelPage? _tunnelPage;
     private SettingsPage? _settingsPage;
     private AboutPage? _aboutPage;
     private Label? _svcText;
@@ -119,6 +121,7 @@ internal sealed class MainForm : Form, IMainUi
         AddNav(MainPage.Console, "当前会话", Glyphs.Monitor, ref y, Paths.ConsoleEnabled);
         AddNav(MainPage.Game, "游戏会话", Glyphs.Gamepad, ref y, Paths.GameEnabled);
         AddNav(MainPage.VirtualDisplay, "虚拟显示器", Glyphs.StackedDisplays, ref y, Paths.ConsoleEnabled);
+        AddNav(MainPage.Tunnel, "内网穿透", Glyphs.Tunnel, ref y, true);
         AddNav(MainPage.Settings, "设置", Glyphs.Gear, ref y, true);
         AddNav(MainPage.About, "关于", Glyphs.Info, ref y, true);
 
@@ -243,6 +246,7 @@ internal sealed class MainForm : Form, IMainUi
 
         _current = page;
         if (page == MainPage.VirtualDisplay) _vdaPage?.Reload();
+        if (page == MainPage.Tunnel) _tunnelPage?.Reload();
         if (_pendingFocusPin && page == MainPage.Console)
         {
             _pendingFocusPin = false;
@@ -268,6 +272,7 @@ internal sealed class MainForm : Form, IMainUi
             MainPage.Console => _consolePage = new SessionPage(_cfg, Session("console"), true),
             MainPage.Game => _gamePage = new SessionPage(_cfg, Session("game"), false),
             MainPage.VirtualDisplay => _vdaPage = new VdaPage(),
+            MainPage.Tunnel => _tunnelPage = new TunnelPage(),
             MainPage.Settings => _settingsPage = new SettingsPage(_cfg, RefreshSessionInfo, OnThemeChanged),
             MainPage.About => _aboutPage = new AboutPage(),
             _ => throw new ArgumentOutOfRangeException(nameof(page)),
@@ -313,6 +318,7 @@ internal sealed class MainForm : Form, IMainUi
             _nav.Clear();
             _consolePage = _gamePage = null;
             _vdaPage = null;
+            _tunnelPage = null;
             _settingsPage = null;
             _aboutPage = null;
             _sidebar = null;
@@ -368,6 +374,7 @@ internal sealed class MainForm : Form, IMainUi
             {
                 var state = await Task.Run(ServiceControl.Query);
                 UpdateServiceState(state);
+                _tunnelPage?.RefreshStatus();
             }
             if (Theme.Mode == AppTheme.System && Theme.SystemIsLight() != UiKit.IsLight)
             {

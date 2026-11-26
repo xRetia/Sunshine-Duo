@@ -194,6 +194,7 @@ internal sealed class WebUiForm : Form, IMainUi
         MainPage.Console => "console",
         MainPage.Game => "game",
         MainPage.VirtualDisplay => "vda",
+        MainPage.Tunnel => "tunnel",
         MainPage.Settings => "settings",
         _ => "about",
     };
@@ -243,9 +244,29 @@ internal sealed class WebUiForm : Form, IMainUi
         {
             case "init":
                 _ready = true;
-                var snap = Snapshot();
+                var snap = await SnapshotAsync();
                 _focusPin = false;
                 return snap;
+
+            case "easytierGet":
+            {
+                var st = await GuardPipe.EasyTierStatus()
+                    ?? throw new Exception("核心服务控制通道不可用");
+                return EasyTierObj(st);
+            }
+
+            case "easytierSet":
+            {
+                var (st, startErr) = await GuardPipe.EasyTierSet(
+                    Bool(a, "enabled"), Str(a, "network"), Str(a, "secret"));
+                if (st == null) throw new Exception(startErr ?? "核心服务控制通道不可用");
+                var msg = startErr != null
+                    ? "已保存，但启动失败：" + startErr
+                    : Bool(a, "enabled")
+                        ? (st.Running ? "组网已启动。" : "已启用，等待组网核心就绪。")
+                        : "组网已停止。";
+                return new { state = EasyTierObj(st), message = msg, failed = startErr != null };
+            }
 
             case "log":
                 Log(Str(a, "message"));
@@ -254,7 +275,7 @@ internal sealed class WebUiForm : Form, IMainUi
             case "poll":
             {
                 var p = await PollSnapshot();
-                return new { sessions = p.sessions, service = p.service, wan = p.wan };
+                return new { sessions = p.sessions, service = p.service, wan = p.wan, tunnel = p.tunnel };
             }
 
             case "getWanIp":
@@ -403,7 +424,19 @@ internal sealed class WebUiForm : Form, IMainUi
 
     /* ===================== 状态快照与轮询 ===================== */
 
-    private object Snapshot()
+    private static object EasyTierObj(GuardPipe.EasyTierState st) => new
+    {
+        running = st.Running,
+        pid = st.Pid,
+        managed = st.Managed,
+        enabled = st.Enabled,
+        network = st.Network,
+        secretSet = st.SecretSet,
+        exe = st.Exe,
+        exeExists = st.ExeExists,
+    };
+
+    private async Task<object> SnapshotAsync()
     {
         var sessions = new Dictionary<string, object>();
         foreach (var s in Paths.GetSessions(_cfg))
@@ -422,6 +455,8 @@ internal sealed class WebUiForm : Form, IMainUi
             mode = Paths.CoreString("default_display_mode", "only"),
             aw, ah, list, sel = -1,
         };
+        var et = await GuardPipe.EasyTierStatus();
+        var tunnel = et == null ? null : EasyTierObj(et);
 
         return new
         {
@@ -444,10 +479,11 @@ internal sealed class WebUiForm : Form, IMainUi
                 service = ServiceControl.Query(),
             },
             vda,
+            tunnel,
         };
     }
 
-    private async Task<(Dictionary<string, bool?> sessions, string service, string wan)> PollSnapshot()
+    private async Task<(Dictionary<string, bool?> sessions, string service, string wan, object? tunnel)> PollSnapshot()
     {
         var sessions = new Dictionary<string, bool?>();
         foreach (var s in Paths.GetSessions(_cfg))
@@ -460,7 +496,8 @@ internal sealed class WebUiForm : Form, IMainUi
             catch { sessions[s.Id] = false; }
         }
         var service = await Task.Run(ServiceControl.Query);
-        return (sessions, service, _wanIp);
+        var tunnel = await GuardPipe.EasyTierStatus();
+        return (sessions, service, _wanIp, tunnel == null ? null : EasyTierObj(tunnel));
     }
 
     private async Task PollAsync()
@@ -472,6 +509,7 @@ internal sealed class WebUiForm : Form, IMainUi
             var s = await PollSnapshot();
             Push("session", s.sessions);
             Push("service", s.service);
+            if (s.tunnel != null) Push("tunnel", s.tunnel);
             if (_wanIp.Length > 0) Push("wan", _wanIp);
             if (DateTime.Now - _wanAt > TimeSpan.FromHours(1)) _ = WarmWanAsync();
         }

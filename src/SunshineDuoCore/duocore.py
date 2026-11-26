@@ -196,6 +196,9 @@ DEFAULT_CONFIG = {
     # hot-reloaded by the display worker (docs/plan.md 9.2):
     #   win_from_ralt    - R-Alt is detected and forwarded as Win
     #   winl_from_ralt_l - R-Alt+L is detected and forwarded as Win+L (lock)
+    # easytier 内网穿透（可选）：服务托管的 easytier-core 子进程，
+    # 配置节含义见下方 easytier 段（tools\EasyTier\README.md）
+    'easytier': {'enabled': False, 'network': '', 'secret': '', 'extra_args': []},
     'win_from_ralt': False,
     'winl_from_ralt_l': False,
     # hide_cursor_on_stream: while a client streams the Console session, replace
@@ -335,6 +338,222 @@ def save_config_resolution(width, height, resolutions=None):
     except Exception as e:
         log_err('resolution save: write error %r' % e)
         return False
+
+
+# ----------------------------------------------------------------------------
+# EasyTier 内网穿透（可选）：由本服务以自身身份托管 easytier-core 子进程。
+# 放在 core 而非托盘：core 常驻（服务身份，TUN 所需权限天然具备）、已有控制
+# 管道与配置热重载；托盘只经 ctrl pipe 下发开关并查询状态。
+# 配置节 config.json "easytier"（热重载）：
+#   enabled     bool   服务 tick 时发现未运行则拉起（含开机自启与崩溃拉起）
+#   network     str    --network-name（组网名，各端一致）
+#   secret      str    --network-secret（私有网络密钥，留空=公开网络）
+#   extra_args  [str]  附加命令行（如 --no-tun、--dhcp、-p 中继节点）
+#   exe         str    覆盖二进制路径（默认与服务 exe 同目录的 easytier-core.exe）
+# 进程匹配按完整映像路径，避免误杀用户在别处手工运行的 easytier-core。
+
+_easytier_pid = 0
+_easytier_started_at = 0.0
+_easytier_last_fail = 0.0
+
+
+def _easytier_cfg(cfg):
+    et = cfg.get('easytier')
+    return et if isinstance(et, dict) else {}
+
+
+def easytier_exe(cfg):
+    custom = str(_easytier_cfg(cfg).get('exe') or '').strip()
+    if custom:
+        return custom if os.path.isabs(custom) else os.path.join(repo_root(), custom)
+    # 默认随服务同目录分发（bin\SunshineDuoCore\easytier-core.exe，与 gv_hook 等
+    # 载荷同级）；src 树直跑时退回部署目录，再退回旧的 tools\EasyTier 位置。
+    for d in (SVC_DIR, os.path.join(repo_root(), 'bin', 'SunshineDuoCore'),
+              os.path.join(repo_root(), 'tools', 'EasyTier')):
+        cand = os.path.join(d, 'easytier-core.exe')
+        if os.path.isfile(cand):
+            return cand
+    return os.path.join(SVC_DIR, 'easytier-core.exe')
+
+
+def save_config_easytier(enabled, network=None, secret=None):
+    """Persist the easytier section; hot-reloaded by every tick."""
+    try:
+        with open(CONFIG_PATH, 'r', encoding='utf-8-sig') as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        data = {}
+    except Exception as e:
+        log_err('easytier save: read error %r' % e)
+        return False
+    et = data.get('easytier') if isinstance(data.get('easytier'), dict) else {}
+    et['enabled'] = bool(enabled)
+    if network is not None:
+        et['network'] = str(network)
+    if secret is not None:
+        et['secret'] = str(secret)
+    data['easytier'] = et
+    try:
+        with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=4)
+        log('easytier set: enabled=%s network=%s' % (et['enabled'], et.get('network') or ''))
+        return True
+    except Exception as e:
+        log_err('easytier save: write error %r' % e)
+        return False
+
+
+def _find_procs_by_image(image_name):
+    """(pid, full image path) for every live process whose image file name
+    matches, in any session."""
+    out = []
+    arr = (wintypes.DWORD * 2048)()
+    cb = wintypes.DWORD(0)
+    if not _psapi.EnumProcesses(arr, ctypes.sizeof(arr), ctypes.byref(cb)):
+        return out
+    for i in range(cb.value // ctypes.sizeof(wintypes.DWORD)):
+        pid = arr[i]
+        if not pid:
+            continue
+        h = _kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not h:
+            continue
+        try:
+            buf = ctypes.create_unicode_buffer(1024)
+            n = wintypes.DWORD(1024)
+            if _kernel32.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(n)) and \
+                    buf.value.lower().endswith('\\' + image_name.lower()):
+                out.append((pid, buf.value))
+        finally:
+            _kernel32.CloseHandle(h)
+    return out
+
+
+def easytier_pid(exe):
+    """Tracked pid if still alive, else the first live easytier-core.exe whose
+    image path matches exe (adopted: started by an earlier service run).
+    0 = not running."""
+    global _easytier_pid, _easytier_started_at
+    want = os.path.abspath(exe).lower()
+    if _easytier_pid:
+        path = ''
+        h = _kernel32.OpenProcess(0x1000, False, _easytier_pid)
+        if h:
+            buf = ctypes.create_unicode_buffer(1024)
+            n = wintypes.DWORD(1024)
+            if _kernel32.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(n)):
+                path = buf.value
+            _kernel32.CloseHandle(h)
+        if path and path.lower() == want:
+            return _easytier_pid
+        _easytier_pid = 0
+        _easytier_started_at = 0.0
+    for pid, path in _find_procs_by_image('easytier-core.exe'):
+        if path.lower() == want:
+            return pid
+    return 0
+
+
+def easytier_start(cfg=None):
+    """Spawn easytier-core; adopts an already-running instance instead of
+    duplicating it (so a service restart never stacks a second tunnel)."""
+    global _easytier_pid, _easytier_started_at, _easytier_last_fail
+    cfg = cfg or load_config()
+    exe = easytier_exe(cfg)
+    cur = easytier_pid(exe)
+    if cur:
+        return {'ok': True, 'running': True, 'pid': cur, 'adopted': True}
+    if not os.path.isfile(exe):
+        if time.time() - _easytier_last_fail > 600:
+            _easytier_last_fail = time.time()
+            log_err('easytier start: exe not found: %s' % exe)
+        return {'ok': False, 'error': '未找到 easytier-core.exe：%s' % exe}
+    et = _easytier_cfg(cfg)
+    args = [exe]
+    network = str(et.get('network') or '').strip()
+    secret = str(et.get('secret') or '')
+    if network:
+        args += ['--network-name', network]
+    if secret:
+        args += ['--network-secret', secret]
+    for a in et.get('extra_args') or []:
+        s = str(a).strip()
+        if s:
+            args.append(s)
+    out_path = os.path.join(SVC_DIR, 'easytier.out')
+    try:
+        if os.path.getsize(out_path) > 5 * 1024 * 1024:
+            os.remove(out_path)
+    except OSError:
+        pass
+    si = subprocess.STARTUPINFO()
+    si.dwFlags = subprocess.STARTF_USESHOWWINDOW
+    si.wShowWindow = 0
+    try:
+        out = open(out_path, 'ab', buffering=0)
+        try:
+            p = subprocess.Popen(args, cwd=os.path.dirname(exe), startupinfo=si,
+                                 creationflags=subprocess.CREATE_NO_WINDOW,
+                                 stdin=subprocess.DEVNULL,
+                                 stdout=out, stderr=subprocess.STDOUT)
+        finally:
+            out.close()  # the child keeps its inherited handle
+    except Exception as e:
+        log_err('easytier spawn error: %r' % e)
+        return {'ok': False, 'error': '启动 easytier-core 失败：%r' % e}
+    _easytier_pid = p.pid
+    _easytier_started_at = time.time()
+    log('easytier: started pid=%d network=%s args=%d' % (p.pid, network or '', len(args) - 1))
+    return {'ok': True, 'running': True, 'pid': p.pid}
+
+
+def easytier_stop(cfg=None):
+    """Terminate every easytier-core.exe running from OUR exe path (instances
+    started from other directories are never touched)."""
+    global _easytier_pid, _easytier_started_at
+    cfg = cfg or load_config()
+    exe = easytier_exe(cfg)
+    want = os.path.abspath(exe).lower()
+    killed = 0
+    for pid, path in _find_procs_by_image('easytier-core.exe'):
+        if path.lower() == want and _terminate_pid(pid):
+            killed += 1
+    _easytier_pid = 0
+    _easytier_started_at = 0.0
+    if killed:
+        log('easytier: stopped %d process(es)' % killed)
+    return {'ok': True, 'stopped': killed}
+
+
+def easytier_status(cfg=None):
+    cfg = cfg or load_config()
+    et = _easytier_cfg(cfg)
+    exe = easytier_exe(cfg)
+    pid = easytier_pid(exe)
+    running = bool(pid)
+    ours = bool(running and _easytier_pid == pid)
+    return {
+        'ok': True, 'running': running, 'pid': pid,
+        'managed': ours,
+        'started_at': _easytier_started_at if ours else 0,
+        'enabled': bool(et.get('enabled')),
+        'network': str(et.get('network') or ''),
+        'secret_set': bool(str(et.get('secret') or '')),
+        'exe': exe, 'exe_exists': os.path.isfile(exe),
+    }
+
+
+def ensure_easytier(cfg):
+    """tick hook: keep the tunnel up while enabled (boot autostart + crash
+    recovery). A missing exe is warn-throttled so ticks cannot spam the log."""
+    if not _easytier_cfg(cfg).get('enabled'):
+        return
+    if easytier_pid(easytier_exe(cfg)):
+        return
+    r = easytier_start(cfg)
+    if not r.get('ok'):
+        log_warn('easytier autostart failed: %s' % r.get('error'))
+
 
 
 # ----------------------------------------------------------------------------
@@ -2939,6 +3158,10 @@ def tick():
         ensure_display_worker(cfg)
     except Exception as e:
         log_err('display worker guard error: %r' % e)
+    try:
+        ensure_easytier(cfg)
+    except Exception as e:
+        log_err('easytier guard error: %r' % e)
     if cfg.get('keepalive'):
         if state == 4:
             ka.desired = True
@@ -3017,6 +3240,10 @@ def tick():
 #   {"cmd":"sessions"}
 #     -> session registry (id / enabled guard / conf+state paths / stream and
 #        WebUI ports) so the tray builds its menus from one source of truth.
+#   {"cmd":"easytier_status"}
+#     -> tunnel state: running/pid/managed, enabled, network, exe presence.
+#   {"cmd":"easytier_set","enabled":bool,"network":str,"secret":str}
+#     -> persists the easytier section, then applies immediately (start/stop).
 # Local-only pipe; SDDL grants generic access to Everyone+SYSTEM so the
 # non-elevated tray app can connect. Commands are restart-only, which is
 # acceptable exposure for this home tool.
@@ -3186,6 +3413,29 @@ def _ctrl_dispatch(req):
         # session registry for the tray: id / guard flag / conf+state paths /
         # stream+WebUI ports. Lets the tray build its menu without guessing.
         return {'ok': True, 'sessions': session_entries(load_config())}
+    if cmd == 'easytier_status':
+        # tunnel state for the tray: running/pid, enabled, network, exe presence
+        return easytier_status()
+    if cmd == 'easytier_set':
+        # persist the easytier section, then apply immediately:
+        # enabled -> start (or adopt the running instance), disabled -> stop
+        enabled = bool(req.get('enabled'))
+        network = req.get('network')
+        secret = req.get('secret')
+        ok = save_config_easytier(enabled,
+                                  str(network) if network is not None else None,
+                                  str(secret) if secret is not None else None)
+        resp = {'ok': ok, 'cmd': 'easytier_set', 'enabled': enabled}
+        if ok:
+            cfg2 = load_config()
+            if enabled:
+                r = easytier_start(cfg2)
+                if not r.get('ok'):
+                    resp['start_error'] = r.get('error')
+            else:
+                easytier_stop(cfg2)
+            resp.update(easytier_status(cfg2))
+        return resp
     return {'ok': False, 'error': 'unknown cmd'}
 
 

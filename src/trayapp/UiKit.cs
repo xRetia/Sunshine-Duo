@@ -634,6 +634,21 @@ internal static class Glyphs
         }
     }
 
+    public static void Tunnel(Graphics g, RectangleF r, Color c)
+    {
+        var w = Math.Max(1.3f, r.Width / 15f);
+        var cx = r.X + r.Width / 2f;
+        var cy = r.Y + r.Height / 2f;
+        var rad = Math.Min(r.Width, r.Height) * 0.44f;
+        using (var pen = Stroke(c, w))
+        {
+            g.DrawEllipse(pen, cx - rad, cy - rad, rad * 2, rad * 2);
+            g.DrawEllipse(pen, cx - rad, cy - rad * 0.42f, rad * 2, rad * 0.84f);
+            g.DrawLine(pen, cx - rad, cy, cx + rad, cy);
+            g.DrawLine(pen, cx, cy - rad, cx, cy + rad);
+        }
+    }
+
     public static void Refresh(Graphics g, RectangleF r, Color c)
     {
         var w = Math.Max(1.2f, r.Width / 13f);
