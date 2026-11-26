@@ -561,7 +561,6 @@ internal static class Ops
             catch (Exception ex) { log.Log("警告: 无法更新会话配置: " + ex.Message); }
         }
         CleanLegacyAutostart(log, "");
-        log.Log("提示: 正在运行的画面不受影响");
     }
 
     public static void UnCoreService(IRunReporter log)
@@ -584,7 +583,11 @@ internal static class Ops
             any = true;
         }
         if (!any) log.Log("跳过: 会话守护服务不存在");
-        log.Log("提示: 部分组件需重启电脑后彻底释放");
+        // 服务外仍有守护/串流残留（服务已删但进程未退、多会话实例）：无条件清掉
+        StopStreamingProcesses(log);
+        foreach (var n in new[] { Paths.SvcName, Paths.LegacySvc })
+            if (Services.Query(n) is not null)
+                log.Log($"警告: 服务 {n} 仍注册，请重启电脑后重试");
     }
 
     // ------------------------------------------------------------------
@@ -597,21 +600,28 @@ internal static class Ops
                 Proc.Run("sc.exe", $"stop {n}");
         Thread.Sleep(1000);
         var killed = new List<string>();
-        foreach (var n in new[] { "SunshineDuoCore", "sunshine", "SunshineDuoTray" })
+        foreach (var n in new[] { "SunshineDuoCore", "sunshine", "SunshineDuoTray", "easytier-core" })
         {
             var ps = Process.GetProcessesByName(n);
             if (ps.Length > 0)
             {
                 foreach (var p in ps) { try { p.Kill(true); } catch { } p.Dispose(); }
-                killed.Add($"{(n == "SunshineDuoCore" ? "会话守护" : n == "sunshine" ? "串流主程序" : n == "SunshineDuoTray" ? "托盘程序" : n)} x{ps.Length}");
+                killed.Add($"{n switch
+                {
+                    "SunshineDuoCore" => "会话守护",
+                    "sunshine" => "串流主程序",
+                    "SunshineDuoTray" => "托盘程序",
+                    "easytier-core" => "内网穿透",
+                    _ => n,
+                }} x{ps.Length}");
             }
         }
         if (killed.Count > 0)
         {
             Thread.Sleep(2000);
-            log.Log("OK: 已停止运行中的旧版程序（" + string.Join("、", killed) + "）");
+            log.Log("OK: 已停止运行中的相关程序（" + string.Join("、", killed) + "）");
         }
-        else log.Log("提示: 未发现运行中的旧版程序");
+        else log.Log("提示: 未发现运行中的相关程序");
     }
 
     public static void SendCoreTick(IRunReporter log, int timeoutSec = 30)
