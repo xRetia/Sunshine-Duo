@@ -9,29 +9,19 @@
 <a href="https://github.com/xRetia/Sunshine-Duo/archive/refs/heads/main.zip">
   <img src="https://img.shields.io/badge/⬇_下载最新版-ZIP_绿色免安装-22c55e?style=for-the-badge" alt="下载最新版">
 </a>&nbsp;
-<a href="https://gh-proxy.com/https://github.com/xRetia/Sunshine-Duo/archive/refs/heads/main.zip">
-  <img src="https://img.shields.io/badge/🇨🇳_国内镜像下载-gh--proxy.com-f59e0b?style=for-the-badge" alt="国内镜像下载">
+<a href="https://ghfast.top/https://github.com/xRetia/Sunshine-Duo/archive/refs/heads/main.zip">
+  <img src="https://img.shields.io/badge/🇨🇳_国内镜像下载-ghfast.top-f59e0b?style=for-the-badge" alt="国内镜像下载">
 </a>&nbsp;
 <a href="https://github.com/Axixi2233/moonlight-android/releases/latest">
   <img src="https://img.shields.io/badge/📱_配套客户端-阿西西月光_安卓端-7289DA?style=for-the-badge" alt="阿西西月光">
-</a>
-
-<br/>
-
-<a href="https://cdn.jsdelivr.net/gh/xRetia/Sunshine-Duo@main/assets/sunshine-duo-video.html" title="浏览器直接播放，无需任何插件">
-  <img src="https://img.shields.io/badge/▶_观看项目视频-6分01秒_浏览器直接播放-FF8A3D?style=for-the-badge" alt="观看项目视频">
 </a>&nbsp;
-<a href="https://fastly.jsdelivr.net/gh/xRetia/Sunshine-Duo@main/assets/sunshine-duo-video.html">
-  <img src="https://img.shields.io/badge/🇨🇳_视频国内镜像-fastly.jsdelivr.net-f59e0b?style=for-the-badge" alt="视频国内镜像">
+<a href="https://github.com/qiin2333/moonlight-vplus/releases/latest">
+  <img src="https://img.shields.io/badge/📱_备选客户端-Moonlight_V+_安卓端-6366F1?style=for-the-badge" alt="Moonlight V+">
 </a>
 
 <br/>
 
-<sub>视频为纯浏览器实时渲染（Canvas 画面 + 合成音乐 + 中文配音），无需插件；离线观看：下载 ZIP 后双击 <code>assets\sunshine-duo-video.html</code> 即可</sub>
-
-<br/>
-
-<sub>备用镜像：<a href="https://ghfast.top/https://github.com/xRetia/Sunshine-Duo/archive/refs/heads/main.zip">ghfast.top</a>　·　iOS / 电视 / PC 端请用官方 <a href="https://moonlight-stream.org">Moonlight</a>，功能完全兼容</sub>
+<sub>iOS / 电视 / PC 端请用官方 <a href="https://moonlight-stream.org">Moonlight</a>，功能完全兼容</sub>
 
 <br/>
 
@@ -93,7 +83,7 @@
 2. **按向导走完**——选串流用的显卡 → 确认 **主会话用户（默认当前登录用户）** → 填写 **游戏用户的用户名和密码** → 选择显示模式（物理/虚拟/克隆/扩展）和两个会话的串流端口，点「开始安装」等完成
 
 > ⚠️ **注意**：两个会话各用各的显示方案，**不冲突**；配对状态各自独立，客户端里显示为 **主会话** 和 **游戏会话** 两台主机。
-3. **手机装客户端，连上开玩**——安卓手机推荐上面的 **阿西西月光**（Moonlight 汉化增强版）；iPhone / iPad / 电视 / PC 用官方 [Moonlight](https://moonlight-stream.org)。同一 WiFi 下客户端会自动发现这两台主机，分别在对应后台输入 4 位配对码即可连接 🎉
+3. **手机装客户端，连上开玩**——安卓手机推荐上面的 **阿西西月光**（Moonlight 汉化增强版）或 **Moonlight V+**（高刷 / HDR 增强版）；iPhone / iPad / 电视 / PC 用官方 [Moonlight](https://moonlight-stream.org)。同一 WiFi 下客户端会自动发现这两台主机，分别在对应后台输入 4 位配对码即可连接 🎉
 
 > 💡 **第一次用**：安装完建议先用客户端串流进去确认一切正常，再把游戏快捷方式放进 `Links\` 文件夹，之后从游戏菜单一键启动。
 
@@ -112,7 +102,6 @@
 | --- | --- |
 | `Setup.exe` | 一键安装入口（双击它） |
 | `Links\` | 🎮 放你的游戏快捷方式，串流端一键启动 |
-| `assets\` | 项目介绍视频（离线双击观看） |
 
 ## ⚖️ 开源许可
 
