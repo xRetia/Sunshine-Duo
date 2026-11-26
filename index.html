@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>萌远控Duo — 一台电脑，当两台用</title>
+<meta name="description" content="萌远控Duo，让一台电脑同时承载办公与游戏两个独立会话，各用各的，互不打扰。">
+<style>
+:root{
+  --bg:#0B0E14; --bg2:#10151D; --card:#151B25; --card2:#1A2130;
+  --line:rgba(255,255,255,.08); --line2:rgba(255,255,255,.14);
+  --text:#F2F5F8; --muted:#9AA6B5; --faint:#6E7B8B;
+  --green:#22C55E; --green2:#16A34A; --green-soft:rgba(34,197,94,.12);
+  --radius:14px; --shadow:0 18px 50px rgba(0,0,0,.35);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{
+  font-family:"Segoe UI Variable Text","Segoe UI","Microsoft YaHei UI","PingFang SC",system-ui,sans-serif;
+  background:var(--bg);color:var(--text);line-height:1.65;-webkit-font-smoothing:antialiased;
+}
+a{color:inherit;text-decoration:none}
+img{max-width:100%;display:block}
+.wrap{width:min(1180px,calc(100% - 40px));margin-inline:auto}
+
+/* ===== 顶栏 ===== */
+header{
+  position:sticky;top:0;z-index:50;background:rgba(11,14,20,.82);
+  backdrop-filter:blur(14px);border-bottom:1px solid var(--line);
+}
+.nav{height:66px;display:flex;align-items:center;gap:28px}
+.brand{display:flex;align-items:center;gap:11px;font-weight:700;font-size:18px;letter-spacing:.02em}
+.brand img{width:32px;height:32px}
+.brand small{display:block;font-size:10px;font-weight:500;color:var(--muted);letter-spacing:.12em}
+.nav-links{display:flex;gap:26px;margin-left:auto;font-size:14px;color:var(--muted)}
+.nav-links a:hover{color:var(--text)}
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  height:40px;padding:0 20px;border-radius:8px;font-size:14px;font-weight:600;
+  transition:transform .15s ease,background .15s ease,border-color .15s ease;
+  border:1px solid transparent;white-space:nowrap;
+}
+.btn:hover{transform:translateY(-1px)}
+.btn-primary{background:var(--green);color:#06170D;border-color:var(--green)}
+.btn-primary:hover{background:#2ED566}
+.btn-ghost{background:rgba(255,255,255,.04);border-color:var(--line2);color:var(--text)}
+.btn-ghost:hover{background:rgba(255,255,255,.09)}
+.btn-lg{height:48px;padding:0 28px;font-size:15px}
+
+/* ===== Hero ===== */
+.hero{padding:74px 0 24px;position:relative;overflow:hidden}
+.hero::before{
+  content:"";position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(760px 460px at 18% 8%,rgba(34,197,94,.11),transparent 65%),
+             radial-gradient(820px 500px at 88% 22%,rgba(59,130,246,.10),transparent 68%);
+}
+.hero-inner{position:relative;display:grid;grid-template-columns:1fr 1fr;gap:48px;align-items:center}
+.eyebrow{
+  display:inline-flex;align-items:center;gap:8px;padding:5px 12px;border-radius:99px;
+  background:var(--green-soft);color:#6EE7A2;font-size:12px;font-weight:600;
+  border:1px solid rgba(34,197,94,.22);letter-spacing:.04em;
+}
+.eyebrow::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--green)}
+h1{
+  font-size:clamp(38px,5vw,60px);line-height:1.16;letter-spacing:-.02em;margin:20px 0 18px;
+  font-weight:750;
+}
+h1 em{font-style:normal;color:var(--green)}
+.hero p.lead{font-size:18px;color:var(--muted);max-width:520px}
+.hero-cta{display:flex;gap:12px;flex-wrap:wrap;margin-top:32px}
+.hero-note{margin-top:14px;font-size:12.5px;color:var(--faint)}
+.hero-art{border-radius:20px;overflow:hidden;border:1px solid var(--line2);box-shadow:var(--shadow)}
+.hero-art img{width:100%;height:auto}
+
+/* ===== 通用区块 ===== */
+section{padding:70px 0}
+.sec-head{text-align:center;max-width:680px;margin:0 auto 44px}
+.sec-tag{font-size:12px;font-weight:700;color:var(--green);letter-spacing:.18em;text-transform:uppercase}
+.sec-head h2{font-size:clamp(28px,3.4vw,40px);line-height:1.25;margin:12px 0 12px;letter-spacing:-.01em}
+.sec-head p{color:var(--muted);font-size:16px}
+
+/* ===== 特点 ===== */
+.features{background:var(--bg2);border-block:1px solid var(--line)}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+.card{
+  background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+  padding:26px;transition:transform .18s ease,border-color .18s ease,background .18s ease;
+}
+.card:hover{transform:translateY(-3px);border-color:rgba(34,197,94,.3);background:var(--card2)}
+.ico{
+  width:42px;height:42px;border-radius:10px;display:grid;place-items:center;
+  background:var(--green-soft);color:var(--green);margin-bottom:18px;
+}
+.ico svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.card h3{font-size:17px;margin-bottom:8px}
+.card p{font-size:14px;color:var(--muted)}
+
+/* ===== 截图 ===== */
+.shots-tabs{display:flex;justify-content:center;gap:8px;flex-wrap:wrap;margin-bottom:28px}
+.tab{
+  padding:9px 18px;border-radius:8px;font-size:14px;color:var(--muted);
+  background:rgba(255,255,255,.03);border:1px solid var(--line);cursor:pointer;
+  transition:all .15s ease;
+}
+.tab:hover{color:var(--text);border-color:var(--line2)}
+.tab.on{background:var(--green-soft);border-color:rgba(34,197,94,.35);color:#6EE7A2;font-weight:600}
+.shot-stage{
+  max-width:1040px;margin:0 auto;border-radius:16px;overflow:hidden;
+  border:1px solid var(--line2);background:#202020;box-shadow:var(--shadow);
+  padding:18px;display:grid;place-items:center;
+}
+.shot-stage img{width:100%;height:auto;display:none}
+.shot-stage img.on{display:block}
+.shot-cap{text-align:center;color:var(--faint);font-size:13px;margin-top:16px}
+
+/* ===== 场景 ===== */
+.scenes{display:grid;grid-template-columns:repeat(2,1fr);gap:18px}
+.scene{
+  border:1px solid var(--line);border-radius:var(--radius);padding:28px;
+  background:linear-gradient(145deg,var(--card),rgba(34,197,94,.05));
+}
+.scene .n{font-size:12px;color:var(--green);font-weight:700;letter-spacing:.12em}
+.scene h3{font-size:20px;margin:8px 0 10px}
+.scene p{color:var(--muted);font-size:14.5px}
+
+/* ===== 三步 ===== */
+.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;counter-reset:s}
+.step{position:relative;padding:28px 24px 24px;background:var(--card);border:1px solid var(--line);border-radius:var(--radius)}
+.step::before{
+  counter-increment:s;content:counter(s,decimal-leading-zero);display:block;
+  font-size:34px;font-weight:800;color:rgba(34,197,94,.28);line-height:1;margin-bottom:14px;
+}
+.step h3{font-size:17px;margin-bottom:8px}
+.step p{font-size:14px;color:var(--muted)}
+
+/* ===== 下载 ===== */
+.download{background:var(--bg2);border-block:1px solid var(--line);text-align:center}
+.download .btn-wrap{display:flex;justify-content:center;gap:12px;flex-wrap:wrap;margin-top:28px}
+.download .hint{margin-top:20px;font-size:13px;color:var(--faint)}
+.download .hint a{color:var(--green);text-decoration:underline;text-underline-offset:3px}
+
+/* ===== 页脚 ===== */
+footer{padding:34px 0;border-top:1px solid var(--line);color:var(--faint);font-size:13px}
+.foot{display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+.foot .brand{font-size:15px;color:var(--muted)}
+.foot a:hover{color:var(--green)}
+.foot .spacer{margin-left:auto}
+
+@media(max-width:900px){
+  .hero-inner{grid-template-columns:1fr}
+  .hero-art{order:-1}
+  .grid,.steps{grid-template-columns:1fr}
+  .scenes{grid-template-columns:1fr}
+  .nav-links{display:none}
+}
+@media(max-width:560px){
+  .wrap{width:calc(100% - 28px)}
+  header .btn{padding:0 14px;height:36px}
+  section{padding:52px 0}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap nav">
+    <a class="brand" href="#top">
+      <img src="assets/logo.png" alt="">
+      <span>萌远控Duo<small>双会话串流</small></span>
+    </a>
+    <nav class="nav-links">
+      <a href="#features">产品特点</a>
+      <a href="#screens">界面预览</a>
+      <a href="#steps">开始使用</a>
+      <a href="#download">下载</a>
+    </nav>
+    <a class="btn btn-primary" href="#download">下载最新版</a>
+  </div>
+</header>
+
+<main id="top">
+
+<div class="hero">
+  <div class="wrap hero-inner">
+    <div>
+      <span class="eyebrow">办公与游戏，同时进行</span>
+      <h1>一台电脑，<br><em>当两台用</em></h1>
+      <p class="lead">打游戏的打游戏，办公的办公，互不打扰。两个独立会话同时在线，同一台电脑、同一个系统，谁也踢不掉谁。</p>
+      <div class="hero-cta">
+        <a class="btn btn-primary btn-lg" href="https://github.com/xRetia/Sunshine-Duo/archive/refs/heads/main.zip">下载最新版 · 绿色免安装</a>
+        <a class="btn btn-ghost btn-lg" href="#screens">看看界面</a>
+      </div>
+      <p class="hero-note">Windows 10 / 11 · 手机装客户端即可连接</p>
+    </div>
+    <div class="hero-art"><img src="assets/hero.png" alt="一边办公、一边游戏的场景插画"></div>
+  </div>
+</div>
+
+<section class="features" id="features">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-tag">WHY 萌远控DUO</div>
+      <h2>为「同时做两件事」而生</h2>
+      <p>不是把一台电脑轮流用，而是让两个人各用各的。</p>
+    </div>
+    <div class="grid">
+      <div class="card">
+        <div class="ico"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4M8 9h.01M16 9h.01"/></svg></div>
+        <h3>两个会话并行</h3>
+        <p>本机办公与远程游戏同时进行，画面、声音、键鼠各归各的会话，互不抢焦点。</p>
+      </div>
+      <div class="card">
+        <div class="ico"><svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="13" rx="2"/><path d="M7 21h10M12 6V3M7 12h.01"/></svg></div>
+        <h3>虚拟显示器</h3>
+        <p>镜像、独占、扩展多种显示方式自由切换，分辨率可按需编辑，断流后自动回到桌面。</p>
+      </div>
+      <div class="card">
+        <div class="ico"><svg viewBox="0 0 24 24"><path d="M6 8h12a4 4 0 0 1 4 4v3a3 3 0 0 1-5 2l-1-1H8l-1 1a3 3 0 0 1-5-2v-3a4 4 0 0 1 4-4z"/><path d="M8 12v2M7 13h2"/></svg></div>
+        <h3>手柄即插即用</h3>
+        <p>主流蓝牙手柄直接识别，支持多个手柄，不影响本机键鼠，手机秒变掌机。</p>
+      </div>
+      <div class="card">
+        <div class="ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/></svg></div>
+        <h3>外网也能连</h3>
+        <p>内置网络连接能力，不在同一个局域网也能连回家里的电脑，随时随地继续玩。</p>
+      </div>
+      <div class="card">
+        <div class="ico"><svg viewBox="0 0 24 24"><path d="M12 3l8 4v5c0 5-3.4 8.3-8 9-4.6-.7-8-4-8-9V7l8-4z"/><path d="M9 12l2 2 4-4"/></svg></div>
+        <h3>掉线自动恢复</h3>
+        <p>两个会话都有自动照看，断开后重新连接，不用手动回到电脑前处理。</p>
+      </div>
+      <div class="card">
+        <div class="ico"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 9h8M8 13h8M8 17h5"/></svg></div>
+        <h3>全中文图形界面</h3>
+        <p>安装、卸载、配对、设置都在一个界面完成，整个目录可移动，卸载不删配置。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="screens">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-tag">界面预览</div>
+      <h2>一个界面，管好两头</h2>
+      <p>点击下面的标签，看看萌远控Duo 的实际界面。</p>
+    </div>
+    <div class="shots-tabs" role="tablist">
+      <button class="tab on" data-shot="console" role="tab">当前会话</button>
+      <button class="tab" data-shot="game" role="tab">游戏会话</button>
+      <button class="tab" data-shot="vda" role="tab">虚拟显示器</button>
+      <button class="tab" data-shot="tunnel" role="tab">外网连接</button>
+    </div>
+    <div class="shot-stage">
+      <img class="on" data-panel="console" src="screenshots/console.png" alt="当前会话界面">
+      <img data-panel="game" src="screenshots/game.png" alt="游戏会话界面">
+      <img data-panel="vda" src="screenshots/vda.png" alt="虚拟显示器界面">
+      <img data-panel="tunnel" src="screenshots/tunnel.png" alt="外网连接界面">
+    </div>
+    <p class="shot-cap">界面截图为示意，地址与端口均为示例值</p>
+  </div>
+</section>
+
+<section class="features" id="scenes">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-tag">使用场景</div>
+      <h2>同一台电脑，各得其所</h2>
+    </div>
+    <div class="scenes">
+      <div class="scene">
+        <div class="n">场景一</div>
+        <h3>你在书房，家人在客厅</h3>
+        <p>你在电脑前写文档查资料，家人在客厅用电视连着手柄打游戏。同一台电脑、同一个系统，两边同时进行，谁也踢不掉谁。</p>
+      </div>
+      <div class="scene">
+        <div class="n">场景二</div>
+        <h3>手机 + 手柄 = 掌机</h3>
+        <p>手机装好客户端，夹上蓝牙手柄，躺在床上也能玩 PC 游戏。主流手柄自动识别，不用折腾映射。</p>
+      </div>
+      <div class="scene">
+        <div class="n">场景三</div>
+        <h3>出门在外，远程办公</h3>
+        <p>主会话也能远程连接。在外面用手机或笔记本打开客户端，就能继续操作家里的电脑。</p>
+      </div>
+      <div class="scene">
+        <div class="n">场景四</div>
+        <h3>不在家，照样连回去</h3>
+        <p>开启网络连接后，即使不在同一个 WiFi 下也能连接，游戏进度和文件都在原来的电脑上。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="steps">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-tag">开始使用</div>
+      <h2>三步，就能开玩</h2>
+    </div>
+    <div class="steps">
+      <div class="step">
+        <h3>下载并安装</h3>
+        <p>下载压缩包，解压到任意目录，双击 <b>Setup.exe</b> 按提示完成安装。</p>
+      </div>
+      <div class="step">
+        <h3>跟着向导设置</h3>
+        <p>确认两个会话的用户、显示方式和连接端口，点「开始安装」等待完成。</p>
+      </div>
+      <div class="step">
+        <h3>手机连接</h3>
+        <p>手机装好客户端，同一网络下自动发现两台主机，输入配对码即可连接。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="download" id="download">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-tag">立即下载</div>
+      <h2>现在就把电脑变成两台</h2>
+      <p>绿色免安装，解压即用。</p>
+    </div>
+    <div class="btn-wrap">
+      <a class="btn btn-primary btn-lg" href="https://github.com/xRetia/Sunshine-Duo/archive/refs/heads/main.zip">下载最新版</a>
+      <a class="btn btn-ghost btn-lg" href="https://gh-proxy.com/https://github.com/xRetia/Sunshine-Duo/archive/refs/heads/main.zip">国内镜像下载</a>
+      <a class="btn btn-ghost btn-lg" href="https://github.com/Axixi2233/moonlight-android/releases/latest">安卓客户端</a>
+    </div>
+    <p class="hint">
+      iOS / 电视 / PC 端请使用官方客户端：<a href="https://moonlight-stream.org">Moonlight</a><br>
+      安装遇到问题？把解压目录加入杀毒软件的信任区后重新运行安装程序即可。
+    </p>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap foot">
+    <a class="brand" href="#top"><img src="assets/logo.png" alt=""><span>萌远控Duo</span></a>
+    <span>一台电脑，当两台用</span>
+    <span class="spacer"></span>
+    <a href="https://github.com/xRetia/Sunshine-Duo/blob/main/LICENSE">开源许可 GPL-3.0</a>
+  </div>
+</footer>
+
+<script>
+document.querySelectorAll('.tab').forEach(function(tab){
+  tab.addEventListener('click',function(){
+    var key=tab.dataset.shot;
+    document.querySelectorAll('.tab').forEach(function(t){t.classList.toggle('on',t===tab);});
+    document.querySelectorAll('[data-panel]').forEach(function(img){
+      img.classList.toggle('on',img.dataset.panel===key);
+    });
+  });
+});
+</script>
+
+</body>
+</html>
