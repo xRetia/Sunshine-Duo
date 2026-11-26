@@ -374,7 +374,15 @@ internal sealed class MainForm : Form, IMainUi
             {
                 var state = await Task.Run(ServiceControl.Query);
                 UpdateServiceState(state);
-                _tunnelPage?.RefreshStatus();
+                var et = await GuardPipe.EasyTierStatus();
+                if (et != null)
+                {
+                    _tunnelPage?.SetState(et);
+                    _consolePage?.SetTunnel(et);
+                    _gamePage?.SetTunnel(et);
+                    if (_nav.TryGetValue(MainPage.Tunnel, out var navTunnel))
+                        navTunnel.Status = et.Running ? "运行中" : "";
+                }
             }
             if (Theme.Mode == AppTheme.System && Theme.SystemIsLight() != UiKit.IsLight)
             {

@@ -9,6 +9,7 @@ internal sealed class SessionPage : Panel
     private readonly bool _isConsole;
     private Paths.SessionInfo _s;
     private readonly Label _title, _sub, _localIp, _wanIp, _port, _addr, _pairStatus, _toast;
+    private readonly Label _wanTitle, _wanHint;
     private readonly Pill _pill;
     private readonly TextBox[] _pin = new TextBox[4];
     private readonly Button _pair, _wanBtn;
@@ -39,9 +40,9 @@ internal sealed class SessionPage : Panel
         Controls.Add(_pill);
 
         // 三张信息卡
-        _localIp = AddCard(0, "本机 IP", "局域网内 Moonlight 直接连接", out var c1);
-        _wanIp = AddCard(252, "WAN 公网 IP", "ip.sb 实时获取 · 5 分钟缓存", out var c2);
-        _port = AddCard(504, "会话端口", "Moonlight 使用的串流端口", out var c3);
+        _localIp = AddCard(0, "本机 IP", "局域网内 Moonlight 直接连接", out var c1, out _, out _);
+        _wanIp = AddCard(252, "WAN 公网 IP", "ip.sb 实时获取 · 5 分钟缓存", out var c2, out _wanTitle, out _wanHint);
+        _port = AddCard(504, "会话端口", "Moonlight 使用的串流端口", out var c3, out _, out _);
         _localIp.Font = UiKit.Mono(13F, FontStyle.Bold);
         _wanIp.Font = UiKit.Mono(13F, FontStyle.Bold);
         _port.Font = UiKit.Mono(13F, FontStyle.Bold);
@@ -187,11 +188,12 @@ internal sealed class SessionPage : Panel
         _ = RefreshWanAsync(false);
     }
 
-    private Label AddCard(int x, string title, string hint, out RoundCard card)
+    private Label AddCard(int x, string title, string hint, out RoundCard card,
+        out Label titleLabel, out Label hintLabel)
     {
         card = new RoundCard { Location = new Point(x, 100), Size = new Size(232, 104) };
         Controls.Add(card);
-        card.Controls.Add(new Label
+        titleLabel = new Label
         {
             Text = title,
             ForeColor = UiKit.Text,
@@ -199,8 +201,9 @@ internal sealed class SessionPage : Panel
             Font = UiKit.YaHei(9.5F, FontStyle.Bold),
             Location = new Point(16, 12),
             AutoSize = true,
-        });
-        card.Controls.Add(new Label
+        };
+        card.Controls.Add(titleLabel);
+        hintLabel = new Label
         {
             Text = hint,
             ForeColor = UiKit.Muted,
@@ -209,7 +212,8 @@ internal sealed class SessionPage : Panel
             Location = new Point(16, 34),
             Size = new Size(200, 16),
             AutoEllipsis = true,
-        });
+        };
+        card.Controls.Add(hintLabel);
         var value = new Label
         {
             ForeColor = UiKit.Text,
@@ -257,6 +261,29 @@ internal sealed class SessionPage : Panel
         if (up == true) _pill.Set("运行中", UiKit.Accent);
         else if (up == false) _pill.Set("未运行", UiKit.Danger);
         else _pill.Set("检测中", UiKit.Muted);
+    }
+
+    // 内网穿透启用后，WAN 公网 IP 卡改为显示 EasyTier 虚拟 IP
+    public void SetTunnel(GuardPipe.EasyTierState? st)
+    {
+        var on = st != null && (st.Enabled || st.Running);
+        if (on)
+        {
+            var vip = st!.VirtualIp;
+            _wanTitle.Text = "虚拟 IP";
+            _wanHint.Visible = false;
+            _wanIp.Text = vip.Length > 0 ? vip : "等待连接…";
+            _wanBtn.Visible = false;
+            _tip.SetToolTip(_wanIp, "经 EasyTier 加入同一网络的设备可直接访问");
+        }
+        else if (_wanTitle.Text == "虚拟 IP")
+        {
+            _wanTitle.Text = "WAN 公网 IP";
+            _wanHint.Visible = true;
+            _wanHint.Text = "ip.sb 实时获取 · 5 分钟缓存";
+            _wanBtn.Visible = true;
+            _ = RefreshWanAsync(false);
+        }
     }
 
     public void FocusPin() => _pin[0].Focus();

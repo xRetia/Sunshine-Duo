@@ -197,8 +197,9 @@ DEFAULT_CONFIG = {
     #   win_from_ralt    - R-Alt is detected and forwarded as Win
     #   winl_from_ralt_l - R-Alt+L is detected and forwarded as Win+L (lock)
     # easytier 内网穿透（可选）：服务托管的 easytier-core 子进程，
-    # 配置节含义见下方 easytier 段（tools\EasyTier\README.md）
-    'easytier': {'enabled': False, 'network': '', 'secret': '', 'extra_args': []},
+    # 配置节含义见下方 easytier 段（bin\SunshineDuoCore\README.md）
+    'easytier': {'enabled': False, 'network': '', 'secret': '', 'server_mode': 'public',
+                 'peers': [], 'ipv4': '', 'tcp_hole_punch': False, 'extra_args': []},
     'win_from_ralt': False,
     'winl_from_ralt_l': False,
     # hide_cursor_on_stream: while a client streams the Console session, replace
@@ -345,16 +346,21 @@ def save_config_resolution(width, height, resolutions=None):
 # 放在 core 而非托盘：core 常驻（服务身份，TUN 所需权限天然具备）、已有控制
 # 管道与配置热重载；托盘只经 ctrl pipe 下发开关并查询状态。
 # 配置节 config.json "easytier"（热重载）：
-#   enabled     bool   服务 tick 时发现未运行则拉起（含开机自启与崩溃拉起）
-#   network     str    --network-name（组网名，各端一致）
-#   secret      str    --network-secret（私有网络密钥，留空=公开网络）
-#   extra_args  [str]  附加命令行（如 --no-tun、--dhcp、-p 中继节点）
-#   exe         str    覆盖二进制路径（默认与服务 exe 同目录的 easytier-core.exe）
+#   enabled         bool   服务 tick 时发现未运行则拉起（含开机自启与崩溃拉起）
+#   network         str    --network-name；留空首次启用时用计算机名
+#   secret          str    --network-secret（留空=无密钥）
+#   server_mode     str    'public' 本机作为公共共享节点 | 'custom' 连指定节点
+#   peers           [str]  custom 模式的节点地址（-p，可多条）
+#   ipv4            str    手动虚拟 IP（-i）；留空 = --dhcp
+#   tcp_hole_punch  bool   默认 false → 传 --disable-tcp-hole-punching
+#   extra_args      [str]  附加命令行（高级手工，如 --no-tun）
+#   exe             str    覆盖二进制路径（默认与服务 exe 同目录的 easytier-core.exe）
 # 进程匹配按完整映像路径，避免误杀用户在别处手工运行的 easytier-core。
 
 _easytier_pid = 0
 _easytier_started_at = 0.0
 _easytier_last_fail = 0.0
+_easytier_args_used = None
 
 
 def _easytier_cfg(cfg):
@@ -376,8 +382,10 @@ def easytier_exe(cfg):
     return os.path.join(SVC_DIR, 'easytier-core.exe')
 
 
-def save_config_easytier(enabled, network=None, secret=None):
-    """Persist the easytier section; hot-reloaded by every tick."""
+def save_config_easytier(enabled=None, network=None, secret=None, server_mode=None,
+                         peers=None, ipv4=None, tcp_hole_punch=None):
+    """Persist the easytier section (None = leave the key untouched);
+    hot-reloaded by every tick."""
     try:
         with open(CONFIG_PATH, 'r', encoding='utf-8-sig') as f:
             data = json.load(f)
@@ -387,16 +395,27 @@ def save_config_easytier(enabled, network=None, secret=None):
         log_err('easytier save: read error %r' % e)
         return False
     et = data.get('easytier') if isinstance(data.get('easytier'), dict) else {}
-    et['enabled'] = bool(enabled)
+    if enabled is not None:
+        et['enabled'] = bool(enabled)
     if network is not None:
-        et['network'] = str(network)
+        et['network'] = str(network).strip()
     if secret is not None:
         et['secret'] = str(secret)
+    if server_mode is not None and str(server_mode) in ('public', 'custom'):
+        et['server_mode'] = str(server_mode)
+    if peers is not None:
+        et['peers'] = [str(p).strip() for p in peers if str(p).strip()]
+    if ipv4 is not None:
+        et['ipv4'] = str(ipv4).strip()
+    if tcp_hole_punch is not None:
+        et['tcp_hole_punch'] = bool(tcp_hole_punch)
     data['easytier'] = et
     try:
         with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=4)
-        log('easytier set: enabled=%s network=%s' % (et['enabled'], et.get('network') or ''))
+        log('easytier set: enabled=%s network=%s server=%s ipv4=%s tcp_punch=%s'
+            % (et.get('enabled'), et.get('network') or '', et.get('server_mode') or 'public',
+               et.get('ipv4') or 'dhcp', bool(et.get('tcp_hole_punch'))))
         return True
     except Exception as e:
         log_err('easytier save: write error %r' % e)
@@ -454,10 +473,86 @@ def easytier_pid(exe):
     return 0
 
 
+def easytier_machine_name():
+    return str(os.environ.get('COMPUTERNAME') or '').strip()
+
+
+# 公共服务器（默认）：节点发现/中继用的公共共享节点
+ET_PUBLIC_SERVER = 'tcp://easytier.zcm.cloudns.ch:11010'
+
+
+def easytier_args(et):
+    """Command line for easytier-core (v2.6.4 flags). 网络名为空时用计算机名；
+    ipv4 为空走 DHCP；server_mode=public 连默认公共服务器，custom 连指定节点；
+    TCP 打洞默认关闭（--disable-tcp-hole-punching）；密钥不打印到日志。"""
+    net = str(et.get('network') or '').strip() or easytier_machine_name()
+    args = ['--network-name', net] if net else []
+    if str(et.get('secret') or ''):
+        args += ['--network-secret', str(et.get('secret'))]
+    ipv4 = str(et.get('ipv4') or '').strip()
+    args += ['-i', ipv4] if ipv4 else ['--dhcp']
+    if str(et.get('server_mode') or 'public') == 'custom':
+        for p in (et.get('peers') or []):
+            s = str(p).strip()
+            if s:
+                args += ['-p', s]
+    else:
+        args += ['-p', ET_PUBLIC_SERVER]
+    if not bool(et.get('tcp_hole_punch')):
+        args += ['--disable-tcp-hole-punching']
+    for a in (et.get('extra_args') or []):
+        s = str(a).strip()
+        if s:
+            args.append(s)
+    return args, net
+
+
+_ET_NODE_TTL = 4.0
+_et_node = {'ts': 0.0, 'data': {}}
+
+
+def easytier_node(cfg):
+    """`easytier-cli -o json node` (RPC portal 15888 by default), cached for a
+    few seconds so tray polling does not spawn a CLI per request."""
+    now = time.time()
+    if now - _et_node['ts'] < _ET_NODE_TTL:
+        return _et_node['data']
+    data = {}
+    cli = os.path.join(os.path.dirname(easytier_exe(cfg)), 'easytier-cli.exe')
+    if os.path.isfile(cli):
+        try:
+            si = subprocess.STARTUPINFO()
+            si.dwFlags = subprocess.STARTF_USESHOWWINDOW
+            si.wShowWindow = 0
+            p = subprocess.run([cli, '-o', 'json', 'node'], capture_output=True,
+                               timeout=3, startupinfo=si,
+                               creationflags=subprocess.CREATE_NO_WINDOW)
+            if p.returncode == 0:
+                parsed = json.loads(p.stdout.decode('utf-8', errors='replace'))
+                if isinstance(parsed, dict):
+                    data = parsed
+        except Exception as e:
+            log('easytier cli node error: %r' % e)
+    _et_node['ts'] = now
+    _et_node['data'] = data
+    return data
+
+
+def _easytier_vip(node):
+    ip = str(node.get('ipv4_addr') or '').strip()
+    return ip.split('/')[0] if ip else ''
+
+
+def _easytier_public_ip(node):
+    stun = node.get('stun_info')
+    addrs = stun.get('public_ip') if isinstance(stun, dict) else None
+    return str(addrs[0]) if isinstance(addrs, list) and addrs else ''
+
+
 def easytier_start(cfg=None):
     """Spawn easytier-core; adopts an already-running instance instead of
     duplicating it (so a service restart never stacks a second tunnel)."""
-    global _easytier_pid, _easytier_started_at, _easytier_last_fail
+    global _easytier_pid, _easytier_started_at, _easytier_last_fail, _easytier_args_used
     cfg = cfg or load_config()
     exe = easytier_exe(cfg)
     cur = easytier_pid(exe)
@@ -469,17 +564,7 @@ def easytier_start(cfg=None):
             log_err('easytier start: exe not found: %s' % exe)
         return {'ok': False, 'error': '未找到 easytier-core.exe：%s' % exe}
     et = _easytier_cfg(cfg)
-    args = [exe]
-    network = str(et.get('network') or '').strip()
-    secret = str(et.get('secret') or '')
-    if network:
-        args += ['--network-name', network]
-    if secret:
-        args += ['--network-secret', secret]
-    for a in et.get('extra_args') or []:
-        s = str(a).strip()
-        if s:
-            args.append(s)
+    args, net = easytier_args(et)
     out_path = os.path.join(SVC_DIR, 'easytier.out')
     try:
         if os.path.getsize(out_path) > 5 * 1024 * 1024:
@@ -492,7 +577,7 @@ def easytier_start(cfg=None):
     try:
         out = open(out_path, 'ab', buffering=0)
         try:
-            p = subprocess.Popen(args, cwd=os.path.dirname(exe), startupinfo=si,
+            p = subprocess.Popen([exe] + args, cwd=os.path.dirname(exe), startupinfo=si,
                                  creationflags=subprocess.CREATE_NO_WINDOW,
                                  stdin=subprocess.DEVNULL,
                                  stdout=out, stderr=subprocess.STDOUT)
@@ -503,7 +588,9 @@ def easytier_start(cfg=None):
         return {'ok': False, 'error': '启动 easytier-core 失败：%r' % e}
     _easytier_pid = p.pid
     _easytier_started_at = time.time()
-    log('easytier: started pid=%d network=%s args=%d' % (p.pid, network or '', len(args) - 1))
+    _easytier_args_used = args
+    _et_node['ts'] = 0.0
+    log('easytier: started pid=%d network=%s opts=%s' % (p.pid, net, args[2:]))
     return {'ok': True, 'running': True, 'pid': p.pid}
 
 
@@ -520,6 +607,8 @@ def easytier_stop(cfg=None):
             killed += 1
     _easytier_pid = 0
     _easytier_started_at = 0.0
+    _et_node['ts'] = 0.0
+    _et_node['data'] = {}
     if killed:
         log('easytier: stopped %d process(es)' % killed)
     return {'ok': True, 'stopped': killed}
@@ -532,13 +621,24 @@ def easytier_status(cfg=None):
     pid = easytier_pid(exe)
     running = bool(pid)
     ours = bool(running and _easytier_pid == pid)
+    node = easytier_node(cfg) if running else {}
+    _args, net = easytier_args(et)
     return {
         'ok': True, 'running': running, 'pid': pid,
         'managed': ours,
         'started_at': _easytier_started_at if ours else 0,
         'enabled': bool(et.get('enabled')),
-        'network': str(et.get('network') or ''),
+        'network': net,
+        'network_saved': str(et.get('network') or '').strip(),
+        'machine': easytier_machine_name(),
         'secret_set': bool(str(et.get('secret') or '')),
+        'server_mode': str(et.get('server_mode') or 'public'),
+        'default_server': ET_PUBLIC_SERVER,
+        'peers': [str(p) for p in (et.get('peers') or [])],
+        'ipv4': str(et.get('ipv4') or '').strip(),
+        'tcp_hole_punch': bool(et.get('tcp_hole_punch')),
+        'virtual_ip': _easytier_vip(node),
+        'public_ip': _easytier_public_ip(node),
         'exe': exe, 'exe_exists': os.path.isfile(exe),
     }
 
@@ -3242,8 +3342,9 @@ def tick():
 #        WebUI ports) so the tray builds its menus from one source of truth.
 #   {"cmd":"easytier_status"}
 #     -> tunnel state: running/pid/managed, enabled, network, exe presence.
-#   {"cmd":"easytier_set","enabled":bool,"network":str,"secret":str}
-#     -> persists the easytier section, then applies immediately (start/stop).
+#   {"cmd":"easytier_set",...easytier 字段}
+#     -> persists the given easytier keys (omitted keys untouched), then
+#        applies immediately: enabled -> start/adopt, disabled -> stop.
 # Local-only pipe; SDDL grants generic access to Everyone+SYSTEM so the
 # non-elevated tray app can connect. Commands are restart-only, which is
 # acceptable exposure for this home tool.
@@ -3417,21 +3518,38 @@ def _ctrl_dispatch(req):
         # tunnel state for the tray: running/pid, enabled, network, exe presence
         return easytier_status()
     if cmd == 'easytier_set':
-        # persist the easytier section, then apply immediately:
-        # enabled -> start (or adopt the running instance), disabled -> stop
-        enabled = bool(req.get('enabled'))
-        network = req.get('network')
-        secret = req.get('secret')
-        ok = save_config_easytier(enabled,
-                                  str(network) if network is not None else None,
-                                  str(secret) if secret is not None else None)
-        resp = {'ok': ok, 'cmd': 'easytier_set', 'enabled': enabled}
+        # persist the given easytier keys (omitted = untouched), then apply
+        # immediately. secret is only written when present, so a blank
+        # password box in the UI never clears a configured secret.
+        def _opt(name):
+            return req[name] if name in req else None
+        enabled = _opt('enabled')
+        network = _opt('network')
+        cur_et = _easytier_cfg(load_config())
+        # 首次启用且未填网络名 → 用计算机名作为默认网络名
+        if enabled and not str(network or '').strip() and not str(cur_et.get('network') or '').strip():
+            network = easytier_machine_name() or None
+        ok = save_config_easytier(enabled, network, _opt('secret'), _opt('server_mode'),
+                                  _opt('peers'), _opt('ipv4'), _opt('tcp_hole_punch'))
+        resp = {'ok': ok, 'cmd': 'easytier_set'}
         if ok:
             cfg2 = load_config()
-            if enabled:
+            if bool(_easytier_cfg(cfg2).get('enabled')):
+                global _easytier_args_used
+                touched = any(k in req for k in ('network', 'secret', 'server_mode',
+                                                 'peers', 'ipv4', 'tcp_hole_punch'))
+                new_args, _net = easytier_args(_easytier_cfg(cfg2))
+                running = bool(easytier_pid(easytier_exe(cfg2)))
+                changed = running and (
+                    (_easytier_args_used is not None and new_args != _easytier_args_used)
+                    or (_easytier_args_used is None and touched))
+                if changed:
+                    # 保存即应用：命令行实质变化时重启隧道（网络/服务器/IP/打洞等）
+                    easytier_stop(cfg2)
                 r = easytier_start(cfg2)
                 if not r.get('ok'):
                     resp['start_error'] = r.get('error')
+                resp['restarted'] = changed
             else:
                 easytier_stop(cfg2)
             resp.update(easytier_status(cfg2))

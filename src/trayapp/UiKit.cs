@@ -148,6 +148,35 @@ internal static class UiKit
         return b;
     }
 
+    // 带前置图标的浅色按钮（外链/操作类，与 WebUI 的图标按钮观感对齐）
+    public static Button GhostIcon(string text, Action<Graphics, RectangleF, Color> icon)
+    {
+        var b = new Button
+        {
+            Text = string.Empty,
+            FlatStyle = FlatStyle.Flat,
+            BackColor = Card,
+            ForeColor = Text,
+            Font = YaHei(9.5F),
+        };
+        b.FlatAppearance.BorderSize = 1;
+        b.FlatAppearance.BorderColor = Border;
+        b.FlatAppearance.MouseOverBackColor = CardHover;
+        var w = TextRenderer.MeasureText(text, b.Font).Width;
+        b.Size = new Size(Math.Max(96, w + 44), 34);
+        b.Paint += (_, e) =>
+        {
+            var g = e.Graphics;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            icon(g, new RectangleF(11, (b.Height - 14) / 2f, 14, 14), Muted);
+            TextRenderer.DrawText(g, text, b.Font,
+                new Rectangle(31, 0, b.Width - 36, b.Height), Text,
+                TextFormatFlags.VerticalCenter | TextFormatFlags.Left |
+                TextFormatFlags.NoPadding | TextFormatFlags.EndEllipsis);
+        };
+        return b;
+    }
+
     public static TextBox Field(string text = "", bool password = false)
     {
         var t = new TextBox
@@ -241,6 +270,82 @@ internal sealed class Pill : Control
         using (var dot = new SolidBrush(_dot))
             g.FillEllipse(dot, 14, cy - 4, 8, 8);
         TextRenderer.DrawText(g, Text, Font, new Point(28, (int)cy - Font.Height / 2 - 1), ForeColor);
+    }
+}
+
+// 两/多段切换条（标准|高级 等）：自绘，主题一致
+internal sealed class SegBar : Control
+{
+    private readonly string[] _labels;
+    private readonly List<RectangleF> _segs = new();
+    private int _index;
+
+    public SegBar(params string[] labels)
+    {
+        _labels = labels;
+        Height = 30;
+        Width = labels.Length * 100 + 4;
+        Cursor = Cursors.Hand;
+        Font = UiKit.YaHei(9F, FontStyle.Bold);
+        SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
+                 ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+    }
+
+    public event EventHandler? Changed;
+
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public int SelectedIndex
+    {
+        get => _index;
+        set
+        {
+            var v = Math.Clamp(value, 0, _labels.Length - 1);
+            if (v == _index) return;
+            _index = v;
+            Invalidate();
+            Changed?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    protected override void OnMouseDown(MouseEventArgs e)
+    {
+        base.OnMouseDown(e);
+        if (e.Button != MouseButtons.Left) return;
+        for (var i = 0; i < _segs.Count; i++)
+        {
+            if (_segs[i].Contains(e.Location)) { SelectedIndex = i; return; }
+        }
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        var g = e.Graphics;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        _segs.Clear();
+        var outer = new RectangleF(0.5f, 0.5f, Width - 1f, Height - 1f);
+        using (var p = UiKit.RoundRect(outer, 7))
+        using (var brush = new SolidBrush(UiKit.Card))
+            g.FillPath(brush, p);
+        using (var p = UiKit.RoundRect(outer, 7))
+        using (var pen = new Pen(UiKit.Border))
+            g.DrawPath(pen, p);
+
+        var segW = (Width - 6f) / _labels.Length;
+        var segH = Height - 5f;
+        for (var i = 0; i < _labels.Length; i++)
+        {
+            var r = new RectangleF(3f + i * segW, 2.5f, segW, segH);
+            _segs.Add(r);
+            if (i == _index)
+            {
+                using var p = UiKit.RoundRect(new RectangleF(r.X + 1, r.Y, r.Width - 2, r.Height), 6);
+                using var brush = new SolidBrush(UiKit.AccentDeep);
+                g.FillPath(brush, p);
+            }
+            TextRenderer.DrawText(g, _labels[i], Font, Rectangle.Round(r),
+                i == _index ? Color.White : UiKit.Muted,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+        }
     }
 }
 
@@ -350,6 +455,21 @@ internal sealed class NavItem : Control
 
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public bool Selected { get; set; }
+
+    // 行尾状态小胶囊（空字符串 = 不显示）
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public string Status
+    {
+        get => _status;
+        set
+        {
+            if (_status == value) return;
+            _status = value;
+            Invalidate();
+        }
+    }
+
+    private string _status = "";
     public event EventHandler? Activated;
 
     protected override void OnMouseEnter(EventArgs e) { _hover = true; Invalidate(); }
@@ -380,6 +500,19 @@ internal sealed class NavItem : Control
         var box = new RectangleF(16, Height / 2f - 11, 22, 22);
         _icon(g, box, iconColor);
         TextRenderer.DrawText(g, Text, Font, new Point(48, Height / 2 - Font.Height / 2 - 1), UiKit.Text);
+        if (_status.Length > 0)
+        {
+            var f = UiKit.YaHei(8.5F, FontStyle.Bold);
+            var tw = TextRenderer.MeasureText(_status, f).Width;
+            var pill = new RectangleF(Width - tw - 34, Height / 2f - 10f, tw + 22, 20f);
+            using (var p = UiKit.RoundRect(pill, 10))
+            using (var brush = new SolidBrush(Color.FromArgb(30, UiKit.Accent)))
+                g.FillPath(brush, p);
+            using (var dot = new SolidBrush(UiKit.Accent))
+                g.FillEllipse(dot, pill.X + 8, Height / 2f - 3.5f, 7, 7);
+            TextRenderer.DrawText(g, _status, f,
+                new Point((int)pill.X + 19, Height / 2 - f.Height / 2 - 1), UiKit.Accent);
+        }
     }
 }
 
@@ -679,6 +812,23 @@ internal static class Glyphs
         {
             g.FillPath(new SolidBrush(Color.FromArgb(60, c)), p);
             g.DrawPath(pen, p);
+        }
+    }
+
+    // 外链：方框 + 右上箭头
+    public static void External(Graphics g, RectangleF r, Color c)
+    {
+        var w = Math.Max(1.2f, r.Width / 14f);
+        var box = new RectangleF(r.X + r.Width * 0.06f, r.Y + r.Height * 0.20f,
+                                 r.Width * 0.60f, r.Height * 0.60f);
+        using (var pen = Stroke(c, w))
+            g.DrawRectangle(pen, box.X, box.Y, box.Width, box.Height);
+        using (var pen = Stroke(c, w))
+        {
+            var tip = new PointF(r.X + r.Width * 0.92f, r.Y + r.Height * 0.08f);
+            g.DrawLine(pen, r.X + r.Width * 0.44f, r.Y + r.Height * 0.56f, tip.X, tip.Y);
+            g.DrawLine(pen, tip.X - r.Width * 0.26f, tip.Y, tip.X, tip.Y);
+            g.DrawLine(pen, tip.X, tip.Y, tip.X, tip.Y + r.Height * 0.26f);
         }
     }
 }

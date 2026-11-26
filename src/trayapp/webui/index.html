@@ -463,7 +463,10 @@ let state={
   core:{cport:48100,gport:48200,autoStart:true,ralt:false,raltl:true,hideCursor:false,
     service:"运行中",user:"sunshine"},
   tunnel:{enabled:false,network:"",secretSet:false,running:false,pid:0,managed:false,
-    exeExists:true,exe:""},
+    exeExists:true,exe:"",machine:"",serverMode:"public",
+    defaultServer:"tcp://easytier.zcm.cloudns.ch:11010",peers:[],ipv4:"",tcpHolePunch:false,
+    virtualIp:"",publicIp:""},
+  tunnelAdv:false,
 };
 
 /* ===================== 模板 ===================== */
@@ -477,7 +480,7 @@ function sidebarHTML(){
       </div>
     </div>
     <nav class="nav nodrag">
-      ${NAV.map(n=>`<button class="nav-item${n.id===state.page?" on":""}" data-a="nav" data-nav="${n.id}">${ic(n.i)}<span>${n.t}</span>${n.id==="console"||n.id==="game"?`<span class="pill ok" id="pill-${n.id}"><i></i><span id="pillText-${n.id}">运行中</span></span>`:""}</button>`).join("")}
+      ${NAV.map(n=>`<button class="nav-item${n.id===state.page?" on":""}" data-a="nav" data-nav="${n.id}">${ic(n.i)}<span>${n.t}</span>${n.id==="console"||n.id==="game"?`<span class="pill ok" id="pill-${n.id}"><i></i><span id="pillText-${n.id}">运行中</span></span>`:n.id==="tunnel"?`<span class="pill ok nodrag" id="pill-tunnel" style="display:none"><i></i>运行中</span>`:""}</button>`).join("")}
     </nav>
     <div class="side-foot nodrag">
       <div class="hair"></div>
@@ -490,10 +493,10 @@ function infoCard(o){
   const ICN={copy:"\uF0C5",wan:"\uF021"};
   return `<div class="card">
     <div class="card-top">
-      <span class="card-t">${o.title}</span>
-      ${o.acts.map(a=>`<button class="btn-icn" data-a="${a[0]}"${a[2]?` data-src="${a[2]}"`:""} aria-label="${a[1]}">${ICN[a[0]]||a[1]}</button>`).join("")}
+      <span class="card-t" id="t-${o.id}">${o.title}</span>
+      ${o.acts.map(a=>`<button class="btn-icn" id="b-${a[0]}-${o.id}" data-a="${a[0]}"${a[2]?` data-src="${a[2]}"`:""} aria-label="${a[1]}">${ICN[a[0]]||a[1]}</button>`).join("")}
     </div>
-    ${o.hint?`<p class="card-d">${o.hint}</p>`:""}
+    ${o.hint?`<p class="card-d" id="h-${o.id}">${o.hint}</p>`:""}
     <p class="val" id="${o.id}">${esc(o.value)}</p>
   </div>`;
 }
@@ -510,8 +513,11 @@ function sessionHTML(s){
     <div class="grid3 nodrag">
       ${infoCard({title:"本机 IP",value:state.net.lan,id:`v-lan-${s.id}`,
         acts:[["copy","复制",`v-lan-${s.id}`]]})}
-      ${infoCard({title:"公网 IP",value:state.net.wan,id:`v-wan-${s.id}`,
-        acts:[["wan","刷新",`v-wan-${s.id}`],["copy","复制",`v-wan-${s.id}`]]})}
+      ${infoCard(tunnelOn()
+        ?{title:"虚拟 IP",value:state.tunnel.virtualIp||"等待连接…",id:`v-wan-${s.id}`,
+          acts:[["copy","复制",`v-wan-${s.id}`]]}
+        :{title:"公网 IP",value:state.net.wan,id:`v-wan-${s.id}`,
+          acts:[["wan","刷新",`v-wan-${s.id}`],["copy","复制",`v-wan-${s.id}`]]})}
       ${infoCard({title:"串流端口",value:s.stream,id:`v-port-${s.id}`,
         acts:[["copy","复制",`v-port-${s.id}`]]})}
     </div>
@@ -587,39 +593,77 @@ function vdaHTML(){
   </section>`;
 }
 
+function tunnelOn(){return !!(state.tunnel.enabled||state.tunnel.running);}
+
+function advancedHTML(t){
+  const custom=t.serverMode==="custom";
+  const manual=!!t.ipv4;
+  return `<div class="divider"></div>
+    <div class="sec-h"><h2 class="h2">服务器</h2></div>
+    <div class="seg" id="etServerSeg">
+      <button data-a="et-server" data-v="public" class="${custom?"":"on"}">公共服务器</button>
+      <button data-a="et-server" data-v="custom" class="${custom?"on":""}">指定</button>
+    </div>
+    <div id="etPeerWrap" style="${custom?"":"display:none;margin-top:12px"}">
+      <input class="input mono" id="etPeers" value="${esc((t.peers||[]).join("，"))}" placeholder="tcp://host:11010，多个用逗号分隔" autocomplete="off" aria-label="节点地址">
+    </div>
+    <p class="card-d" id="etJoinHint" style="${custom?"display:none":""};margin-top:10px">默认公共服务器：${esc(t.defaultServer||"tcp://easytier.zcm.cloudns.ch:11010")}</p>
+    <div class="sec-h" style="margin-top:18px"><h2 class="h2">虚拟 IP 地址</h2></div>
+    <div class="seg" id="etIpSeg">
+      <button data-a="et-ip" data-v="dhcp" class="${manual?"":"on"}">自动（DHCP）</button>
+      <button data-a="et-ip" data-v="manual" class="${manual?"on":""}">手动</button>
+    </div>
+    <div id="etIpWrap" style="${manual?"margin-top:12px":"display:none;margin-top:12px"}">
+      <input class="input mono" id="etIpv4" value="${esc(t.ipv4||"")}" placeholder="10.126.126.8" autocomplete="off" aria-label="手动 IP">
+    </div>
+    <p class="note" style="margin-top:8px">自动模式由内网穿透分配（10.126.126.0/24 起）。</p>
+    <div class="mt16">${swHTML("etTcp","使用 TCP 打洞",t.tcpHolePunch)}</div>`;
+}
+
 function tunnelHTML(){
   const t=state.tunnel;
+  const adv=state.tunnelAdv;
   return `<section class="page${state.page==="tunnel"?" on":""}" data-page="tunnel">
     <div class="head drag">
       <div class="grow">
         <h1 class="h1">内网穿透</h1>
-        <p class="sub">EasyTier 组网 · 组网核心由后台服务托管</p>
+        <p class="sub">通过 P2P 技术使用萌远控</p>
       </div>
-      <span class="pill nodrag" id="etPill"></span>
+      <div class="seg nodrag" style="margin-right:12px">
+        <button data-a="et-level" data-v="0" class="${adv?"":"on"}">标准</button>
+        <button data-a="et-level" data-v="1" class="${adv?"on":""}">高级</button>
+      </div>
     </div>
 
-    <div class="cols nodrag">
+    <div class="split nodrag">
       <div>
         <div class="card">
-          <div class="card-t">组网</div>
-          <p class="card-d">对端设备安装 EasyTier 并加入相同网络后，即可经虚拟 IP 互访。</p>
-          <div class="mt">${swHTML("etEnabled","启用组网",t.enabled)}</div>
+          <div class="card-t">内网穿透</div>
+          <p class="card-d">对端设备安装 EasyTier 并加入相同网络后，可经虚拟 IP 互访。</p>
+          <div class="mt">${swHTML("etEnabled","启用内网穿透",t.enabled)}</div>
           <div class="stack mt16">
-            <div class="field"><label for="etNet">网络名称</label><input class="input" id="etNet" value="${esc(t.network)}" placeholder="例如 moeart-home" autocomplete="off"></div>
-            <div class="field"><label for="etSecret">网络密钥</label><input class="input" id="etSecret" type="password" autocomplete="new-password" placeholder="${t.secretSet?"已设置密钥":"留空为公开网络"}"></div>
+            <div class="field"><label for="etNet">网络名称</label><input class="input" id="etNet" value="${esc(t.network)}" placeholder="${esc(t.machine||"留空使用计算机名")}" autocomplete="off"></div>
+            <div class="field"><label for="etSecret">网络密钥</label><input class="input" id="etSecret" type="password" autocomplete="new-password" placeholder="${t.secretSet?"已设置，留空不修改":"留空为无密钥"}"></div>
           </div>
+          <div id="etAdv" style="${adv?"":"display:none"}">${advancedHTML(t)}</div>
           <div class="mt"><button class="btn pri" data-a="et-save">${ic("save")}保存并应用</button></div>
           <p class="status" id="etStatus"></p>
         </div>
       </div>
       <div>
         <div class="card">
-          <div class="card-t">运行状态</div>
-          <div class="svc mt" id="etSvc"><span class="dot"></span><span id="etSvcText"></span></div>
-          <p class="note">启用后由核心服务自动拉起并保活；输出与错误见 bin\\SunshineDuoCore\\easytier.out 与 watch.log。</p>
+          <div class="card-top"><span class="card-t">虚拟 IP</span>
+            <button class="btn-icn" data-a="copy" data-src="etVip" aria-label="复制">\uF0C5</button></div>
+          <p class="val" id="etVip">—</p>
         </div>
       </div>
     </div>
+
+    <div class="btnrow" style="margin-top:18px">
+      <button class="btn" data-a="ext-link" data-url="https://github.com/qiin2333/moonlight-vplus/releases">${ic("ext")}Moonlight V+</button>
+      <button class="btn" data-a="ext-link" data-url="https://easytier.cn/guide/download.html">${ic("ext")}EasyTier 客户端</button>
+    </div>
+    <p class="note">输出与错误见 bin\\SunshineDuoCore\\easytier.out；核心由服务自动保活。</p>
   </section>`;
 }
 
@@ -767,6 +811,7 @@ function onEvent(name,data){
   if(name==="tunnel"){applyTunnel(data||{});return;}
   if(name==="wan"){
     state.net.wan=data;
+    if(tunnelOn())return;
     $$('.val[id^="v-wan-"]').forEach(el=>{el.textContent=data});
     return;
   }
@@ -881,44 +926,60 @@ function applyTunnel(st){
   state.tunnel={...state.tunnel,...st};
   renderTunnel();
 }
+function patchWanCards(){
+  const on=tunnelOn(), vip=state.tunnel.virtualIp||"";
+  for(const id of ["console","game"]){
+    const t=$("#t-v-wan-"+id), h=$("#h-v-wan-"+id), v=$("#v-wan-"+id), b=$("#b-wan-v-wan-"+id);
+    if(!t||!v)continue;
+    if(on){
+      t.textContent="虚拟 IP";
+      if(h)h.style.display="none";
+      v.textContent=vip||"等待连接…";
+      if(b)b.style.display="none";
+    }else{
+      t.textContent="公网 IP";
+      if(h){h.style.display="";h.textContent="ip.sb 实时获取 · 5 分钟缓存";}
+      v.textContent=state.net.wan;
+      if(b)b.style.display="";
+    }
+  }
+}
 function renderTunnel(){
-  const t=state.tunnel, pill=$("#etPill"), svc=$("#etSvc");
-  if(!pill)return;
-  if(!t.exeExists){
-    pill.className="pill bad";pill.innerHTML="<i></i>组件缺失";
-  }else if(t.running){
-    pill.className="pill ok";pill.innerHTML=`<i></i>运行中 · PID ${t.pid}`;
-  }else{
-    pill.className="pill";pill.innerHTML="<i></i>已停止";
-  }
-  if(svc){
-    svc.className="svc mt "+(t.running?"ok":t.enabled?"warn":"");
-    $("#etSvcText").textContent=t.running
-      ?"组网核心运行中"+(t.managed?"":"（服务收养的既有实例）")
-      :t.enabled?"已启用，等待组网核心就绪":"未运行";
-  }
+  const t=state.tunnel, navPill=$("#pill-tunnel");
+  if(navPill)navPill.style.display=t.running?"":"none";
+  const vip=$("#etVip");
+  if(vip)vip.textContent=t.virtualIp||(t.running?"等待分配…":"—");
   const sw=document.querySelector('.sw[data-key="etEnabled"]');
   if(sw){
     const on=sw.getAttribute("aria-checked")==="true";
-    if(on!==!!t.enabled){
-      sw.setAttribute("aria-checked",String(!!t.enabled));
-      swSetVisual(sw,t.enabled?SW_MAX_TX:SW_MIN_TX,!!t.enabled,"is-on");
-    }
+    if(on!==!!t.enabled){sw.setAttribute("aria-checked",String(!!t.enabled));swSetVisual(sw,t.enabled?SW_MAX_TX:SW_MIN_TX,!!t.enabled,"is-on");}
   }
   const secret=$("#etSecret");
-  if(secret&&!secret.value)secret.placeholder=t.secretSet?"已设置密钥":"留空为公开网络";
+  if(secret&&!secret.value)secret.placeholder=t.secretSet?"已设置，留空不修改":"留空为无密钥";
+  patchWanCards();
 }
+function splitPeers(v){return String(v||"").split(/[,，;；\s]+/).map(x=>x.trim()).filter(Boolean);}
+function segVal(id,def){const b=document.querySelector("#"+id+" button.on");return b?b.dataset.v:def;}
 async function etApply(enabled){
   const st=$("#etStatus");
+  const adv=($("#etAdv")&&$("#etAdv").style.display!=="none");
   const network=($("#etNet").value||"").trim();
-  if(enabled&&!network){setStatus(st,"启用前先填写网络名称。","warn");
-    const sw=document.querySelector('.sw[data-key="etEnabled"]');
-    if(sw){sw.setAttribute("aria-checked","false");swSetVisual(sw,SW_MIN_TX,false,"is-on");}
-    return;}
+  const peers=adv?splitPeers($("#etPeers")?.value||""):[];
+  const serverMode=adv?segVal("etServerSeg","public"):"public";
+  const ipMode=adv?segVal("etIpSeg","dhcp"):"dhcp";
+  const ipv4=ipMode==="manual"?(($("#etIpv4")?.value||"").trim()):"";
+  if(adv&&serverMode==="custom"&&!peers.length){setStatus(st,"「指定」需填写节点地址。","warn");return;}
+  if(adv&&ipMode==="manual"&&!ipv4){setStatus(st,"手动模式需填写虚拟 IP。","bad");return;}
   setStatus(st,"正在应用…","");
   if(HOSTED){
     try{
-      const r=await call("easytierSet",{enabled,network,secret:$("#etSecret").value||""});
+      const payload={enabled,network};
+      const sec=$("#etSecret").value;if(sec)payload.secret=sec;
+      if(adv){
+        payload.server_mode=serverMode;payload.peers=peers;payload.ipv4=ipv4;
+        payload.tcp_hole_punch=($("#etTcp")?.getAttribute("aria-checked")==="true");
+      }
+      const r=await call("easytierSet",payload);
       applyTunnel(r.state||{});
       setStatus(st,r.message,r.failed?"bad":"ok");
     }catch(e){
@@ -931,7 +992,7 @@ async function etApply(enabled){
   await wait(800);
   state.tunnel.enabled=enabled;state.tunnel.network=network;state.tunnel.running=enabled;
   renderTunnel();
-  setStatus(st,enabled?"组网已启动。":"组网已停止。","ok");
+  setStatus(st,enabled?"内网穿透已启动。":"内网穿透已停止。","ok");
 }
 
 function resRows(){
@@ -1166,7 +1227,10 @@ function swCommit(el,next){
 }
 async function actSwChanged(el,next){
   const key=el.dataset.key;
-  if(key==="etEnabled"){await etApply(next);return;}
+  if(key==="etEnabled"||key==="etTcp"){
+    const m=document.querySelector('.sw[data-key="etEnabled"]');
+    await etApply(m&&m.getAttribute("aria-checked")==="true");return;
+  }
   state.core[key]=next;
   if(HOSTED){
     try{
@@ -1315,6 +1379,26 @@ const ACT={
   "et-save":()=>{
     const sw=document.querySelector('.sw[data-key="etEnabled"]');
     etApply(sw&&sw.getAttribute("aria-checked")==="true");
+  },
+  "et-level":el=>{
+    state.tunnelAdv=el.dataset.v==="1";
+    document.querySelectorAll('[data-a="et-level"]').forEach(b=>b.classList.toggle("on",b.dataset.v===el.dataset.v));
+    const a=$("#etAdv");if(a)a.style.display=state.tunnelAdv?"":"none";
+  },
+  "et-server":el=>{
+    document.querySelectorAll("#etServerSeg button").forEach(b=>b.classList.toggle("on",b===el));
+    const p=$("#etPeerWrap"),h=$("#etJoinHint");
+    if(p)p.style.display=el.dataset.v==="custom"?"":"none";
+    if(h)h.style.display=el.dataset.v==="custom"?"none":"";
+  },
+  "et-ip":el=>{
+    document.querySelectorAll("#etIpSeg button").forEach(b=>b.classList.toggle("on",b===el));
+    const w=$("#etIpWrap");if(w)w.style.display=el.dataset.v==="manual"?"":"none";
+  },
+  "ext-link":el=>{
+    const url=el.dataset.url;
+    if(HOSTED){call("openUrl",{url});toast("正在打开…");return;}
+    toast("预览占位：不调用外部浏览器");
   },
   restart:el=>restartSession(el),
   min:minimize,

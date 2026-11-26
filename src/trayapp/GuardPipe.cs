@@ -1,5 +1,7 @@
 using System.IO.Pipes;
+using System.Linq;
 using System.Text;
+using System.Text.Json;
 
 namespace SunshineDuoTray;
 
@@ -22,9 +24,29 @@ public static class GuardPipe
         public bool Managed { get; set; }        // 由本次服务运行拉起（而非收养）
         public bool Enabled { get; set; }
         public string Network { get; set; } = "";
+        public string Machine { get; set; } = "";
         public bool SecretSet { get; set; }
+        public string ServerMode { get; set; } = "public";
+        public string[] Peers { get; set; } = Array.Empty<string>();
+        public string Ipv4 { get; set; } = "";
+        public bool TcpHolePunch { get; set; }
+        public string VirtualIp { get; set; } = "";
+        public string PublicIp { get; set; } = "";
+        public string DefaultServer { get; set; } = "";
         public string Exe { get; set; } = "";
         public bool ExeExists { get; set; }
+    }
+
+    // easytier_set 的载荷；Secret 为 null 表示不改动已配置的密钥
+    public class EasyTierApply
+    {
+        public bool Enabled { get; set; }
+        public string Network { get; set; } = "";
+        public string? Secret { get; set; }
+        public string ServerMode { get; set; } = "public";
+        public string[] Peers { get; set; } = Array.Empty<string>();
+        public string Ipv4 { get; set; } = "";
+        public bool TcpHolePunch { get; set; }
     }
 
     public static async Task<string> SendAsync(string json)
@@ -126,6 +148,31 @@ public static class GuardPipe
         return SendAndCheckAsync($"{{\"cmd\":\"set_resolution\",\"width\":{width},\"height\":{height},\"resolutions\":{System.Text.Json.JsonSerializer.Serialize(resolutions ?? Array.Empty<string>())}}}");
     }
 
+    private static EasyTierState ParseEasyTierState(JsonElement r)
+    {
+        return new EasyTierState
+        {
+            Running = r.TryGetProperty("running", out var ru) && ru.GetBoolean(),
+            Pid = r.TryGetProperty("pid", out var pi) ? pi.GetInt32() : 0,
+            Managed = r.TryGetProperty("managed", out var ma) && ma.GetBoolean(),
+            Enabled = r.TryGetProperty("enabled", out var en) && en.GetBoolean(),
+            Network = r.TryGetProperty("network", out var ne) ? ne.GetString() ?? "" : "",
+            Machine = r.TryGetProperty("machine", out var mc) ? mc.GetString() ?? "" : "",
+            SecretSet = r.TryGetProperty("secret_set", out var se) && se.GetBoolean(),
+            ServerMode = r.TryGetProperty("server_mode", out var sm) ? sm.GetString() ?? "public" : "public",
+            Peers = r.TryGetProperty("peers", out var pe) && pe.ValueKind == System.Text.Json.JsonValueKind.Array
+                ? pe.EnumerateArray().Select(x => x.GetString() ?? "").Where(x => x.Length > 0).ToArray()
+                : Array.Empty<string>(),
+            Ipv4 = r.TryGetProperty("ipv4", out var iv) ? iv.GetString() ?? "" : "",
+            TcpHolePunch = r.TryGetProperty("tcp_hole_punch", out var tp) && tp.GetBoolean(),
+            VirtualIp = r.TryGetProperty("virtual_ip", out var vi) ? vi.GetString() ?? "" : "",
+            PublicIp = r.TryGetProperty("public_ip", out var pui) ? pui.GetString() ?? "" : "",
+            DefaultServer = r.TryGetProperty("default_server", out var ds) ? ds.GetString() ?? "" : "",
+            Exe = r.TryGetProperty("exe", out var ex) ? ex.GetString() ?? "" : "",
+            ExeExists = r.TryGetProperty("exe_exists", out var ee) && ee.GetBoolean(),
+        };
+    }
+
     public static async Task<EasyTierState?> EasyTierStatus()
     {
         using var doc = await SendForDocAsync("{\"cmd\":\"easytier_status\"}");
@@ -134,17 +181,7 @@ public static class GuardPipe
         {
             var r = doc.RootElement;
             if (!r.GetProperty("ok").GetBoolean()) return null;
-            return new EasyTierState
-            {
-                Running = r.TryGetProperty("running", out var ru) && ru.GetBoolean(),
-                Pid = r.TryGetProperty("pid", out var pi) ? pi.GetInt32() : 0,
-                Managed = r.TryGetProperty("managed", out var ma) && ma.GetBoolean(),
-                Enabled = r.TryGetProperty("enabled", out var en) && en.GetBoolean(),
-                Network = r.TryGetProperty("network", out var ne) ? ne.GetString() ?? "" : "",
-                SecretSet = r.TryGetProperty("secret_set", out var se) && se.GetBoolean(),
-                Exe = r.TryGetProperty("exe", out var ex) ? ex.GetString() ?? "" : "",
-                ExeExists = r.TryGetProperty("exe_exists", out var ee) && ee.GetBoolean(),
-            };
+            return ParseEasyTierState(r);
         }
         catch
         {
@@ -152,15 +189,19 @@ public static class GuardPipe
         }
     }
 
-    // 保存 easytier 配置并立即应用；startError 非空表示已保存但拉起失败
-    public static async Task<(EasyTierState? State, string? StartError)> EasyTierSet(bool enabled, string network, string secret)
+    // 保存并立即应用；返回值 Error 非空表示已保存但拉起失败
+    public static async Task<(EasyTierState? State, string? Error)> EasyTierSet(EasyTierApply ap)
     {
         var req = System.Text.Json.JsonSerializer.Serialize(new
         {
             cmd = "easytier_set",
-            enabled,
-            network,
-            secret,
+            enabled = ap.Enabled,
+            network = ap.Network,
+            secret = ap.Secret,          // null = 不改动已配置的密钥
+            server_mode = ap.ServerMode,
+            peers = ap.Peers,
+            ipv4 = ap.Ipv4,
+            tcp_hole_punch = ap.TcpHolePunch,
         });
         using var doc = await SendForDocAsync(req);
         if (doc == null) return (null, "SunshineDuoCore 控制通道响应无法解析");
@@ -169,17 +210,7 @@ public static class GuardPipe
             var r = doc.RootElement;
             if (!r.GetProperty("ok").GetBoolean())
                 return (null, r.TryGetProperty("error", out var e) ? e.GetString() ?? "未知错误" : "未知错误");
-            var state = new EasyTierState
-            {
-                Running = r.TryGetProperty("running", out var ru) && ru.GetBoolean(),
-                Pid = r.TryGetProperty("pid", out var pi) ? pi.GetInt32() : 0,
-                Managed = r.TryGetProperty("managed", out var ma) && ma.GetBoolean(),
-                Enabled = r.TryGetProperty("enabled", out var en) && en.GetBoolean(),
-                Network = r.TryGetProperty("network", out var ne) ? ne.GetString() ?? "" : "",
-                SecretSet = r.TryGetProperty("secret_set", out var se) && se.GetBoolean(),
-                Exe = r.TryGetProperty("exe", out var ex) ? ex.GetString() ?? "" : "",
-                ExeExists = r.TryGetProperty("exe_exists", out var ee) && ee.GetBoolean(),
-            };
+            var state = ParseEasyTierState(r);
             string? startError = r.TryGetProperty("start_error", out var ste) ? ste.GetString() : null;
             return (state, startError);
         }

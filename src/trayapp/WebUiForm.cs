@@ -257,15 +257,39 @@ internal sealed class WebUiForm : Form, IMainUi
 
             case "easytierSet":
             {
-                var (st, startErr) = await GuardPipe.EasyTierSet(
-                    Bool(a, "enabled"), Str(a, "network"), Str(a, "secret"));
+                var peers = a.ValueKind == JsonValueKind.Object && a.TryGetProperty("peers", out var pa)
+                    && pa.ValueKind == JsonValueKind.Array
+                        ? pa.EnumerateArray().Select(x => x.GetString() ?? "").Where(x => x.Length > 0).ToArray()
+                        : Array.Empty<string>();
+                var (st, startErr) = await GuardPipe.EasyTierSet(new GuardPipe.EasyTierApply
+                {
+                    Enabled = Bool(a, "enabled"),
+                    Network = Str(a, "network"),
+                    // 未携带 secret（或为 null）表示不改动已配置的密钥
+                    Secret = a.ValueKind == JsonValueKind.Object && a.TryGetProperty("secret", out var sv)
+                             && sv.ValueKind == JsonValueKind.String ? sv.GetString() : null,
+                    ServerMode = Str(a, "server_mode", "public"),
+                    Peers = peers,
+                    Ipv4 = Str(a, "ipv4"),
+                    TcpHolePunch = Bool(a, "tcp_hole_punch"),
+                });
                 if (st == null) throw new Exception(startErr ?? "核心服务控制通道不可用");
                 var msg = startErr != null
                     ? "已保存，但启动失败：" + startErr
                     : Bool(a, "enabled")
-                        ? (st.Running ? "组网已启动。" : "已启用，等待组网核心就绪。")
-                        : "组网已停止。";
+                        ? (st.Running ? "内网穿透已启动。" : "已启用，等待核心就绪。")
+                        : "内网穿透已停止。";
                 return new { state = EasyTierObj(st), message = msg, failed = startErr != null };
+            }
+
+            case "openUrl":
+            {
+                var url = Str(a, "url");
+                if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
+                    (uri.Scheme != Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeHttp))
+                    throw new Exception("仅支持 http/https 链接");
+                Process.Start(new ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true });
+                return true;
             }
 
             case "log":
@@ -431,7 +455,15 @@ internal sealed class WebUiForm : Form, IMainUi
         managed = st.Managed,
         enabled = st.Enabled,
         network = st.Network,
+        machine = st.Machine,
         secretSet = st.SecretSet,
+        serverMode = st.ServerMode,
+        defaultServer = st.DefaultServer,
+        peers = st.Peers,
+        ipv4 = st.Ipv4,
+        tcpHolePunch = st.TcpHolePunch,
+        virtualIp = st.VirtualIp,
+        publicIp = st.PublicIp,
         exe = st.Exe,
         exeExists = st.ExeExists,
     };
