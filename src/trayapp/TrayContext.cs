@@ -14,8 +14,6 @@ public class TrayContext : ApplicationContext
     private readonly AppConfig _cfg;
     private readonly Dictionary<string, ToolStripMenuItem> _statusItems = new();
     private readonly ToolStripMenuItem _mMirror, _mOnly, _mExtend;
-    private readonly ToolStripMenuItem _kWinFromRAlt, _kWinLFromRAltL;
-    private readonly ToolStripMenuItem _hideCursor;
     private readonly System.Windows.Forms.Timer _timer;
     private readonly System.Windows.Forms.Timer _eventTimer;
     private IMainUi? _mainForm;
@@ -32,9 +30,9 @@ public class TrayContext : ApplicationContext
         foreach (var s in sessions)
             _statusItems[s.Id] = new ToolStripMenuItem($"{s.Name} [检测中] [https://*:{s.WebPort}]") { Enabled = false };
 
-        _mMirror = new ToolStripMenuItem("镜像 · 串流物理主屏") { Tag = "mirror" };
-        _mOnly = new ToolStripMenuItem("独占 · 仅虚拟显示器") { Tag = "only" };
-        _mExtend = new ToolStripMenuItem("扩展 · 物理屏 + 虚拟屏") { Tag = "extend" };
+        _mMirror = new ToolStripMenuItem("镜像") { Tag = "mirror" };
+        _mOnly = new ToolStripMenuItem("独占") { Tag = "only" };
+        _mExtend = new ToolStripMenuItem("扩展") { Tag = "extend" };
         foreach (var it in new[] { _mMirror, _mOnly, _mExtend })
         {
             var mode = (string)it.Tag!;
@@ -45,22 +43,15 @@ public class TrayContext : ApplicationContext
             };
         }
 
-        _kWinFromRAlt = new ToolStripMenuItem("R-Alt 替代 Win") { CheckOnClick = false };
-        _kWinLFromRAltL = new ToolStripMenuItem("R-Alt+L 替代 Win+L") { CheckOnClick = false };
-        _kWinFromRAlt.Click += async (_, _) => await ToggleHotkey(true);
-        _kWinLFromRAltL.Click += async (_, _) => await ToggleHotkey(false);
-
-        _hideCursor = new ToolStripMenuItem("连接后隐藏系统鼠标指针") { CheckOnClick = false };
-        _hideCursor.Click += async (_, _) => await ToggleHideCursor();
-
         var menu = new ContextMenuStrip();
         foreach (var s in sessions) menu.Items.Add(_statusItems[s.Id]);
         menu.Items.Add(new ToolStripSeparator());
+
+        // 只保留 5 个常用项：主界面 / 显示模式 / 高级设置 / 设备配对 / 检查更新
+        // 其余（虚拟显示器、内网穿透、快捷键、隐藏指针、重启会话、服务启停）都在主界面里
         menu.Items.Add(M("打开主界面", () => ShowMain(FirstPage)));
-        foreach (var s in sessions) menu.Items.Add(M($"打开{s.Name}配置", () => OpenWeb(s)));
         if (Paths.ConsoleEnabled)
         {
-            // 分组：显示模式 / 虚拟屏 / 快捷键都是 Console 会话（SudoVDA）专属
             menu.Items.Add(new ToolStripSeparator());
             var displayMenu = new ToolStripMenuItem("显示模式");
             displayMenu.DropDownItems.Add(_mMirror);
@@ -68,26 +59,11 @@ public class TrayContext : ApplicationContext
             displayMenu.DropDownItems.Add(_mExtend);
             UpdateDisplayCheckmarks();
             menu.Items.Add(displayMenu);
-            menu.Items.Add(M("虚拟屏分辨率…", () => ShowMain(MainPage.VirtualDisplay)));
-            // 热键替代只作用在 Console 会话的键盘钩子上
-            var keyMenu = new ToolStripMenuItem("快捷键");
-            keyMenu.DropDownItems.Add(_kWinFromRAlt);
-            keyMenu.DropDownItems.Add(_kWinLFromRAltL);
-            UpdateHotkeyCheckmarks();
-            menu.Items.Add(keyMenu);
-            // 串流期间隐藏 Console 会话的系统鼠标指针（显示 worker 执行）
-            UpdateHideCursorCheckmark();
-            menu.Items.Add(_hideCursor);
         }
         menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(M("高级设置…", () => ShowMain(MainPage.Settings)));
         menu.Items.Add(M("设备配对…", () => ShowMain(MainPage.Console, true)));
-        menu.Items.Add(M("修改 WebUI 账号密码…", () => ShowMain(MainPage.Settings)));
-        menu.Items.Add(new ToolStripSeparator());
-        foreach (var s in sessions) menu.Items.Add(M($"重启{s.Name}", () => RestartApollo(s)));
-        menu.Items.Add(M("重启 Sunshine Duo 核心服务", ToggleService));
-        menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add(M("设置…", () => ShowMain(MainPage.Settings)));
-        menu.Items.Add(M("关于 Sunshine Duo…", () => ShowMain(MainPage.About)));
+        menu.Items.Add(M("检查更新…", () => _ = CheckUpdateFromMenu()));
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(M("退出", Exit));
 
@@ -139,6 +115,24 @@ public class TrayContext : ApplicationContext
                 }
             }
         });
+    }
+
+    // 右键菜单「检查更新」：有新版直接拉起安装向导的更新流程，无新版则提示已是最新
+    private async Task CheckUpdateFromMenu()
+    {
+        var (has, remote, local) = await UpdateCheck.CheckAsync(force: true);
+        if (!has)
+        {
+            MessageBox.Show($"已是最新版本（v{local}）。", "萌远控 Duo",
+                MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+        var r = MessageBox.Show($"发现新版本 v{remote}（当前 v{local}）。\n\n现在更新？",
+            "萌远控 Duo", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+        if (r != DialogResult.Yes) return;
+        var err = UpdateCheck.StartUpdate();
+        if (err is not null)
+            MessageBox.Show(err, "萌远控 Duo", MessageBoxButtons.OK, MessageBoxIcon.Warning);
     }
 
     private static ToolStripMenuItem M(string text, Action onClick)
@@ -292,8 +286,6 @@ public class TrayContext : ApplicationContext
             _tray.Text = "Sunshine Duo 托盘\n" + string.Join("\n",
                 sessions.Select((s, i) => $"{s.Name} {(up[i] ? "运行中" : "未运行")}"));
             UpdateDisplayCheckmarks();
-            UpdateHotkeyCheckmarks();
-            UpdateHideCursorCheckmark();
         }
         catch { }
         finally
@@ -328,59 +320,6 @@ public class TrayContext : ApplicationContext
         {
             _pairDialogOpen = false;
         }
-    }
-
-    private async void OpenWeb(Paths.SessionInfo session)
-    {
-        var port = session.WebPort;
-        var title = $"{session.Name}配置";
-        try
-        {
-            using var f = new WebViewForm(_cfg, title, port, "/config");
-            f.ShowDialog();
-        }
-        catch (Exception e)
-        {
-            MessageBox.Show("无法打开内置网页窗口: " + e.Message, "Sunshine Duo 托盘");
-        }
-        await Task.CompletedTask;
-    }
-
-    private async void RestartApollo(Paths.SessionInfo session)
-    {
-        var name = session.Name;
-        var target = session.Id;
-        if (MessageBox.Show($"确定重启{name}？（会断开当前该会话的串流）",
-                "重启会话", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK)
-            return;
-        _tray.ShowBalloonTip(4000, "重启会话", $"正在向{name}发送重启指令…", ToolTipIcon.Info);
-        string? err;
-        try
-        {
-            err = await GuardPipe.RestartApollo(target);
-        }
-        catch (Exception e)
-        {
-            err = e.Message;
-        }
-        _tray.ShowBalloonTip(4000, "重启会话",
-            err == null ? $"{name}重启指令已执行" : "重启失败: " + err,
-            err == null ? ToolTipIcon.Info : ToolTipIcon.Error);
-        await PollAsync();
-    }
-
-    private async void ToggleService()
-    {
-        var state = await Task.Run(() => ServiceControl.Query());
-        bool running = state == "运行中" || state == "启动中";
-        if (MessageBox.Show($"Sunshine Duo 核心服务当前：{state}。确定{(running ? "停止" : "启动")}？",
-                "Sunshine Duo 核心服务", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK)
-            return;
-        var err = await Task.Run(() => ServiceControl.SetRunning(!running));
-        _tray.ShowBalloonTip(4000, "Sunshine Duo 核心服务",
-            err ?? "指令已执行。",
-            err == null ? ToolTipIcon.Info : ToolTipIcon.Error);
-        await PollAsync();
     }
 
     private async Task SetDisplayMode(string mode)
@@ -431,68 +370,6 @@ public class TrayContext : ApplicationContext
             SetCheckedMode(v.GetString() ?? "mirror");
         }
         catch { }
-    }
-
-    private void UpdateHotkeyCheckmarks()
-    {
-        _kWinFromRAlt.Checked = Paths.CoreFlag("win_from_ralt", false);
-        _kWinLFromRAltL.Checked = Paths.CoreFlag("winl_from_ralt_l", false);
-    }
-
-    // 勾选态即目标态；写回 core 后由 Console 显示 worker 约 120ms 内热加载
-    private async Task ToggleHotkey(bool winFromRAlt)
-    {
-        var target = !(winFromRAlt ? _kWinFromRAlt.Checked : _kWinLFromRAltL.Checked);
-        var win = winFromRAlt ? target : _kWinFromRAlt.Checked;
-        var winl = winFromRAlt ? _kWinLFromRAltL.Checked : target;
-        string? err;
-        try
-        {
-            err = await GuardPipe.SetHotkeys(win, winl);
-        }
-        catch (Exception e)
-        {
-            err = e.Message;
-        }
-        if (err != null)
-        {
-            _tray.ShowBalloonTip(4000, "快捷键", "设置失败: " + err, ToolTipIcon.Error);
-            UpdateHotkeyCheckmarks();
-            return;
-        }
-        if (winFromRAlt) _kWinFromRAlt.Checked = target;
-        else _kWinLFromRAltL.Checked = target;
-        var name = winFromRAlt ? "R-Alt 替代 Win" : "R-Alt+L 替代 Win+L";
-        _tray.ShowBalloonTip(3000, "快捷键", $"{name}已{(target ? "开启" : "关闭")}", ToolTipIcon.Info);
-    }
-
-    private void UpdateHideCursorCheckmark()
-    {
-        _hideCursor.Checked = Paths.CoreFlag("hide_cursor_on_stream", false);
-    }
-
-    private async Task ToggleHideCursor()
-    {
-        var target = !_hideCursor.Checked;
-        string? err;
-        try
-        {
-            err = await GuardPipe.SetHideCursor(target);
-        }
-        catch (Exception e)
-        {
-            err = e.Message;
-        }
-        if (err != null)
-        {
-            _tray.ShowBalloonTip(4000, "鼠标指针", "设置失败: " + err, ToolTipIcon.Error);
-            UpdateHideCursorCheckmark();
-            return;
-        }
-        _hideCursor.Checked = target;
-        _tray.ShowBalloonTip(3000, "鼠标指针",
-            target ? "连接后将隐藏系统鼠标指针" : "已恢复显示系统鼠标指针",
-            ToolTipIcon.Info);
     }
 
     private void ShowPairFormPreset(bool console, string deviceName)
