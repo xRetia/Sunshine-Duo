@@ -5,7 +5,7 @@ using System.Reflection;
 namespace SunshineDuoTray;
 
 // 版本更新检测：远端 .VERSION（GitHub raw）与托盘程序集版本比较；
-// setup.exe 入口：根目录 setup.exe 优先，缺省退回 bin\SunshineDuoSetup\setup.exe
+// setup.exe 入口：仅根目录 setup.exe（安装器随包分发在根目录）
 internal static class UpdateCheck
 {
     private const string VersionUrl = "https://raw.githubusercontent.com/xRetia/Sunshine-Duo/main/.VERSION";
@@ -53,8 +53,6 @@ internal static class UpdateCheck
     public static string? StartUpdate()
     {
         var setup = Path.Combine(Paths.Root, "setup.exe");
-        if (!File.Exists(setup))
-            setup = Path.Combine(Paths.Root, "bin", "SunshineDuoSetup", "setup.exe");
         if (!File.Exists(setup))
             return "未找到安装向导 setup.exe";
         try
