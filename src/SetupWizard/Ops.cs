@@ -785,7 +785,7 @@ internal static class Ops
             {
                 if (!on) continue;
                 Directory.CreateDirectory(dir);
-                var lnk = Path.Combine(dir, "Sunshine-Duo 托盘.lnk");
+                var lnk = Path.Combine(dir, "萌远控 Duo.lnk");
                 CreateShortcut(lnk, deployExe, deployDir, "萌远控 Duo：会话状态与常用操作");
                 log.Log("OK: 已创建快捷方式 " + lnk);
             }
@@ -820,7 +820,10 @@ internal static class Ops
             if (profile is null) continue;
             foreach (var lnk in new[]
             {
+                // 现名 + 旧名（老安装升级后也残留旧名，卸载时一并清理）
+                Path.Combine(profile, "Desktop", "萌远控 Duo.lnk"),
                 Path.Combine(profile, "Desktop", "Sunshine-Duo 托盘.lnk"),
+                Path.Combine(profile, @"AppData\Roaming\Microsoft\Windows\Start Menu\Programs", "萌远控 Duo.lnk"),
                 Path.Combine(profile, @"AppData\Roaming\Microsoft\Windows\Start Menu\Programs", "Sunshine-Duo 托盘.lnk"),
             })
             {

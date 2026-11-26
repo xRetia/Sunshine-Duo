@@ -934,12 +934,12 @@ function Install-TrayApp {
                 @{ On = $StartShortcut; Dir = $u.StartMenu })) {
             if (-not $p.On) { continue }
             if (-not (Test-Path -LiteralPath $p.Dir)) { New-Item -ItemType Directory -Path $p.Dir -Force | Out-Null }
-            $lnkPath = Join-Path $p.Dir 'Sunshine-Duo 托盘.lnk'
+            $lnkPath = Join-Path $p.Dir '萌远控 Duo.lnk'
             $lnk = $ws.CreateShortcut($lnkPath)
             $lnk.TargetPath = $deployExe
             $lnk.WorkingDirectory = $deployDir
             $lnk.IconLocation = "$deployExe,0"
-            $lnk.Description = 'Sunshine-Duo 托盘：双 Apollo 状态与常用操作'
+            $lnk.Description = '萌远控 Duo：会话状态与常用操作'
             $lnk.Save()
             Write-Log "OK: 已创建快捷方式 $lnkPath"
         }
@@ -977,7 +977,9 @@ function Uninstall-TrayApp {
             $profile = [Environment]::ExpandEnvironmentVariables(
                 (Get-ItemProperty -Path $pk -ErrorAction Stop).ProfileImagePath)
             foreach ($lnk in @(
+                    (Join-Path $profile 'Desktop\萌远控 Duo.lnk'),
                     (Join-Path $profile 'Desktop\Sunshine-Duo 托盘.lnk'),
+                    (Join-Path $profile 'AppData\Roaming\Microsoft\Windows\Start Menu\Programs\萌远控 Duo.lnk'),
                     (Join-Path $profile 'AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Sunshine-Duo 托盘.lnk'))) {
                 if (Test-Path -LiteralPath $lnk) {
                     Remove-Item -LiteralPath $lnk -Force -ErrorAction SilentlyContinue
