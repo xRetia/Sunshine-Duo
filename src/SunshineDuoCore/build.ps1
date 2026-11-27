@@ -80,6 +80,7 @@ if ($Deploy) {
     $internal = Join-Path $WgDir '_internal'
     robocopy (Join-Path $dist '_internal') $internal /MIR /NFL /NDL /NJH /NJS | Out-Null
     if ($LASTEXITCODE -ge 8) { throw "robocopy 同步 _internal 失败（exit=$LASTEXITCODE）" }
+    $LASTEXITCODE = 0
     Write-Host "部署完成: $WgDir\SunshineDuoCore.exe（服务未注册状态方可覆盖）"
 } else {
     Write-Host "产物位于 $dist；加 -Deploy 参数可自动部署到 $WgDir"
