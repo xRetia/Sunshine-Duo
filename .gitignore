@@ -3,15 +3,20 @@
 # 原则：只提交源码(src\)、运行时载荷与模板；本机生成的文件一律忽略。
 # ============================================================
 
-# ---- 运行时载荷（不入库，随发布 ZIP 分发；2026-11-27 从仓库历史出库）----
-assets/
-bin/
-drivers/
-Links/
-tools/
+# ---- 构建产物与发布包（不入库；CI 按 .VERSION 构建并发布 Release）----
 setup.exe
-sunshine.exe
-zlib1.dll
+moedesk_*.zip
+bin/*
+!bin/SunshineDuoCore/
+bin/SunshineDuoCore/*
+!bin/SunshineDuoCore/README.md
+!bin/SunshineDuoCore/easytier-core.exe
+!bin/SunshineDuoCore/easytier-cli.exe
+!bin/SunshineDuoCore/wintun.dll
+!bin/SunshineDuoCore/Packet.dll
+!bin/SunshineDuoCore/WinDivert64.sys
+!bin/SunshineDuoCore/gv_hook.4.0.dll
+!bin/SunshineDuoCore/gv_hook.4.46.dll
 
 # ---- 日志（含轮转备份）----
 *.log
