@@ -1,0 +1,8 @@
+# build outputs
+bin/
+obj/
+publish/
+
+# local scratch
+.temp/
+*.log

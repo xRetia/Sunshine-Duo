@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>GameManager</RootNamespace>
+    <AssemblyName>GameManager</AssemblyName>
+    <Version>2.2.1</Version>
+  </PropertyGroup>
+
+  <!-- WPF: allow the hardware render path inside RDP-type sessions (multi-seat
+       seats included). Available since .NET 8, opt-in via runtimeconfig; without
+       it WPF forces software rendering whenever it detects a remote session,
+       even when the system policy exposes the physical GPU. Takes effect on the
+       next process start - no reconnection or admin rights needed. -->
+  <ItemGroup>
+    <RuntimeHostConfigurationOption Include="Switch.System.Windows.Media.EnableHardwareAccelerationInRdp"
+                                    Value="true" />
+  </ItemGroup>
+
+</Project>
