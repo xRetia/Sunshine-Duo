@@ -172,7 +172,7 @@ internal static class Updater
                 throw new Exception("更新包内未找到 sunshine.exe（不是有效的 Sunshine-Duo 发布包）");
 
             log("停止旧进程与服务...");
-            StopRunningProcesses();
+            StopRunningProcesses(log);
 
             log("替换程序文件（保留 config、bin 本机文件与已配对数据）...");
             try
@@ -321,7 +321,7 @@ internal static class Updater
         }
     }
 
-    private static void StopRunningProcesses()
+    private static void StopRunningProcesses(Action<string>? log = null)
     {
         foreach (var svc in new[] { Paths.SvcName, Paths.LegacySvc })
         {
@@ -339,12 +339,29 @@ internal static class Updater
         {
             foreach (var p in Process.GetProcessesByName(name))
             {
-                try { if (!p.HasExited) p.Kill(true); } catch { }
+                var pid = p.Id;
+                var killed = false;
+                for (var attempt = 0; attempt < 3 && !killed; attempt++)
+                {
+                    try
+                    {
+                        if (!p.HasExited) p.Kill(true);
+                        killed = true;
+                    }
+                    catch
+                    {
+                        Thread.Sleep(500);
+                        p.Refresh();
+                    }
+                }
+                if (!killed)
+                    log?.Invoke($"警告: 无法终止进程 {name} (PID={pid})，将尽量继续");
                 try { p.WaitForExit(10_000); } catch { }
                 p.Dispose();
             }
         }
-        // Confirm the user-session tray is gone; silently ignoring access-denied would make the copy fail later.
+        // Confirm the user-session tray is gone; even if it survives, ReplaceFile's
+        // rename-aside path can still replace locked files, so this is a warning now.
         var trayDeadline = DateTime.UtcNow.AddSeconds(10);
         while (DateTime.UtcNow < trayDeadline)
         {
@@ -355,7 +372,7 @@ internal static class Updater
             Thread.Sleep(250);
         }
         if (Process.GetProcessesByName("SunshineDuoTray").Length > 0)
-            throw new IOException("托盘程序仍在运行，无法安全替换文件。请关闭托盘后重试。");
+            log?.Invoke("警告: 托盘程序仍在运行，后续文件替换将通过改名挪开方式进行，下次启动会清理旧文件。");
 
         var deadline = DateTime.UtcNow.AddSeconds(10);
         while (DateTime.UtcNow < deadline)
