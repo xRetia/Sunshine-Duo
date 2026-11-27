@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.IO.Pipes;
 using System.Text.Json.Nodes;
 using Microsoft.Win32;
@@ -932,9 +932,9 @@ internal static class Ops
     {
         string[] cands =
         [
-            Path.Combine(Paths.Root, "src", "trayapp", "bin", "Release", "net9.0-windows", "win-x64", "publish", "SunshineDuoTray.exe"),
-            Path.Combine(Paths.Root, "src", "trayapp", "SunshineDuoTray.exe"),
-            Path.Combine(Paths.Root, "src", "trayapp", "publish", "SunshineDuoTray.exe"),
+            Path.Combine(Paths.Root, "src", "SunshineDuoUI", "bin", "Release", "net9.0-windows", "win-x64", "publish", "SunshineDuoTray.exe"),
+            Path.Combine(Paths.Root, "src", "SunshineDuoUI", "SunshineDuoTray.exe"),
+            Path.Combine(Paths.Root, "src", "SunshineDuoUI", "publish", "SunshineDuoTray.exe"),
             Paths.TrayExe,
         ];
         return cands.FirstOrDefault(File.Exists);

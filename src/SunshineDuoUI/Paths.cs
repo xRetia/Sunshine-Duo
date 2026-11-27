@@ -10,6 +10,7 @@ public static class Paths
 {
     public static string Root { get; } = FindRoot();
     public static string SunshineExe => Path.Combine(Root, "sunshine.exe");
+    public static string VersionFile => Path.Combine(Root, ".VERSION");
 
     public static string ConsoleConf { get; private set; } = "";
     public static string GameConf { get; private set; } = "";

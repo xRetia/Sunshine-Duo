@@ -5,14 +5,21 @@ using System.Runtime.InteropServices;
 
 namespace SunshineDuoSetup;
 
-// 更新模块：比较本机与远程 .VERSION，有新版则下载 main 分支打包 zip
-// 并替换本机旧程序（保留 config/ 与本机生成文件）。
+// 更新模块：比较本机与远程 .VERSION，有新版则下载 GitHub Release 资产
+// moedesk_{tag}_win64.zip 并替换本机旧程序（保留 config/ 与本机生成文件）。
 internal static class Updater
 {
     public const string RepoUrl = "https://github.com/xRetia/Sunshine-Duo";
     public const string VersionUrl = "https://raw.githubusercontent.com/xRetia/Sunshine-Duo/main/.VERSION";
-    // main 分支打包 zip（无 tag，更新直接用它）
-    public const string MainZipUrl = "https://github.com/xRetia/Sunshine-Duo/archive/refs/heads/main.zip";
+    public const string GitProxyFile = ".GITPROXY";
+    public const string GitProxyRawUrl = "https://raw.githubusercontent.com/xRetia/Sunshine-Duo/main/.GITPROXY";
+    // GitHub Release 资产（CI 在 .VERSION 变化时自动发布；tag 与资产名都用 .VERSION 原文）
+    public const string ReleaseAssetTemplate = "https://github.com/xRetia/Sunshine-Duo/releases/download/{tag}/moedesk_{tag}_win64.zip";
+
+    public static string ReleaseZipUrl(string tag) => ReleaseAssetTemplate.Replace("{tag}", tag);
+
+    // 国内判定：UTC+8 时区（中国，无夏令时）
+    public static bool IsChina => TimeZoneInfo.Local.BaseUtcOffset == TimeSpan.FromHours(8);
 
     // 本地版本：读仓库根 .VERSION（更新时随镜像替换自动刷新），缺省退回程序集版本
     public static string LocalVersion
@@ -38,23 +45,50 @@ internal static class Updater
         public bool Ok => Error.Length == 0;
     }
 
-    // 读 .VERSION：首行形如 v1.2.3；其余行忽略
-    public static async Task<RemoteVersion> CheckAsync(CancellationToken ct)
+    // 在线读取 .GITPROXY（GitHub raw）：镜像前缀（如 https://ghfast.top）。
+    // 仅国内时区使用；拉取失败/内容非法返回 null（直连）。
+    public static async Task<string?> GetGitProxyAsync(CancellationToken ct)
     {
+        if (!IsChina) return null;
         try
         {
-            using var http = NewHttp();
-            var text = (await http.GetStringAsync(VersionUrl, ct)).Trim();
-            var line = text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault() ?? "";
-            var tag = line.StartsWith('v') ? line : "v" + line;
-            if (!System.Text.RegularExpressions.Regex.IsMatch(tag, @"^v\d+(\.\d+){0,3}$"))
-                return new RemoteVersion("", $".VERSION 内容无效：「{line}」");
-            return new RemoteVersion(tag, "");
+            using var http = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+            http.DefaultRequestHeaders.UserAgent.ParseAdd("SunshineDuoSetup/" + LocalVersion);
+            var text = (await http.GetStringAsync(GitProxyRawUrl, ct)).Trim();
+            if (text.StartsWith("https://") && text.Length < 100 && !text.Contains(' '))
+                return text.TrimEnd('/');
         }
-        catch (Exception ex)
+        catch { }
+        return null;
+    }
+
+    // 包装 URL：有镜像则 {proxy}/{url}，否则原样
+    public static string ViaProxy(string? proxy, string url) =>
+        string.IsNullOrEmpty(proxy) ? url : proxy + "/" + url;
+
+    // 读 .VERSION：首行形如 v1.2.3；其余行忽略。国内先走镜像再直连。
+    public static async Task<RemoteVersion> CheckAsync(CancellationToken ct)
+    {
+        var proxy = await GetGitProxyAsync(ct);
+        foreach (var url in new[] { ViaProxy(proxy, VersionUrl), VersionUrl }.Distinct())
         {
-            return new RemoteVersion("", ex.Message);
+            try
+            {
+                using var http = NewHttp();
+                var text = (await http.GetStringAsync(url, ct)).Trim();
+                var line = text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault() ?? "";
+                var tag = line.StartsWith('v') ? line : "v" + line;
+                if (!System.Text.RegularExpressions.Regex.IsMatch(tag, @"^v\d+(\.\d+){0,3}$"))
+                    return new RemoteVersion("", $".VERSION 内容无效：「{line}」");
+                return new RemoteVersion(tag, "");
+            }
+            catch (Exception ex)
+            {
+                if (url == VersionUrl)
+                    return new RemoteVersion("", ex.Message);
+            }
         }
+        return new RemoteVersion("", "不可达");
     }
 
     public static bool IsNewer(string remoteTag, string localVersion)
@@ -75,7 +109,7 @@ internal static class Updater
         return false;
     }
 
-    // 执行更新：下载 main.zip → 解压 → 停进程 → 镜像替换 → 恢复服务与托盘
+    // 执行更新：下载 Release 资产 zip → 解压 → 停进程 → 镜像替换 → 恢复服务与托盘
     public static void Apply(string tag, string workRoot, Action<string> log, CancellationToken ct)
     {
         var staging = Path.Combine(Path.GetTempPath(), "SunshineDuoUpdate-" + Guid.NewGuid().ToString("N")[..8]);
@@ -85,15 +119,33 @@ internal static class Updater
             var zipPath = Path.Combine(staging, "update.zip");
             if (staging.StartsWith(Path.GetTempPath(), StringComparison.OrdinalIgnoreCase) is false)
                 throw new Exception("临时目录异常，终止更新（安全保护）");
-            log($"下载 {MainZipUrl} ...");
-            using (var http = NewHttp())
-            using (var resp = http.GetAsync(MainZipUrl, HttpCompletionOption.ResponseHeadersRead, ct).Result)
+            var zipUrl = ReleaseZipUrl(tag);
+            var proxy = GetGitProxyAsync(ct).GetAwaiter().GetResult();
+            var candidates = new[] { ViaProxy(proxy, zipUrl), zipUrl }.Distinct().ToArray();
+            Exception? last = null;
+            foreach (var url in candidates)
             {
-                resp.EnsureSuccessStatusCode();
-                using var src = resp.Content.ReadAsStream(ct);
-                using var dst = File.Create(zipPath);
-                src.CopyTo(dst);
+                try
+                {
+                    log($"下载 {url} ...");
+                    using (var http = NewHttp())
+                    using (var resp = http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct).Result)
+                    {
+                        resp.EnsureSuccessStatusCode();
+                        using var src = resp.Content.ReadAsStream(ct);
+                        using var dst = File.Create(zipPath);
+                        src.CopyTo(dst);
+                    }
+                    last = null;
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    last = ex;
+                    log($"下载失败（{ex.Message}），尝试下一来源...");
+                }
             }
+            if (last is not null) throw new Exception("全部下载来源均失败：" + last.Message);
             log("下载完成，解压中...");
             var extractDir = Path.Combine(staging, "pkg");
             ZipFile.ExtractToDirectory(zipPath, extractDir, overwriteFiles: true);

@@ -1,0 +1,89 @@
+name: Release
+
+# .VERSION 变化 → 构建三件套 → 打包 moedesk_{VERSION}_win64.zip → 发布 GitHub Release
+on:
+  push:
+    branches: [main]
+    paths: ['.VERSION']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Read version
+        id: ver
+        shell: pwsh
+        run: |
+          $v = (Get-Content .VERSION -Raw).Trim()
+          if (-not $v -match '^v?\d+(\.\d+){0,3}$') { throw "invalid .VERSION: $v" }
+          if (-not $v.StartsWith('v')) { $v = 'v' + $v }
+          "tag=$v" >> $env:GITHUB_OUTPUT
+          Write-Host "tag=$v"
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Setup .NET 9
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Build SunshineDuoCore (PyInstaller)
+        shell: pwsh
+        run: src\SunshineDuoCore\build.ps1 -Deploy -Python python
+
+      - name: Build SunshineDuoUI (dotnet publish)
+        shell: pwsh
+        run: |
+          dotnet publish src\SunshineDuoUI\SunshineDuoTray.csproj -c Release -r win-x64 --self-contained true
+          $pub = "src\SunshineDuoUI\bin\Release\net9.0-windows\win-x64\publish\SunshineDuoTray.exe"
+          if (-not (Test-Path $pub)) { throw "tray publish 产物缺失: $pub" }
+          New-Item -ItemType Directory -Path bin\SunshineDuoTray -Force | Out-Null
+          Copy-Item $pub bin\SunshineDuoTray\SunshineDuoTray.exe -Force
+          Copy-Item src\SunshineDuoUI\webui\* bin\SunshineDuoTray\webui\ -Recurse -Force
+
+      - name: Build SetupWizard (setup.exe)
+        shell: pwsh
+        run: |
+          dotnet publish src\SetupWizard\SunshineDuoSetup.csproj -c Release -r win-x64 --self-contained true
+          Copy-Item "src\SetupWizard\bin\Release\net9.0-windows\win-x64\publish\SunshineDuoSetup.exe" setup.exe -Force
+
+      - name: Pack release zip
+        shell: pwsh
+        run: |
+          $tag = "${{ steps.ver.outputs.tag }}"
+          $out = Join-Path $env:RUNNER_TEMP "moedesk_${tag}_win64.zip"
+          powershell -ExecutionPolicy Bypass -File scripts\pack-release.ps1 -OutputDir $env:RUNNER_TEMP
+          $name = "moedesk_${tag}_win64.zip"
+          Move-Item (Join-Path $env:RUNNER_TEMP "moedesk_*.zip") (Join-Path $env:RUNNER_TEMP $name) -Force
+          "zip=$env:RUNNER_TEMP\$name" >> $env:GITHUB_OUTPUT
+          Get-Item (Join-Path $env:RUNNER_TEMP $name) | Select-Object Name, Length
+        id: pack
+
+      - name: Create / update tag
+        shell: pwsh
+        run: |
+          $tag = "${{ steps.ver.outputs.tag }}"
+          git config user.name "MoeAi CodeSeek"
+          git config user.email "moeai.code-seek@example.com"
+          git tag -f $tag
+          git push origin $tag --force
+
+      - name: Publish GitHub Release
+        shell: pwsh
+        run: |
+          $tag = "${{ steps.ver.outputs.tag }}"
+          $zip = "${{ steps.pack.outputs.zip }}"
+          $body = "萌远控 Duo $tag 自动发布（win64 便携包，安装器/托盘更新检测已对接本 Release）。"
+          gh release create $tag $zip --title "萌远控 Duo $tag" --notes "$body" --clobber || gh release upload $tag $zip --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

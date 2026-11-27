@@ -1527,14 +1527,25 @@ if(HOSTED){
 }
 
 /* ===================== 检测更新 ===================== */
-/* HOSTED 时由宿主代查（托盘进程里比较 .NET 程序集版本）；预览态直连 GitHub raw */
+/* HOSTED 时由宿主代查（托盘进程里比较本地 .VERSION）；预览态直连 GitHub raw，
+   国内时区先走 .GITPROXY 下发的镜像前缀，失败退直连 */
 const VERSION_URL="https://raw.githubusercontent.com/xRetia/Sunshine-Duo/main/.VERSION";
+const GITPROXY_URL="https://raw.githubusercontent.com/xRetia/Sunshine-Duo/main/.GITPROXY";
 const VER_RE=/^v?(\d+(?:\.\d+){0,3})/i;
 const verCmp=(a,b)=>{
   const pa=a.split(".").map(Number),pb=b.split(".").map(Number),n=Math.max(pa.length,pb.length);
   for(let i=0;i<n;i++){const d=((pa[i]||0)-(pb[i]||0));if(d)return d>0?1:-1;}
   return 0;
 };
+async function getGitProxy(){
+  try{
+    if(new Date().getTimezoneOffset()!==-480)return null;
+    const r=await fetch(GITPROXY_URL,{cache:"no-store"});
+    const t=(await r.text()).trim();
+    if(t.startsWith("https://")&&t.length<100&&!t.includes(" "))return t.replace(/\/+$/,"");
+  }catch{}
+  return null;
+}
 async function checkUpdate(){
   if(HOSTED){
     try{
@@ -1549,12 +1560,19 @@ async function checkUpdate(){
     return;
   }
   try{
-    const r=await fetch(VERSION_URL,{cache:"no-store"});
-    const t=(await r.text()).trim();
-    const m=VER_RE.exec(t);
-    const remote=m?m[1]:"";
-    const local=(state.update&&state.update.local)||"1.0.0";
-    if(remote&&verCmp(remote,local)>0){state.update={has:true,remote,local};render();}
+    const proxy=await getGitProxy();
+    const urls=proxy?[proxy+"/"+VERSION_URL,VERSION_URL]:[VERSION_URL];
+    for(const u of urls){
+      try{
+        const r=await fetch(u,{cache:"no-store"});
+        const t=(await r.text()).trim();
+        const m=VER_RE.exec(t);
+        const remote=m?m[1]:"";
+        const local=(state.update&&state.update.local)||"1.0.0";
+        if(remote&&verCmp(remote,local)>0){state.update={has:true,remote,local};render();}
+        return;
+      }catch{}
+    }
   }catch{}
 }
 </script>

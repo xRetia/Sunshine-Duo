@@ -51,10 +51,10 @@ __pycache__/
 *.pyc
 
 # ---- SunshineDuoTray 托盘：源码在 src\trayapp，部署产物（exe）入 bin\SunshineDuoTray；本机生成物忽略 ----
-src/trayapp/bin/
-src/trayapp/obj/
-src/trayapp/publish/
-src/trayapp/trayapp.json
+src/SunshineDuoUI/bin/
+src/SunshineDuoUI/obj/
+src/SunshineDuoUI/publish/
+src/SunshineDuoUI/trayapp.json
 bin/SunshineDuoTray/trayapp.json
 bin/SunshineDuoTray/SunshineDuoTray.exe.WebView2/
 bin/SunshineDuoTray/SunshineDuoTray.pdb

@@ -20,7 +20,7 @@ gsudo64 <提权命令>             # 之后所有 gsudo64 提权不再弹 UAC
 
 ```
 src\               所有自有源码（唯一放源码的地方）
-  trayapp\         SunshineDuoTray 托盘（C#/WinForms，dotnet publish 后部署到 bin\SunshineDuoTray）
+  SunshineDuoUI\         SunshineDuoTray 托盘（C#/WinForms，dotnet publish 后部署到 bin\SunshineDuoTray）
   SunshineDuoCore\ SunshineDuoCore 守护服务源码（Python + PyInstaller 打包脚本；产物部署到 bin\SunshineDuoCore）
 scripts\           安装/卸载/驱动/防火墙脚本（运行时载荷，不是源码，随 ZIP 分发，不进 src\）
 sunshine.exe       Apollo 本体 + zlib1.dll
@@ -46,5 +46,5 @@ docs\plan.md      设计文档（历史规划，路径为重构前布局）
   - `scripts\sunshine-setup.ps1`：`$Root = Split-Path -Parent $PSScriptRoot`；
   - `src\SunshineDuoCore\build.ps1`：仓库根 = `$PSScriptRoot` 上两级，部署目标 = `仓库根\bin\SunshineDuoCore`；
   - `src\SunshineDuoCore\gen_hook_4_46.ps1`：仓库根 = `$PSScriptRoot` 上三级；
-  - `src\trayapp`：运行期由 `Paths.cs` 从 exe 向上找 `sunshine.exe` 定根；csproj 图标用 `..\..\assets\...`（依赖"源码恰好在根下两级"这一深度）。
+  - `src\SunshineDuoUI`：运行期由 `Paths.cs` 从 exe 向上找 `sunshine.exe` 定根；csproj 图标用 `..\..\assets\...`（依赖"源码恰好在根下两级"这一深度）。
 - 已安装机器上服务注册使用动态路径（`bin\SunshineDuoCore\build.info` 的 `style: dynamic-path`），整个目录可整体移动。

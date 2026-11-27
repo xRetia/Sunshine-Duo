@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using System.Drawing.Drawing2D;
 using System.Runtime.InteropServices;
 using System.Diagnostics;
@@ -305,7 +305,7 @@ internal sealed class MainForm : Form
             var root = Paths.Root;
             var sunPng = Path.Combine(root, "sun.png");
             if (File.Exists(sunPng)) return Image.FromFile(sunPng);
-            var traySun = Path.Combine(root, "src", "trayapp", "sun.png");
+            var traySun = Path.Combine(root, "src", "SunshineDuoUI", "sun.png");
             if (File.Exists(traySun)) return Image.FromFile(traySun);
         }
         catch { }
