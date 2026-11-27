@@ -57,7 +57,7 @@ jobs:
           }
           $pub = "src\SunshineDuoUI\bin\Release\net9.0-windows\win-x64\publish\SunshineDuoTray.exe"
           if (-not (Test-Path $pub)) { throw "tray publish 产物缺失: $pub" }
-          New-Item -ItemType Directory -Path bin\SunshineDuoTray -Force | Out-Null
+          New-Item -ItemType Directory -Path bin\SunshineDuoTray\webui -Force | Out-Null
           Copy-Item $pub bin\SunshineDuoTray\SunshineDuoTray.exe -Force
           Copy-Item src\SunshineDuoUI\webui\* bin\SunshineDuoTray\webui\ -Recurse -Force
 
