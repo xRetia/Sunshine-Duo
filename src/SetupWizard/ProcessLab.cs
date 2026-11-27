@@ -42,6 +42,7 @@ internal static class ProcessLab
         Console.WriteLine($"Root = {Paths.Root}");
         Console.WriteLine($"轮数 = {rounds}");
         Console.WriteLine("说明：每轮停止全部服务与进程并验证 PID 退出，随后重新拉起供下一轮练兵。\n");
+        Console.WriteLine($"当前进程 PID={Environment.ProcessId}，祖先 PID 集合=[{string.Join(",", ProcGuard.AncestorPids().OrderBy(x => x))}]\n");
 
         var failures = 0;
         // 确保起点是全运行态：上一次练兵/更新可能把组件停在半路
@@ -214,23 +215,23 @@ internal static class ProcessLab
 
     private static void KillProcesses()
     {
+        var ancestors = ProcGuard.AncestorPids();
         foreach (var name in ProcessNames)
         {
             var processes = Process.GetProcessesByName(name);
             foreach (var p in processes)
             {
                 var pid = p.Id;
+                var label = name;
                 try
                 {
-                    if (!p.HasExited)
-                    {
-                        Console.WriteLine($"  终止 {name} PID={pid}");
-                        p.Kill(entireProcessTree: true);
-                    }
-                    if (!p.WaitForExit(10_000))
-                        Console.WriteLine($"  [WARN] {name} PID={pid} 等待退出超时");
+                    label = p.ProcessName;
+                    if (!ProcGuard.TryKill(p, ancestors, out var error))
+                        Console.WriteLine($"  [WARN] {label} PID={pid} 终止失败: {error}");
+                    else if (ancestors.Contains(pid))
+                        Console.WriteLine($"  终止 {label} PID={pid}（祖先进程，只杀自身）");
                 }
-                catch (Exception ex) { Console.WriteLine($"  [WARN] {name} PID={pid} 终止失败: {ex.Message}"); }
+                catch (Exception ex) { Console.WriteLine($"  [WARN] {label} PID={pid} 终止失败: {ex.Message}"); }
                 finally { p.Dispose(); }
             }
         }

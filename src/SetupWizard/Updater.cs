@@ -375,6 +375,8 @@ internal static class Updater
         // GameViewerService 进程里）。每轮都会重新枚举，防止守护进程复活。
         var names = new[] { "SunshineDuoCore", "sunshine", "SunshineDuoTray", "easytier-core",
             "GameManager", Paths.GvSvcName };
+        var ancestors = ProcGuard.AncestorPids();
+        var warned = new HashSet<string>();
         var deadline = DateTime.UtcNow.AddSeconds(30);
         while (DateTime.UtcNow < deadline)
         {
@@ -387,11 +389,18 @@ internal static class Updater
                 try
                 {
                     name = p.ProcessName;
-                    if (!p.HasExited) p.Kill(entireProcessTree: true);
-                    if (!p.WaitForExit(5_000))
-                        log?.Invoke($"警告: 无法确认 {name} (PID={pid}) 已退出");
+                    if (!ProcGuard.TryKill(p, ancestors, out var error))
+                    {
+                        // 同一进程反复失败只报一次，避免刷屏
+                        if (warned.Add(name + ":" + pid))
+                            log?.Invoke($"警告: 终止 {name} (PID={pid}) 失败: {error}");
+                    }
                 }
-                catch (Exception ex) { log?.Invoke($"警告: 终止 {name} (PID={pid}) 失败: {ex.Message}"); }
+                catch (Exception ex)
+                {
+                    if (warned.Add(name + ":" + pid))
+                        log?.Invoke($"警告: 终止 {name} (PID={pid}) 失败: {ex.Message}");
+                }
                 finally { p.Dispose(); }
             }
             Thread.Sleep(250);
@@ -405,7 +414,22 @@ internal static class Updater
         }
         if (survivors.Length > 0)
             throw new IOException("相关服务/进程未完全退出，已中止文件替换");
+
+        // 托盘是 setup.exe 的父进程，被终止后 setup.exe 的父进程会变成失效句柄；
+        // 这里确认自身仍然存活，避免后续替换步骤在异常父进程上执行。
+        if (!IsSelfAlive())
+            throw new IOException("更新进程自身状态异常，已中止文件替换");
         return pre;
+    }
+
+    private static bool IsSelfAlive()
+    {
+        try
+        {
+            using var p = Process.GetProcessById(Environment.ProcessId);
+            return !p.HasExited;
+        }
+        catch { return false; }
     }
 
     private static bool ServiceRunning(string name)
