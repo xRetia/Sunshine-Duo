@@ -101,3 +101,5 @@ if ($Deploy) {
 } else {
     Write-Host "已写入 $infoPath（版本标记；部署时随 -Deploy 写入 SunshineDuoCore 目录）"
 }
+
+exit 0
