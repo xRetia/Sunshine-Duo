@@ -71,14 +71,8 @@ jobs:
       - name: Pack release zip
         shell: pwsh
         run: |
-          $tag = "${{ steps.ver.outputs.tag }}"
           powershell -ExecutionPolicy Bypass -File scripts\pack-release.ps1 -OutputDir $env:RUNNER_TEMP
-          $name = "moedesk_${tag}_win64.zip"
-          Move-Item (Join-Path $env:RUNNER_TEMP "moedesk_*.zip") (Join-Path $env:RUNNER_TEMP $name) -Force
-          Copy-Item (Join-Path $env:RUNNER_TEMP $name) (Join-Path $env:RUNNER_TEMP "moedesk_latest_win64.zip") -Force
-          "zip=$env:RUNNER_TEMP\$name" >> $env:GITHUB_OUTPUT
-          "latestzip=$env:RUNNER_TEMP\moedesk_latest_win64.zip" >> $env:GITHUB_OUTPUT
-          Get-Item (Join-Path $env:RUNNER_TEMP $name) | Select-Object Name, Length
+          "zip=$env:RUNNER_TEMP\moedesk_latest_win64.zip" >> $env:GITHUB_OUTPUT
         id: pack
 
       - name: Create / update tag
@@ -95,8 +89,5 @@ jobs:
         run: |
           $tag = "${{ steps.ver.outputs.tag }}"
           $zip = "${{ steps.pack.outputs.zip }}"
-          $latestzip = "${{ steps.pack.outputs.latestzip }}"
           $body = "萌远控 Duo $tag 自动发布（win64 便携包，安装器/托盘更新检测已对接本 Release）。"
-          gh release create $tag $zip $latestzip --title "萌远控 Duo $tag" --notes "$body" || gh release upload $tag $zip $latestzip --clobber
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          gh release create $tag $zip --title "萌远控 Duo $tag" --notes "$body" || gh release upload $tag $zip --clobber

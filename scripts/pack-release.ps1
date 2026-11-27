@@ -14,7 +14,7 @@ $Root = Split-Path -Parent $PSScriptRoot
 $Version = (Get-Content (Join-Path $Root '.VERSION') -Raw).Trim()
 if (-not $Version) { throw '.VERSION 为空，无法确定发布版本' }
 if (-not $OutputDir) { $OutputDir = $Root }
-$ZipName = "moedesk_${Version}_win64.zip"
+$ZipName = "moedesk_latest_win64.zip"
 $Dest = Join-Path $OutputDir $ZipName
 
 $ExcludeTopDirs = @('docs', 'src', '.git', '.github', '.temp', '.wsguard-build', '.qoder')

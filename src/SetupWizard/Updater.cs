@@ -6,7 +6,7 @@ using System.Runtime.InteropServices;
 namespace SunshineDuoSetup;
 
 // 更新模块：比较本机与远程 .VERSION，有新版则下载 GitHub Release 资产
-// moedesk_{tag}_win64.zip 并替换本机旧程序（保留 config/ 与本机生成文件）。
+// moedesk_latest_win64.zip（以及按版本 tag 的资产） 并替换本机旧程序（保留 config/ 与本机生成文件）。
 internal static class Updater
 {
     public const string RepoUrl = "https://github.com/xRetia/Sunshine-Duo";
@@ -14,7 +14,7 @@ internal static class Updater
     public const string GitProxyFile = ".GITPROXY";
     public const string GitProxyRawUrl = "https://raw.githubusercontent.com/xRetia/Sunshine-Duo/main/.GITPROXY";
     // GitHub Release 资产（CI 在 .VERSION 变化时自动发布；tag 与资产名都用 .VERSION 原文）
-    public const string ReleaseAssetTemplate = "https://github.com/xRetia/Sunshine-Duo/releases/download/{tag}/moedesk_{tag}_win64.zip";
+    public const string ReleaseAssetTemplate = "https://github.com/xRetia/Sunshine-Duo/releases/download/{tag}/moedesk_latest_win64.zip（以及按版本 tag 的资产）";
 
     public static string ReleaseZipUrl(string tag) => ReleaseAssetTemplate.Replace("{tag}", tag);
 
