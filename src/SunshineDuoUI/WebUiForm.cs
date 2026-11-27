@@ -170,7 +170,8 @@ internal sealed class WebUiForm : Form, IMainUi
 
             core.SetVirtualHostNameToFolderMapping(
                 "sunduo.local", WebFolder, CoreWebView2HostResourceAccessKind.Allow);
-            core.Navigate("https://sunduo.local/index.html");
+            // 每次启动都换查询串：WebView2 会缓存 index.html，不换就会看到旧文案
+            core.Navigate($"https://sunduo.local/index.html?v={DateTime.Now.Ticks}");
         }
         catch (WebViewEnvironment.RuntimeMissingException)
         {
