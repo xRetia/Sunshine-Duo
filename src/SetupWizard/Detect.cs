@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.ServiceProcess;
 using Microsoft.Win32;
+using Microsoft.Web.WebView2.Core;
 
 namespace SunshineDuoSetup;
 
@@ -38,31 +39,16 @@ internal static class Detect
         return new State(false, "未安装（需下载并安装 .NET 9 桌面运行时）");
     }
 
-    // WebView2 运行时：托盘界面依赖它，缺失阻断安装。
-    // 穿透点：HKLM\SOFTWARE\WOW6432Node 与 HKLM\SOFTWARE（32/64 位进程均能命中），以及 HKCU 同路径；
-    // 任一处 pv 非空即视为已安装，pv 值作为详情展示。
+    // WebView2 运行时：使用官方 API 判断当前系统是否真的可创建运行时，避免把 EdgeUpdate 残留键当成已安装。
     public static State WebView2()
     {
-        const string clsid = "{F3017226-FE2A-4249-AB7D-62F301732635}";
-        var full = new[]
+        try
         {
-            @"SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\" + clsid,
-            @"SOFTWARE\Microsoft\EdgeUpdate\Clients\" + clsid,
-            @"SOFTWARE\Microsoft\EdgeUpdate\Clients\" + clsid,
-        };
-        var hives = new[] { Registry.LocalMachine, Registry.LocalMachine, Registry.CurrentUser };
-        for (var i = 0; i < hives.Length; i++)
-        {
-            try
-            {
-                using var k = hives[i].OpenSubKey(full[i]);
-                if (k is null) continue;
-                var pv = k.GetValue("pv")?.ToString() ?? "";
-                if (pv.Length > 0)
-                    return new State(true, "已安装 " + pv);
-            }
-            catch { }
+            var version = CoreWebView2Environment.GetAvailableBrowserVersionString();
+            if (!string.IsNullOrWhiteSpace(version))
+                return new State(true, "已安装 " + version);
         }
+        catch { }
         return new State(false, "未安装");
     }
 

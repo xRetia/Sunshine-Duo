@@ -13,6 +13,8 @@ internal sealed class UpdatePage : Panel
     private RButton _btnApply = null!;
     private TextBox _txtLog = null!;
     private Badge _badge = null!;
+    private ProgressBar _downloadBar = null!;
+    private Label _downloadStats = null!;
 
     private string _remoteTag = "";
     private bool _autoUpdate;
@@ -83,13 +85,22 @@ internal sealed class UpdatePage : Panel
         card.Controls.Add(_btnApply);
         Controls.Add(card);
 
-        var logCard = new RoundCard { Location = new Point(Lay.X0, 306), Size = new Size(Lay.CW, 318) };
+        _downloadBar = new ProgressBar { Location = new Point(Lay.X0, 300), Size = new Size(Lay.CW, 8), Visible = false };
+        Controls.Add(_downloadBar);
+        _downloadStats = new Label
+        {
+            Text = "", ForeColor = Ui.Text3, BackColor = Color.Transparent,
+            Font = Ui.F(8.5F), Location = new Point(Lay.X0, 312), Size = new Size(Lay.CW, 18), Visible = false,
+        };
+        Controls.Add(_downloadStats);
+
+        var logCard = new RoundCard { Location = new Point(Lay.X0, 334), Size = new Size(Lay.CW, 290) };
         _txtLog = new TextBox
         {
             Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical,
             BorderStyle = BorderStyle.None,
             BackColor = Color.FromArgb(250, 250, 250), ForeColor = Color.FromArgb(43, 43, 43),
-            Font = Ui.Mono(9F), Location = new Point(12, 12), Size = new Size(Lay.CW - 24, 302),
+            Font = Ui.Mono(9F), Location = new Point(12, 12), Size = new Size(Lay.CW - 24, 274),
         };
         logCard.Controls.Add(_txtLog);
         Controls.Add(logCard);
@@ -160,6 +171,19 @@ internal sealed class UpdatePage : Panel
         if (_btnApply.Enabled) Apply(autoConfirmed: true);
     }
 
+    private static string FormatBytes(long bytes)
+    {
+        string[] units = ["B", "KB", "MB", "GB"];
+        double value = Math.Max(0, bytes);
+        var unit = 0;
+        while (value >= 1024 && unit < units.Length - 1)
+        {
+            value /= 1024;
+            unit++;
+        }
+        return $"{value:0.0} {units[unit]}";
+    }
+
     private void Apply(bool autoConfirmed = false)
     {
         if (_remoteTag.Length == 0) return;
@@ -174,21 +198,35 @@ internal sealed class UpdatePage : Panel
         _btnApply.Enabled = false;
         _btnCheck.Enabled = false;
         _badge.Set("更新中", Ui.Accent);
+        _downloadBar.Value = 0;
+        _downloadBar.Visible = true;
+        _downloadStats.Text = "准备下载…";
+        _downloadStats.Visible = true;
         _txtLog.AppendText("[更新] 开始更新到 " + _remoteTag + Environment.NewLine);
         var tag = _remoteTag;
         Task.Run(() =>
         {
             try
             {
-                BeginInvoke(() => _lblStatus.Text = "下载 main.zip ...");
+                BeginInvoke(() => _lblStatus.Text = "正在下载更新包…");
                 Updater.Apply(tag, Paths.Root, s => BeginInvoke(() =>
                 {
                     _txtLog.AppendText(s + Environment.NewLine);
-                }), CancellationToken.None);
+                }), CancellationToken.None, (done, total, bytesPerSecond) => BeginInvoke(() =>
+                {
+                    if (total > 0) _downloadBar.Value = done * 100.0 / total;
+                    else _downloadBar.Value = 0;
+                    var sizeText = total > 0
+                        ? $"{FormatBytes(done)} / {FormatBytes(total)} ({done * 100.0 / total:0.0}%)"
+                        : $"{FormatBytes(done)} / 未知大小";
+                    _downloadStats.Text = $"{sizeText}    {FormatBytes((long)bytesPerSecond)}/秒";
+                }));
                 BeginInvoke(() =>
                 {
                     _badge.Set("更新完成", Ui.Success);
                     _lblStatus.Text = $"已更新到 {tag}，核心服务与托盘已恢复。";
+                    _downloadBar.Value = 100;
+                    _downloadStats.Text = "下载完成";
                     _btnCheck.Enabled = true;
                     MessageBox.Show(this, $"更新完成：已替换本机程序到 {tag}。", "更新",
                         MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -199,6 +237,7 @@ internal sealed class UpdatePage : Panel
                 BeginInvoke(() =>
                 {
                     _badge.Set("更新失败", Ui.Danger);
+                    _downloadStats.Text = "下载/更新失败";
                     _txtLog.AppendText("失败: " + ex.Message + Environment.NewLine);
                     _lblStatus.Text = "更新失败：" + ex.Message;
                     _btnCheck.Enabled = true;

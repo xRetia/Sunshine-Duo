@@ -78,8 +78,7 @@ internal static class UpdateCheck
             }
             catch
             {
-                // 镜像失败试直连；直连也失败保留上次结果，本次按无更新处理
-                if (_hasUpdate == null) _hasUpdate = false;
+                // 镜像失败试直连；全部失败时保留上次成功结果，不把网络故障伪装成无更新。
             }
         }
         return Snapshot;

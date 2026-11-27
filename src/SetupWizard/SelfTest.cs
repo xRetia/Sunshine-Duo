@@ -83,6 +83,13 @@ internal static class SelfTest
 
         Check("版本比较 IsNewer", () =>
             Updater.IsNewer("v1.2.0", "1.1.9") && !Updater.IsNewer("v1.2.0", "1.2.0") && !Updater.IsNewer("v1.1.0", "1.2.0"));
+        Check("更新资产 URL 使用版本化 zip", () =>
+            Updater.ReleaseZipUrl("v1.2.3") == "https://github.com/xRetia/Sunshine-Duo/releases/download/v1.2.3/moedesk_v1.2.3_win64.zip");
+        Check("自替换残留清理不抛异常", () =>
+        {
+            Updater.CleanupStaleSelf();
+            return true;
+        });
 
         Console.WriteLine($"  [INFO] 本地版本（.VERSION）= {Updater.LocalVersion}");
 

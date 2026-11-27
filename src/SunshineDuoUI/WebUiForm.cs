@@ -442,7 +442,7 @@ internal sealed class WebUiForm : Form, IMainUi
 
             case "checkUpdate":
             {
-                var (has, remote, local) = await UpdateCheck.CheckAsync();
+                var (has, remote, local) = await UpdateCheck.CheckAsync(force: Bool(a, "force"));
                 return new { has, remote, local };
             }
 

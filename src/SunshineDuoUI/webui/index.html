@@ -767,9 +767,10 @@ function aboutHTML(){
       <div>
         <div class="ident-name">萌远控 Duo</div>
         <div class="ident-ver">版本号 v${esc(u.local||"1.0.0")}${u.has?`<span class="upd-dot" title="有新版本 v${esc(u.remote)}"></span>`:""}</div>
-        ${u.has?`<div class="btnrow" style="margin-top:8px"><button class="btn" data-a="run-update">${ic("ext")}发现新版本 v${esc(u.remote)}，点击更新</button></div>`:""}
       </div>
-      <button class="btn" data-a="check-update"${busy?" disabled":""} style="margin-left:auto;align-self:center">${ic("sync")}${busy?"检查中…":"检查更新"}</button>
+      ${u.has
+        ?`<button class="btn pri" data-a="run-update" style="margin-left:auto;align-self:center">${ic("ext")}点击更新 v${esc(u.remote)}</button>`
+        :`<button class="btn" data-a="check-update"${busy?" disabled":""} style="margin-left:auto;align-self:center">${ic("sync")}${busy?"检查中…":"检查更新"}</button>`}
     </div>
 
     <div class="card between nodrag mt22">
@@ -871,6 +872,7 @@ function render(){
         <button class="wbtn x" data-a="close" aria-label="关闭">${ic("x")}</button>
       </div>
       <div class="toast" id="toast"><span id="toastIcon"></span><span id="toastText"></span></div>`;
+  syncThemeBtn();
   $("#stageNote").innerHTML=
     "<b>萌远控 Duo · WebView2 界面预览</b>　拖拽 / 窗口按钮 / 右键屏蔽 / 主题切换：宿主侧由 WebView2 + WinForms 承担";
   resRows();
@@ -887,6 +889,14 @@ function navigate(id){
 }
 
 const resolveTheme=m=>m==="light"?"light":m==="dark"?"dark":(lightMQ.matches?"light":"dark");
+function syncThemeBtn(){
+  const btn=$("#themeBtn");
+  if(!btn)return;
+  const cur=THEME_ICON[state.theme]||THEME_ICON.system;
+  btn.innerHTML=ic(cur.icon);
+  btn.setAttribute("aria-label",cur.label);
+  btn.title=cur.label;
+}
 function applyTheme(mode){
   state.theme=mode;
   if(!HOSTED&&!THEME_PARAM)localStorage.setItem("sd.theme",mode);
@@ -897,13 +907,7 @@ function applyTheme(mode){
   requestAnimationFrame(()=>root.classList.remove("notrans"));
   /* 页面隐藏时 rAF 不会触发（WebView2 最小化也是），补一个定时器兜底 */
   setTimeout(()=>root.classList.remove("notrans"),120);
-  const btn=$("#themeBtn");
-  if(btn){
-    const cur=THEME_ICON[mode]||THEME_ICON.system;
-    btn.innerHTML=ic(cur.icon);
-    btn.setAttribute("aria-label",cur.label);
-    btn.title=cur.label;
-  }
+  syncThemeBtn();
 }
 
 function toast(text,ok=true){

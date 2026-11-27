@@ -695,7 +695,6 @@ internal static class Ops
     public static void DoGameManager(IRunReporter log)
     {
         if (!File.Exists(Paths.GameManagerExe)) throw new FileNotFoundException("缺少游戏启动器组件，请确认程序目录完整");
-        log.Log("提示: 游戏启动器安装时会弹出确认框，点击确定即可");
         if (Services.Query(Paths.GmSvcName) is null)
         {
             log.Log("执行 安装游戏启动器服务...");
@@ -734,7 +733,6 @@ internal static class Ops
     public static void UnGameManager(IRunReporter log)
     {
         if (!File.Exists(Paths.GameManagerExe)) throw new FileNotFoundException("缺少游戏启动器组件，请确认程序目录完整");
-        log.Log("提示: 移除游戏启动器时会弹出确认框，点击确定即可");
         if (Services.Query(Paths.GmSvcName) is not null)
         {
             log.Log("执行 移除游戏启动器服务 ...");
