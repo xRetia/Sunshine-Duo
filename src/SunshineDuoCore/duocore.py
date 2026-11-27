@@ -2196,6 +2196,17 @@ class KeyboardRemapper:
                 down = wParam in (WM_KEYDOWN, WM_SYSKEYDOWN)
                 up = wParam in (WM_KEYUP, WM_SYSKEYUP)
                 vk = k.vkCode
+                # 安全桌面（锁屏/UAC）会吞掉我们的键盘钩子消息：R-Alt、L 的
+                # keyup 收不到，内部状态就粘住（下次按 L 又误判组合键）。
+                # 用异步物理键态校准：钩子认为按着、物理上却已松开即复位。
+                if self._ralt and not (_user32.GetAsyncKeyState(VK_RMENU) & 0x8000):
+                    self._ralt = False
+                    self._l_held = False
+                    self._chord_used = False
+                    if self._win_down:
+                        self._win_down = False
+                        self._send((VK_LWIN, False))
+                    self._chord_keys.clear()
                 if vk == VK_RMENU and (down or up):
                     self._ralt = down
                     if self.win_from_ralt:

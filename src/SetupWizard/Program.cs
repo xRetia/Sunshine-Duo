@@ -26,16 +26,16 @@ internal static class Program
             return 1;
         }
 
+        ApplicationConfiguration.Initialize();
+
         // 前置依赖检测（自检与截图模式不做，仅正式安装/更新路径）
         if (!EnsurePrerequisites())
             return 1;
-
-        ApplicationConfiguration.Initialize();
         Application.Run(new MainForm(updateMode));
         return 0;
     }
 
-    // 确认安装前置依赖：OS 版本 + .NET 9 运行时阻断；WebView2 缺失只提示不阻断
+    // 确认安装前置依赖：OS 版本 + .NET 9 运行时 + WebView2 运行时，均阻断安装
     private static bool EnsurePrerequisites()
     {
         var os = Detect.OsVersion();
@@ -61,19 +61,9 @@ internal static class Program
             return false;
         }
 
-        var webview2 = Detect.WebView2();
-        if (!webview2.Installed)
-        {
-            var dr = MessageBox.Show(
-                "建议先安装 Microsoft Edge WebView2 运行时，本程序界面基于它呈现。\n\n" +
-                webview2.Detail + "\n" +
-                "若不安装，界面将采用老旧风格，可能影响体验和感观，但仍可继续安装。\n\n" +
-                "下载地址：\nhttps://go.microsoft.com/fwlink/?linkid=2124703\n\n" +
-                "点「确定」继续安装（老旧界面）；点「取消」退出，装好 WebView2 后再运行本程序。",
-                "推荐安装 WebView2 运行时", MessageBoxButtons.OKCancel, MessageBoxIcon.Warning,
-                MessageBoxDefaultButton.Button2);
-            return dr == DialogResult.OK;
-        }
+        // WebView2 运行时：托盘界面依赖它，缺失阻断安装（可下载或直接退出）
+        if (!WebView2Gate.EnsureInstalled(null))
+            return false;
 
         // 核心组件完整性检查：SunshineDuoCore.exe 缺失通常被杀毒软件误删，提示用户关杀软并重新下载安装包
         if (!File.Exists(Paths.CoreExe))

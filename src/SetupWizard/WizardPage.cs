@@ -756,6 +756,9 @@ internal sealed class WizardPage : Panel
 
     private void StartInstall()
     {
+        // 安装前再确认一次：WebView2 缺失直接阻断，不进入执行步骤
+        if (!WebView2Gate.EnsureInstalled(this)) return;
+
         var o = Collect();
         if (o is null) return;
 

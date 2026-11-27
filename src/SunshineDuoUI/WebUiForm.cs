@@ -6,6 +6,16 @@ using Microsoft.Web.WebView2.WinForms;
 
 namespace SunshineDuoTray;
 
+internal enum MainPage
+{
+    Console,
+    Game,
+    VirtualDisplay,
+    Tunnel,
+    Settings,
+    About,
+}
+
 internal interface IMainUi : IDisposable
 {
     bool Visible { get; }
@@ -161,6 +171,14 @@ internal sealed class WebUiForm : Form, IMainUi
             core.SetVirtualHostNameToFolderMapping(
                 "sunduo.local", WebFolder, CoreWebView2HostResourceAccessKind.Allow);
             core.Navigate("https://sunduo.local/index.html");
+        }
+        catch (WebViewEnvironment.RuntimeMissingException)
+        {
+            // WebView2 运行时缺失：WebViewEnvironment 已弹过原生对话框（可选打开下载页），
+            // 这里不再重复弹框，走与通用失败相同的优雅退出路径（关闭窗口、不留僵尸进程）。
+            Log("WebView2 运行时缺失，托盘界面退出。");
+            DialogResult = DialogResult.Cancel;
+            Close();
         }
         catch (Exception e)
         {
@@ -354,7 +372,7 @@ internal sealed class WebUiForm : Form, IMainUi
             case "setAutoStart":
             {
                 var on = Bool(a, "enabled");
-                SettingsForm.SetAutoStart(on);
+                AutoStart.Set(on);
                 _cfg.AutoStart = on;
                 _cfg.Save();
                 return true;
@@ -417,7 +435,7 @@ internal sealed class WebUiForm : Form, IMainUi
             }
 
             case "openHomepage":
-                Process.Start(new ProcessStartInfo("https://github.com/xRetia/Sunshine-Duo")
+                Process.Start(new ProcessStartInfo("https://yk.acgdraw.com")
                 { UseShellExecute = true });
                 return true;
 
@@ -517,7 +535,7 @@ internal sealed class WebUiForm : Form, IMainUi
                 cport = _cfg.ConsolePort,
                 gport = _cfg.GamePort,
                 user = _cfg.WebUser,
-                autoStart = SettingsForm.IsAutoStartEnabled(),
+                autoStart = AutoStart.IsEnabled(),
                 ralt = Paths.CoreFlag("win_from_ralt", false),
                 raltl = Paths.CoreFlag("winl_from_ralt_l", true),
                 hideCursor = Paths.CoreFlag("hide_cursor_on_stream", false),

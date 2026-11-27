@@ -38,26 +38,32 @@ internal static class Detect
         return new State(false, "未安装（需下载并安装 .NET 9 桌面运行时）");
     }
 
-    // WebView2 运行时：推荐安装，缺失只提示不阻断，界面将采用老旧风格
+    // WebView2 运行时：托盘界面依赖它，缺失阻断安装。
+    // 穿透点：HKLM\SOFTWARE\WOW6432Node 与 HKLM\SOFTWARE（32/64 位进程均能命中），以及 HKCU 同路径；
+    // 任一处 pv 非空即视为已安装，pv 值作为详情展示。
     public static State WebView2()
     {
-        const string clsid = "{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}";
-        foreach (var hive in new[] { Registry.LocalMachine, Registry.CurrentUser })
+        const string clsid = "{F3017226-FE2A-4249-AB7D-62F301732635}";
+        var full = new[]
+        {
+            @"SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\" + clsid,
+            @"SOFTWARE\Microsoft\EdgeUpdate\Clients\" + clsid,
+            @"SOFTWARE\Microsoft\EdgeUpdate\Clients\" + clsid,
+        };
+        var hives = new[] { Registry.LocalMachine, Registry.LocalMachine, Registry.CurrentUser };
+        for (var i = 0; i < hives.Length; i++)
         {
             try
             {
-                var key = @"SOFTWARE" + (hive == Registry.LocalMachine ? @"\WOW6432Node" : "") +
-                          $@"\Microsoft\EdgeUpdate\Clients\{clsid}";
-                using var k = hive.OpenSubKey(key);
-                if (k is not null)
-                {
-                    var pv = k.GetValue("pv") as string ?? "";
-                    return new State(true, pv.Length > 0 ? "已安装 " + pv : "已安装");
-                }
+                using var k = hives[i].OpenSubKey(full[i]);
+                if (k is null) continue;
+                var pv = k.GetValue("pv")?.ToString() ?? "";
+                if (pv.Length > 0)
+                    return new State(true, "已安装 " + pv);
             }
             catch { }
         }
-        return new State(false, "未安装（界面将采用老旧风格，建议先安装）");
+        return new State(false, "未安装");
     }
 
 

@@ -339,6 +339,8 @@ html.notrans *{transition:none !important}
 .kv .k{font-size:12px;color:var(--faint)}
 .kv .v2{font-size:14px}
 .kv .v3{font-family:var(--font-mono);font-size:12px;color:var(--muted);margin-top:2px}
+.kv .v3.link{cursor:pointer;transition:color var(--dur) var(--ease)}
+.kv .v3.link:hover{color:var(--accent-text);text-decoration:underline}
 
 /* InfoBar 提示 */
 .toast{position:absolute;left:50%;bottom:20px;z-index:9;transform:translate(-50%,10px);
@@ -390,7 +392,7 @@ const ICON={
   ext:"",plus:"",trash:"",target:"",save:"",
   globe:"\uf0ac",
   min:"",x:"",check:"",
-  sun:"\uf185",moon:"\uf186",auto:"\uf042",
+  sun:"\uf185",moon:"\uf186",auto:"\uf042",sync:"\uf021",
 };
 const ic=(n,cls="")=>`<span class="fi ${cls}" aria-hidden="true">${ICON[n]||""}</span>`;
 const THEME_ICON={
@@ -470,7 +472,7 @@ let state={
     defaultServer:"tcp://easytier.zcm.cloudns.ch:11010",peers:[],ipv4:"",tcpHolePunch:false,
     virtualIp:"",publicIp:""},
   tunnelAdv:false,
-  update:{has:false,remote:"",local:""},
+  update:{has:false,remote:"",local:"",check:""},
 };
 
 /* ===================== 模板 ===================== */
@@ -751,6 +753,7 @@ function settingsHTML(){
 
 function aboutHTML(){
   const u=state.update||{};
+  const busy=u.check==="busy";
   return `<section class="page${state.page==="about"?" on":""}" data-page="about">
     <div class="head drag">
       <div class="grow">
@@ -764,17 +767,18 @@ function aboutHTML(){
       <div>
         <div class="ident-name">萌远控 Duo</div>
         <div class="ident-ver">版本号 v${esc(u.local||"1.0.0")}${u.has?`<span class="upd-dot" title="有新版本 v${esc(u.remote)}"></span>`:""}</div>
-        ${u.has?`<button class="btn" data-a="run-update" style="margin-top:8px">${ic("ext")}发现新版本 v${esc(u.remote)}，点击更新</button>`:""}
+        ${u.has?`<div class="btnrow" style="margin-top:8px"><button class="btn" data-a="run-update">${ic("ext")}发现新版本 v${esc(u.remote)}，点击更新</button></div>`:""}
       </div>
+      <button class="btn" data-a="check-update"${busy?" disabled":""} style="margin-left:auto;align-self:center">${ic("sync")}${busy?"检查中…":"检查更新"}</button>
     </div>
 
     <div class="card between nodrag mt22">
       <div class="kv">
-        <span class="k">作者</span>
+        <span class="k">开发者</span>
         <span class="v2">苏羽茜工作室（xRetia Labs.）</span>
-        <span class="v3">GitHub · xRetia/Sunshine-Duo</span>
+        <span class="v3 link" data-a="ext-link" data-url="https://yk.acgdraw.com" title="https://yk.acgdraw.com">产品主页 · yk.acgdraw.com</span>
       </div>
-      <button class="btn" data-a="homepage" style="margin-left:auto">${ic("ext")}打开项目主页</button>
+      <button class="btn" data-a="homepage" style="margin-left:auto">${ic("ext")}打开产品主页</button>
     </div>
 
     <p class="note mt22">本工具只管理本机串流服务，不收集、不上传任何数据。</p>
@@ -1433,6 +1437,7 @@ const ACT={
     if(HOSTED){call("openHomepage");toast("正在打开项目主页…");return;}
     toast("预览占位：不调用外部浏览器");
   },
+  "check-update":()=>checkUpdate(true),
   "run-update":async el=>{
     el.disabled=true;
     if(HOSTED){
@@ -1546,34 +1551,60 @@ async function getGitProxy(){
   }catch{}
   return null;
 }
-async function checkUpdate(){
+async function checkUpdate(force){
+  if(state.update.check==="busy")return;
   if(HOSTED){
+    if(force){state.update={...state.update,check:"busy"};render();}
     try{
-      const u=await call("checkUpdate");
-      if(!u||!u.has)return;
-      state.update=u;
+      const u=await call("checkUpdate",{force:!!force});
+      const has=!!(u&&u.has);
+      state.update={...state.update,has,remote:(u&&u.remote)||"",local:(u&&u.local)||state.update.local||"",check:""};
       render();
-      const dot=$("#upd-nav-dot");
-      if(dot)dot.style.display="";
       if(state.page==="about")navigate("about");
-    }catch{}
+      if(has)toast(`发现新版本 v${(u&&u.remote)||""}`);
+      else if(force)toast("已是最新版本");
+    }catch{
+      state.update={...state.update,check:""};
+      render();
+      if(state.page==="about")navigate("about");
+      if(force)toast("检查失败，请稍后再试",false);
+    }
     return;
   }
+  if(force){state.update={...state.update,check:"busy"};render();}
   try{
     const proxy=await getGitProxy();
     const urls=proxy?[proxy+"/"+VERSION_URL,VERSION_URL]:[VERSION_URL];
-    for(const u of urls){
+    let done=false;
+    for(const x of urls){
       try{
-        const r=await fetch(u,{cache:"no-store"});
+        const r=await fetch(x,{cache:"no-store"});
         const t=(await r.text()).trim();
         const m=VER_RE.exec(t);
         const remote=m?m[1]:"";
-        const local=(state.update&&state.update.local)||"1.0.0";
-        if(remote&&verCmp(remote,local)>0){state.update={has:true,remote,local};render();}
-        return;
+        const local=state.update.local||"1.0.0";
+        const has=!!remote&&verCmp(remote,local)>0;
+        state.update={...state.update,has,remote:remote||state.update.remote,local,check:has?"":force?"latest":""};
+        done=true;break;
       }catch{}
     }
-  }catch{}
+    if(!done){
+      state.update={...state.update,check:""};
+      render();
+      if(state.page==="about")navigate("about");
+      toast("检查失败，请稍后再试",false);
+      return;
+    }
+    render();
+    if(state.page==="about")navigate("about");
+    if(state.update.has)toast(`发现新版本 v${state.update.remote}`);
+    else toast("已是最新版本");
+  }catch{
+    state.update={...state.update,check:""};
+    render();
+    if(state.page==="about")navigate("about");
+    toast("检查失败，请稍后再试",false);
+  }
 }
 </script>
 </body>

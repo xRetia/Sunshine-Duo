@@ -392,14 +392,7 @@ public class TrayContext : ApplicationContext
         {
             if (_mainForm == null || _mainForm.IsDisposed)
             {
-                try
-                {
-                    _mainForm = WebUiForm.IsSupported ? new WebUiForm(_cfg) : new MainForm(_cfg);
-                }
-                catch
-                {
-                    _mainForm = new MainForm(_cfg);
-                }
+                _mainForm = new WebUiForm(_cfg);
             }
             _mainForm.Navigate(page);
             if (!_mainForm.Visible) _mainForm.Show();
