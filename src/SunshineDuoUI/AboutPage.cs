@@ -73,17 +73,52 @@ internal sealed class AboutPage : Panel
         });
         author.Controls.Add(new Label
         {
-            Text = "GitHub · xRetia/Sunshine-Duo",
+            Text = "产品主页 · yk.acgdraw.com",
             ForeColor = UiKit.Muted,
             BackColor = Color.Transparent,
             Font = UiKit.Mono(9F),
             Location = new Point(16, 66),
             AutoSize = true,
         });
-        var open = UiKit.Ghost("打开项目主页");
-        open.Location = new Point(584, 40);
+        var checkUpdate = UiKit.Ghost("检查更新");
+        checkUpdate.Location = new Point(440, 40);
+        checkUpdate.Size = new Size(120, 32);
+        checkUpdate.Click += async (_, _) =>
+        {
+            checkUpdate.Enabled = false;
+            checkUpdate.Text = "检查中…";
+            try
+            {
+                var (has, remote, local) = await UpdateCheck.CheckAsync(force: true);
+                if (has)
+                {
+                    _updateDot!.Visible = true;
+                    _updateDot.BringToFront();
+                    if (MessageBox.Show($"发现新版本 v{remote}（当前 v{local}），是否立即打开安装向导更新？",
+                        "发现更新", MessageBoxButtons.YesNo, MessageBoxIcon.Information) == DialogResult.Yes)
+                        StartUpdate();
+                }
+                else
+                {
+                    MessageBox.Show($"当前已是最新版本（v{local}）。", "检查更新", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("检查失败：" + ex.Message, "检查更新", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+            finally
+            {
+                checkUpdate.Text = "检查更新";
+                checkUpdate.Enabled = true;
+            }
+        };
+        author.Controls.Add(checkUpdate);
+
+        var open = UiKit.Ghost("打开主页");
+        open.Location = new Point(568, 40);
         open.Size = new Size(136, 32);
-        open.Click += (_, _) => OpenUrl("https://github.com/xRetia/Sunshine-Duo");
+        open.Click += (_, _) => OpenUrl("https://yk.acgdraw.com");
         author.Controls.Add(open);
 
         var tech = new RoundCard { Location = new Point(0, 324), Size = new Size(736, 132) };
