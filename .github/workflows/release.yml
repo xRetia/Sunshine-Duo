@@ -91,3 +91,5 @@ jobs:
           $zip = "${{ steps.pack.outputs.zip }}"
           $body = "萌远控 Duo $tag 自动发布（win64 便携包，安装器/托盘更新检测已对接本 Release）。"
           gh release create $tag $zip --title "萌远控 Duo $tag" --notes "$body" || gh release upload $tag $zip --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
