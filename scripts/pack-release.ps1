@@ -14,7 +14,7 @@ $Root = Split-Path -Parent $PSScriptRoot
 $Version = (Get-Content (Join-Path $Root '.VERSION') -Raw).Trim()
 if (-not $Version) { throw '.VERSION 为空，无法确定发布版本' }
 if (-not $OutputDir) { $OutputDir = $Root }
-$ZipName = "moedesk_latest_win64.zip"
+$ZipName = "moedesk_${Version}_win64.zip"
 $Dest = Join-Path $OutputDir $ZipName
 
 $ExcludeTopDirs = @('docs', 'src', '.git', '.github', '.temp', '.wsguard-build', '.qoder')
@@ -67,3 +67,8 @@ finally { $zip.Dispose() }
 
 $size = '{0:N1} MB' -f ((Get-Item -LiteralPath $Dest).Length / 1MB)
 Write-Host "打包完成：$Dest（$count 个文件，$size）"
+
+# latest 别名：更新端按 tag 拼版本化资产名，ghpage/镜像下载用 latest 固定名，两个都要有
+$Latest = Join-Path $OutputDir 'moedesk_latest_win64.zip'
+Copy-Item -LiteralPath $Dest -Destination $Latest -Force
+Write-Host "已生成别名：$Latest"
