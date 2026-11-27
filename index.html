@@ -175,7 +175,7 @@ footer{padding:34px 0;border-top:1px solid var(--line);color:var(--faint);font-s
       <a href="assets/sunshine-duo-video.html">产品视频</a>
       <a href="#download">下载</a>
     </nav>
-    <a class="btn btn-primary dl-direct" href="https://github.com/xRetia/Sunshine-Duo/releases/latest">下载最新版</a>
+    <a class="btn btn-primary dl-direct" href="https://github.com/xRetia/Sunshine-Duo/releases/latest/download/moedesk_latest_win64.zip">下载最新版</a>
   </div>
 </header>
 
@@ -188,8 +188,8 @@ footer{padding:34px 0;border-top:1px solid var(--line);color:var(--faint);font-s
       <h1>一台电脑，<br><em>当两台用</em></h1>
       <p class="lead">打游戏的打游戏，办公的办公，互不打扰。两个独立会话同时在线，同一台电脑、同一个系统，谁也踢不掉谁。</p>
       <div class="hero-cta">
-        <a class="btn btn-primary btn-lg dl-direct" href="https://github.com/xRetia/Sunshine-Duo/releases/latest">立即下载 · 绿色免安装</a>
-        <a class="btn btn-ghost btn-lg dl-fast" href="https://ghfast.top/https://github.com/xRetia/Sunshine-Duo/releases/latest">高速下载（国内镜像）</a>
+        <a class="btn btn-primary btn-lg dl-direct" href="https://github.com/xRetia/Sunshine-Duo/releases/latest/download/moedesk_latest_win64.zip">立即下载 · 绿色免安装</a>
+        <a class="btn btn-ghost btn-lg dl-fast" href="https://ghfast.top/https://github.com/xRetia/Sunshine-Duo/releases/latest/download/moedesk_latest_win64.zip">高速下载（国内镜像）</a>
         <a class="btn btn-ghost btn-lg" href="#screens">看看界面</a>
       </div>
       <p class="hero-note">Windows 10 / 11 · 手机装客户端即可连接</p>
@@ -325,8 +325,8 @@ footer{padding:34px 0;border-top:1px solid var(--line);color:var(--faint);font-s
       <p>绿色免安装，解压即用。</p>
     </div>
     <div class="btn-wrap">
-      <a class="btn btn-primary btn-lg dl-direct" href="https://github.com/xRetia/Sunshine-Duo/releases/latest">立即下载（最新版）</a>
-      <a class="btn btn-ghost btn-lg dl-fast" href="https://ghfast.top/https://github.com/xRetia/Sunshine-Duo/releases/latest">高速下载（国内镜像）</a>
+      <a class="btn btn-primary btn-lg dl-direct" href="https://github.com/xRetia/Sunshine-Duo/releases/latest/download/moedesk_latest_win64.zip">立即下载（最新版）</a>
+      <a class="btn btn-ghost btn-lg dl-fast" href="https://ghfast.top/https://github.com/xRetia/Sunshine-Duo/releases/latest/download/moedesk_latest_win64.zip">高速下载（国内镜像）</a>
       <a class="btn btn-ghost btn-lg" href="https://github.com/Axixi2233/moonlight-android/releases/latest">安卓客户端</a>
     </div>
     <p class="hint">
@@ -337,28 +337,7 @@ footer{padding:34px 0;border-top:1px solid var(--line);color:var(--faint);font-s
 </section>
 
 
-<script>
-(async function(){
-  const api="https://api.github.com/repos/xRetia/Sunshine-Duo/releases/latest";
-  const isCN=new Date().getTimezoneOffset()===-480;
-  const proxy="https://ghfast.top/";
-  async function fetchLatest(){
-    const urls=isCN?[proxy+api,api]:[api];
-    for(const u of urls){try{const r=await fetch(u,{cache:"no-store"});if(r.ok)return await r.json();}catch{}}
-    return null;
-  }
-  try{
-    const rel=await fetchLatest();
-    if(!rel) return;
-    const asset=(rel.assets||[]).find(a=>/moedesk_.*_win64\.zip$/i.test(a.name));
-    if(!asset) return;
-    const direct=asset.browser_download_url;
-    const fast=proxy+direct;
-    document.querySelectorAll(".dl-direct").forEach(a=>a.href=direct);
-    document.querySelectorAll(".dl-fast").forEach(a=>a.href=fast);
-  }catch{}
-})();
-</script>
+
 </main>
 
 <footer>
