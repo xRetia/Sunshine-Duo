@@ -44,6 +44,7 @@ jobs:
       - name: Build SunshineDuoUI (dotnet publish)
         shell: pwsh
         run: |
+          Remove-Item -Recurse -Force src\SunshineDuoUI\bin,src\SunshineDuoUI\obj -ErrorAction SilentlyContinue
           dotnet publish src\SunshineDuoUI\SunshineDuoTray.csproj -c Release -r win-x64 --self-contained true
           $pub = "src\SunshineDuoUI\bin\Release\net9.0-windows\win-x64\publish\SunshineDuoTray.exe"
           if (-not (Test-Path $pub)) { throw "tray publish 产物缺失: $pub" }
@@ -54,6 +55,7 @@ jobs:
       - name: Build SetupWizard (setup.exe)
         shell: pwsh
         run: |
+          Remove-Item -Recurse -Force src\SetupWizard\bin,src\SetupWizard\obj -ErrorAction SilentlyContinue
           dotnet publish src\SetupWizard\SunshineDuoSetup.csproj -c Release -r win-x64 --self-contained true
           Copy-Item "src\SetupWizard\bin\Release\net9.0-windows\win-x64\publish\SunshineDuoSetup.exe" setup.exe -Force
 
