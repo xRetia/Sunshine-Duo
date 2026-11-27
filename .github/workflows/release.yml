@@ -45,11 +45,14 @@ jobs:
         shell: pwsh
         run: |
           Remove-Item -Recurse -Force src\SunshineDuoUI\bin,src\SunshineDuoUI\obj -ErrorAction SilentlyContinue
+          Write-Host '--- restore ---'
+          dotnet restore src\SunshineDuoUI\SunshineDuoTray.csproj
+          if ($LASTEXITCODE -ne 0) { throw "dotnet restore 失败 exit=$LASTEXITCODE" }
+          Write-Host '--- publish ---'
           dotnet publish src\SunshineDuoUI\SunshineDuoTray.csproj -c Release -r win-x64 --self-contained true
           if ($LASTEXITCODE -ne 0) {
-            Write-Host '=== binlog ==='
-            dotnet publish src\SunshineDuoUI\SunshineDuoTray.csproj -c Release -r win-x64 --self-contained true -bl:binlog.txt
-            Get-Content binlog.txt -Tail 100
+            dotnet publish src\SunshineDuoUI\SunshineDuoTray.csproj -c Release -r win-x64 --self-contained true -bl:binlog.txt -v:diag 2>&1 | Out-String -Stream | Tee-Object -Variable out
+            $out | Where-Object { $_ -match 'error|ERR|fail|Cannot|CS' } | Select-Object -Last 80
             throw "dotnet publish 失败 exit=$LASTEXITCODE"
           }
           $pub = "src\SunshineDuoUI\bin\Release\net9.0-windows\win-x64\publish\SunshineDuoTray.exe"
