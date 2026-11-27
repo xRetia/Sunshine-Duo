@@ -501,7 +501,7 @@ def easytier_args(et):
     if not bool(et.get('tcp_hole_punch')):
         args += ['--disable-tcp-hole-punching']
     # 虚拟网卡显示名（设备管理器里不再是自动生成的 et_xxx Tunn）
-    args += ['--dev-name', 'MoeArt RemoKon Duo']
+    args += ['--dev-name', 'MoeDesk Duo']
     for a in (et.get('extra_args') or []):
         s = str(a).strip()
         if s:
