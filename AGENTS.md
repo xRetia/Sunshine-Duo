@@ -20,9 +20,11 @@ gsudo64 <提权命令>             # 之后所有 gsudo64 提权不再弹 UAC
 
 ```
 src\               所有自有源码（唯一放源码的地方）
+  SetupWizard\         setup.exe 安装/更新向导（C#/WinForms，dotnet publish 后部署到根目录 setup.exe）
   SunshineDuoUI\         SunshineDuoTray 托盘（C#/WinForms，dotnet publish 后部署到 bin\SunshineDuoTray）
   SunshineDuoCore\ SunshineDuoCore 守护服务源码（Python + PyInstaller 打包脚本；产物部署到 bin\SunshineDuoCore）
 scripts\           安装/卸载/驱动/防火墙脚本（运行时载荷，不是源码，随 ZIP 分发，不进 src\）
+setup.exe          安装/更新向导（双击即用；托盘「检查更新」也经它执行更新）
 sunshine.exe       Apollo 本体 + zlib1.dll
 assets\            WebUI、着色器、图片（sunshine.exe 运行时按自身目录定位，禁止移动）
 config\            运行时配置（本机生成的 conf/state/credentials 不入库）
@@ -30,7 +32,6 @@ drivers\           SudoVDA 驱动二进制（载荷，不改）
 tools\             第三方运行时工具（rdpWrapper/GameManager 等）
 bin\               运行时部署目录：bin\SunshineDuoTray（托盘）、bin\SunshineDuoCore（核心服务 exe + _internal + 日志）
 Links\             用户游戏快捷方式目录
-setup.bat          一键安装入口（双击它，调用 scripts\sunshine-setup.ps1）
 docs\plan.md      设计文档（历史规划，路径为重构前布局）
 ```
 
@@ -43,7 +44,7 @@ docs\plan.md      设计文档（历史规划，路径为重构前布局）
 - 仓库内路径一律动态推导，禁止把 `D:\Library\Sunshine` 等绝对路径写死到代码/脚本里（trayapp、SunshineDuoCore、setup 同此要求）。
 - 各处推导基准（移动目录时必须同步修正）：
   - `scripts\*.bat` / `autostart-hidden.vbs`：`%~dp0..`（父目录）= 仓库根；
-  - `scripts\sunshine-setup.ps1`：`$Root = Split-Path -Parent $PSScriptRoot`；
+  - `src\SetupWizard`：运行期由 `Paths.cs` 从 exe 向上找 `sunshine.exe` 定根；
   - `src\SunshineDuoCore\build.ps1`：仓库根 = `$PSScriptRoot` 上两级，部署目标 = `仓库根\bin\SunshineDuoCore`；
   - `src\SunshineDuoCore\gen_hook_4_46.ps1`：仓库根 = `$PSScriptRoot` 上三级；
   - `src\SunshineDuoUI`：运行期由 `Paths.cs` 从 exe 向上找 `sunshine.exe` 定根；csproj 图标用 `..\..\assets\...`（依赖"源码恰好在根下两级"这一深度）。
