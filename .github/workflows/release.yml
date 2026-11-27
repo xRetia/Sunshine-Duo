@@ -97,6 +97,6 @@ jobs:
           $zip = "${{ steps.pack.outputs.zip }}"
           $latestzip = "${{ steps.pack.outputs.latestzip }}"
           $body = "萌远控 Duo $tag 自动发布（win64 便携包，安装器/托盘更新检测已对接本 Release）。"
-          gh release create $tag $zip $latestzip --title "萌远控 Duo $tag" --notes "$body" --clobber || gh release upload $tag $zip $latestzip --clobber
+          gh release create $tag $zip $latestzip --title "萌远控 Duo $tag" --notes "$body" || gh release upload $tag $zip $latestzip --clobber
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
