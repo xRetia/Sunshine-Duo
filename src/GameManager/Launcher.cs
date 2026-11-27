@@ -17,6 +17,8 @@ internal static class Launcher
 
     private const string ProtocolKey = @"Software\Classes\steam";
 
+    internal static bool CliMode { get; set; }
+
     internal static string ExePath =>
         Environment.ProcessPath ?? Process.GetCurrentProcess().MainModule?.FileName ?? "";
 
@@ -71,9 +73,12 @@ internal static class Launcher
     {
         try
         {
-            if (Console.IsOutputRedirected)
+            if (CliMode || Console.IsOutputRedirected)
             {
-                Console.WriteLine(message);
+                if (icon == MessageBoxImage.Error || icon == MessageBoxImage.Warning)
+                    Console.Error.WriteLine(message);
+                else
+                    Console.WriteLine(message);
                 return;
             }
         }

@@ -383,7 +383,7 @@ internal static class ServiceHost
     {
         try
         {
-            if (Console.IsOutputRedirected)
+            if (Launcher.CliMode || Console.IsOutputRedirected)
             {
                 Console.WriteLine(message);
                 return;
@@ -398,7 +398,7 @@ internal static class ServiceHost
     {
         try
         {
-            if (Console.IsOutputRedirected)
+            if (Launcher.CliMode || Console.IsOutputRedirected)
             {
                 Console.Error.WriteLine(message);
                 return;

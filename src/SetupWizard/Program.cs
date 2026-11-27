@@ -1,14 +1,10 @@
 using System.Diagnostics;
 using System.IO;
-using System.Runtime.InteropServices;
 
 namespace SunshineDuoSetup;
 
 internal static class Program
 {
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern bool AttachConsole(int processId);
-
     [STAThread]
     private static int Main(string[] args)
     {
@@ -23,29 +19,6 @@ internal static class Program
             return Shot.Run(args.Length > shotIdx + 1 ? args[shotIdx + 1] : Path.Combine(Paths.Root, ".temp", "uitest"));
 
         var updateMode = args.Any(a => a.Equals("--update", StringComparison.OrdinalIgnoreCase));
-        var installMode = args.Any(a => a.Equals("--install", StringComparison.OrdinalIgnoreCase));
-        var uninstallMode = args.Any(a => a.Equals("--uninstall", StringComparison.OrdinalIgnoreCase));
-
-        if (installMode || uninstallMode)
-        {
-            // WinExe 没有控制台：交互式终端里要 AttachConsole 才能看到输出；
-            // stdout 被重定向（隐藏子进程）时 Attach 失败但管道输出照常工作。
-            AttachConsole(-1);
-            // 编码跟随消费方：重定向 = UTF-8（.NET 读端/脚本默认），交互终端 = 系统代码页
-            var enc = Console.IsOutputRedirected
-                ? System.Text.Encoding.UTF8
-                : Console.OutputEncoding;
-            try { Console.SetOut(new StreamWriter(Console.OpenStandardOutput(), enc) { AutoFlush = true }); } catch { }
-            try { Console.SetError(new StreamWriter(Console.OpenStandardError(), enc) { AutoFlush = true }); } catch { }
-
-            if (!IsAdmin())
-            {
-                Console.Error.WriteLine("需要管理员权限运行。");
-                return 1;
-            }
-            return RunHeadless(installMode);
-        }
-
         // UAC 由 app.manifest 的 requireAdministrator 统一保证（双击/命令行/计划任务都会触发提权确认）
         if (!IsAdmin())
         {
@@ -110,40 +83,6 @@ internal static class Program
         }
 
         return true;
-    }
-
-    public static int RunHeadless(bool isInstall)
-    {
-        var log = new ConsoleReporter();
-        var steps = isInstall
-            ? Ops.InstallSteps(new Opts(), log)
-            : Ops.UninstallSteps(new Opts(), log);
-
-        var hasFail = false;
-        foreach (var s in steps)
-        {
-            log.Log($"== {s.Label} ==");
-            try
-            {
-                s.Action();
-                log.Log($"OK: {s.Label}");
-            }
-            catch (Exception ex)
-            {
-                log.Log($"FAILED: {s.Label} - {ex.Message}");
-                hasFail = true;
-                if (isInstall)
-                {
-                    // 安装步骤有先后依赖（配置 → 组件 → 服务），中途失败继续跑
-                    // 只会得到一套半成品；CLI 模式直接失败退出，输出已写明失败点。
-                    log.Log("安装中止。");
-                    return 1;
-                }
-                // 卸载各步相互独立，照常跑完剩余项（与 UI 行为一致）
-            }
-        }
-        log.Log(hasFail ? "卸载完成，存在失败步骤。" : "安装/卸载完成。");
-        return hasFail ? 1 : 0;
     }
 
     public static bool IsAdmin()

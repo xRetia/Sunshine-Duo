@@ -15,6 +15,12 @@ public partial class App : Application
         string[] args = e.Args;
 
         // Admin modes used by the Protocol menu (launched via UAC).
+        Launcher.CliMode = args.Any(a =>
+            a.Equals("--register-all", StringComparison.OrdinalIgnoreCase) ||
+            a.Equals("--unregister-all", StringComparison.OrdinalIgnoreCase) ||
+            a.Equals("--install-service", StringComparison.OrdinalIgnoreCase) ||
+            a.Equals("--uninstall-service", StringComparison.OrdinalIgnoreCase));
+
         if (args.Any(a => a.Equals("--register-all", StringComparison.OrdinalIgnoreCase)))
         {
             Launcher.RegisterAllUsers();
