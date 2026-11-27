@@ -1,5 +1,9 @@
 # CHANGELOG
 
+## v1.1.1 (2026-11-27)
+
+- GameManager 安装/卸载 CLI 命令（--register-all/--unregister-all/--install-service/--uninstall-service）改为 stdout/stderr 输出，不再弹 MessageBox，消除 setup.exe 等待子进程超时
+
 ## v1.1.0 (2026-11-27)
 
 - 托盘仅保留 WebUI：删除 WinForms 界面层（MainForm/全部页面/UiKit 死代码），只走 WebView2
