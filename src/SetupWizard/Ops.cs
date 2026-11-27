@@ -48,11 +48,15 @@ internal static class Proc
 // 安装/卸载操作主体（从 scripts\sunshine-setup.ps1 移植）
 internal static class Ops
 {
+    /// <summary>安装结束后置位：虚拟显卡装好但需重启电脑才生效（结果页据此弹窗询问是否重启）。</summary>
+    public static bool VdaRestartPending { get; private set; }
+
     // ------------------------------------------------------------------
     // 步骤工厂：安装（跳过已安装项）
     // ------------------------------------------------------------------
     public static List<OpsStep> InstallSteps(Opts o, IRunReporter log)
     {
+        VdaRestartPending = false; // 每次安装运行重新累积，避免上一次运行的残留触发误弹窗
         var steps = new List<OpsStep>();
         var skip = new List<string>();
 
@@ -294,11 +298,12 @@ internal static class Ops
         var d = SudoVda.Query();
         if (d.State is SudoVda.DevState.Started or SudoVda.DevState.NeedRestart)
         {
+            VdaRestartPending |= d.State == SudoVda.DevState.NeedRestart;
             log.Log($"跳过: 虚拟显示器驱动已存在（{d.State}），如需重装请先卸载");
             return;
         }
         log.Log("正在安装虚拟显示器驱动...");
-        SudoVda.Install(log.Log, CancellationToken.None);
+        VdaRestartPending |= SudoVda.Install(log.Log, CancellationToken.None);
     }
 
     // ------------------------------------------------------------------

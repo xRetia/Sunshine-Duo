@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO;
 
 namespace SunshineDuoSetup;
 
@@ -72,6 +73,21 @@ internal static class Program
                 "推荐安装 WebView2 运行时", MessageBoxButtons.OKCancel, MessageBoxIcon.Warning,
                 MessageBoxDefaultButton.Button2);
             return dr == DialogResult.OK;
+        }
+
+        // 核心组件完整性检查：SunshineDuoCore.exe 缺失通常被杀毒软件误删，提示用户关杀软并重新下载安装包
+        if (!File.Exists(Paths.CoreExe))
+        {
+            MessageBox.Show(
+                "核心组件文件缺失：\n" + Paths.CoreExe + "\n\n" +
+                "这通常是杀毒软件（如管家/360/Windows Defender）误删了程序文件。\n\n" +
+                "请执行以下操作：\n" +
+                "1. 关闭或卸载相关杀毒软件（或将其加入白名单）；\n" +
+                "2. 重新从官方渠道下载完整安装包；\n" +
+                "3. 解压到全新目录后再次运行本程序。\n\n" +
+                "本程序无法在组件缺失的情况下继续安装。",
+                "核心组件缺失", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return false;
         }
 
         return true;

@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Drawing.Drawing2D;
 using System.Runtime.InteropServices;
+using System.Diagnostics;
 
 namespace SunshineDuoSetup;
 
@@ -163,8 +164,27 @@ internal sealed class MainForm : Form
         {
             // 结果取自泵内的权威列表，不依赖进度页控件上的 Tag
             var results = _pump.Results.Select(r => (r.Key, r.Label, r.Ok)).ToList();
-            _result.ShowResult(_pump.IsInstall, results.Any(r => !r.Ok), aborted: false, _pump.LastOpts, results);
+            var hasFail = results.Any(r => !r.Ok);
+            _result.ShowResult(_pump.IsInstall, hasFail, aborted: false, _pump.LastOpts, results);
             Navigate("f");
+
+            // 安装全部成功且虚拟显卡装好但需重启生效（如设备状态码 31）：询问是否立即重启电脑
+            if (_pump.IsInstall && !hasFail && Ops.VdaRestartPending)
+            {
+                var dr = MessageBox.Show(this,
+                    "虚拟显卡驱动已安装，重启电脑后才能生效。\n\n是否立即重启电脑？",
+                    "重启提示", MessageBoxButtons.YesNo, MessageBoxIcon.Question,
+                    MessageBoxDefaultButton.Button1);
+                if (dr == DialogResult.Yes)
+                {
+                    // /t 0 立即重启；/g 重启后自动恢复注册了 ApplicationRestart 的应用
+                    Process.Start(new ProcessStartInfo("shutdown", "/g /t 0")
+                    {
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                    });
+                }
+            }
         };
 
         Navigate(initial);

@@ -734,6 +734,12 @@ internal sealed class WizardPage : Panel
                 MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return null;
         }
+        if (o.WebUiPassword.Length < 6)
+        {
+            MessageBox.Show(this, "网页控制台密码长度不能少于 6 位。", "密码过短",
+                MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return null;
+        }
         if (o.PortMain < 1024 || o.PortMain > 65520)
         {
             MessageBox.Show(this, "主画面端口无效。", "端口无效", MessageBoxButtons.OK, MessageBoxIcon.Warning);

@@ -148,6 +148,7 @@ internal static class SudoVda
                         {
                             0x0E => DevState.NeedRestart,   // CM_PROB_NEED_RESTART
                             0x12 => DevState.NeedRestart,   // CM_PROB_REINSTALL
+                            0x1F => DevState.NeedRestart,   // CM_PROB_FAILED_ADD（31）：SudoVDA 装后常见，重启电脑才正常启动，视作安装成功
                             0x16 => DevState.Failed,        // CM_PROB_DISABLED
                             _ => DevState.Failed,
                         };
@@ -208,7 +209,8 @@ internal static class SudoVda
         }
     }
 
-    public static void Install(Action<string> log, CancellationToken ct)
+    /// <summary>安装驱动。返回 true 表示设备已就绪但需重启电脑才能生效（代码 31 等）。</summary>
+    public static bool Install(Action<string> log, CancellationToken ct)
     {
         if (!File.Exists(Paths.SudoVdaInf)) throw new FileNotFoundException("未找到 " + Paths.SudoVdaInf);
         EnsureCertificates(log);
@@ -263,10 +265,12 @@ internal static class SudoVda
         {
             case DevState.Started:
                 log("OK: 虚拟显卡驱动已安装并运行");
-                break;
+                return false;
             case DevState.NeedRestart:
-                log("OK: 虚拟显卡驱动已安装（重启电脑后生效）");
-                break;
+                log(problem == 0x1F
+                    ? $"OK: 虚拟显卡驱动已安装（设备状态码 {problem}，重启电脑后生效）"
+                    : "OK: 虚拟显卡驱动已安装（重启电脑后生效）");
+                return true;
             default:
                 throw new Exception($"虚拟显卡设备未就绪（状态 {state}，问题码 {problem}）；若设备管理器提示需重启，重启电脑即生效");
         }
