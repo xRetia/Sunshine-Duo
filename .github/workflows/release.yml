@@ -46,6 +46,12 @@ jobs:
         run: |
           Remove-Item -Recurse -Force src\SunshineDuoUI\bin,src\SunshineDuoUI\obj -ErrorAction SilentlyContinue
           dotnet publish src\SunshineDuoUI\SunshineDuoTray.csproj -c Release -r win-x64 --self-contained true
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host '=== binlog ==='
+            dotnet publish src\SunshineDuoUI\SunshineDuoTray.csproj -c Release -r win-x64 --self-contained true -bl:binlog.txt
+            Get-Content binlog.txt -Tail 100
+            throw "dotnet publish 失败 exit=$LASTEXITCODE"
+          }
           $pub = "src\SunshineDuoUI\bin\Release\net9.0-windows\win-x64\publish\SunshineDuoTray.exe"
           if (-not (Test-Path $pub)) { throw "tray publish 产物缺失: $pub" }
           New-Item -ItemType Directory -Path bin\SunshineDuoTray -Force | Out-Null
