@@ -172,7 +172,7 @@ internal static class Updater
                 throw new Exception("更新包内未找到 sunshine.exe（不是有效的 Sunshine-Duo 发布包）");
 
             log("停止旧进程与服务...");
-            StopRunningProcesses(log);
+            var pre = StopRunningProcesses(log);
 
             log("替换程序文件（保留 config、bin 本机文件与已配对数据）...");
             try
@@ -182,12 +182,15 @@ internal static class Updater
             catch
             {
                 RestartCoreService(log);
+                RestoreStoppedServices(pre, log);
                 StartTray(log);
                 throw;
             }
 
-            // 服务注册不动（binPath 不变）：核心与托盘在替换后恢复。
+            // 服务注册不动（binPath 不变）：核心、GameViewer/GameManager 服务与托盘在替换后恢复；
+            // easytier/sunshine.exe 由核心服务自动拉起。
             RestartCoreService(log);
+            RestoreStoppedServices(pre, log);
             StartTray(log);
             log($"OK: 已更新到 {tag}，核心服务与托盘已拉起");
         }
@@ -291,13 +294,37 @@ internal static class Updater
         try
         {
             var r = Ops.ProcRun("sc.exe", $"start {Paths.SvcName}", 30_000);
-            log(r.ExitCode == 0 || r.ExitCode == 1062 // 1062 = service not started? treat 0/1056(已启动)/1062 as ok
+            log(r.ExitCode == 0 || r.ExitCode == 1056 || r.ExitCode == 1062
                 ? $"OK: 服务 {Paths.SvcName} 已启动（sunshine.exe 由守卫自动拉起）"
                 : $"警告: 服务 {Paths.SvcName} 启动返回码 {r.ExitCode}，稍后可手动执行: sc start {Paths.SvcName}");
         }
         catch (Exception ex)
         {
             log($"警告: 启动服务 {Paths.SvcName} 失败: {ex.Message}");
+        }
+    }
+
+    // 更新前在跑的服务原样拉起（旧服务 GameViewerSessionHook 多数机器不存在，存在且在跑才恢复）
+    private static void RestoreStoppedServices(PreStopState pre, Action<string> log)
+    {
+        TryStartService(Paths.GvSvcName, pre.GameViewerRunning, log);
+        TryStartService(Paths.GmSvcName, pre.GameManagerRunning, log);
+        TryStartService(Paths.LegacySvc, pre.LegacyRunning, log);
+    }
+
+    private static void TryStartService(string name, bool condition, Action<string> log)
+    {
+        if (!condition) return;
+        try
+        {
+            var r = Ops.ProcRun("sc.exe", $"start {name}", 30_000);
+            log(r.ExitCode == 0 || r.ExitCode == 1056 || r.ExitCode == 1062
+                ? $"OK: 服务 {name} 已启动"
+                : $"警告: 服务 {name} 启动返回码 {r.ExitCode}");
+        }
+        catch (Exception ex)
+        {
+            log($"警告: 启动服务 {name} 失败: {ex.Message}");
         }
     }
 
@@ -321,9 +348,15 @@ internal static class Updater
         }
     }
 
-    private static void StopRunningProcesses(Action<string>? log = null)
+    private sealed record PreStopState(bool GameManagerRunning, bool GameViewerRunning, bool LegacyRunning);
+
+    private static PreStopState StopRunningProcesses(Action<string>? log = null)
     {
-        foreach (var svc in new[] { Paths.SvcName, Paths.LegacySvc })
+        var pre = new PreStopState(
+            GameManagerRunning: ServiceRunning(Paths.GmSvcName),
+            GameViewerRunning: ServiceRunning(Paths.GvSvcName),
+            LegacyRunning: ServiceRunning(Paths.LegacySvc));
+        foreach (var svc in new[] { Paths.SvcName, Paths.LegacySvc, Paths.GvSvcName, Paths.GmSvcName })
         {
             try
             {
@@ -334,55 +367,55 @@ internal static class Updater
             }
             catch (InvalidOperationException) { }
             catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 1060) { }
+            catch (Exception ex) { log?.Invoke($"警告: 服务 {svc} 停止失败: {ex.Message}"); }
         }
-        foreach (var name in new[] { "SunshineDuoCore", "sunshine", "SunshineDuoTray", "easytier-core" })
-        {
-            foreach (var p in Process.GetProcessesByName(name))
-            {
-                var pid = p.Id;
-                var killed = false;
-                for (var attempt = 0; attempt < 3 && !killed; attempt++)
-                {
-                    try
-                    {
-                        if (!p.HasExited) p.Kill(true);
-                        killed = true;
-                    }
-                    catch
-                    {
-                        Thread.Sleep(500);
-                        p.Refresh();
-                    }
-                }
-                if (!killed)
-                    log?.Invoke($"警告: 无法终止进程 {name} (PID={pid})，将尽量继续");
-                try { p.WaitForExit(10_000); } catch { }
-                p.Dispose();
-            }
-        }
-        // Confirm the user-session tray is gone; even if it survives, ReplaceFile's
-        // rename-aside path can still replace locked files, so this is a warning now.
-        var trayDeadline = DateTime.UtcNow.AddSeconds(10);
-        while (DateTime.UtcNow < trayDeadline)
-        {
-            var runningTray = Process.GetProcessesByName("SunshineDuoTray");
-            var stillRunning = runningTray.Length > 0;
-            foreach (var process in runningTray) process.Dispose();
-            if (!stillRunning) break;
-            Thread.Sleep(250);
-        }
-        if (Process.GetProcessesByName("SunshineDuoTray").Length > 0)
-            log?.Invoke("警告: 托盘程序仍在运行，后续文件替换将通过改名挪开方式进行，下次启动会清理旧文件。");
 
-        var deadline = DateTime.UtcNow.AddSeconds(10);
+        // 服务停止后，按当时存在的全部 PID 清理；不能只杀服务名，否则服务外孤儿和
+        // GameViewerService/GameManager 进程会继续占用待替换文件（gv_hook 注入在
+        // GameViewerService 进程里）。每轮都会重新枚举，防止守护进程复活。
+        var names = new[] { "SunshineDuoCore", "sunshine", "SunshineDuoTray", "easytier-core",
+            "GameManager", Paths.GvSvcName };
+        var deadline = DateTime.UtcNow.AddSeconds(30);
         while (DateTime.UtcNow < deadline)
         {
-            var running = new[] { "SunshineDuoCore", "sunshine", "easytier-core" }
-                .SelectMany(Process.GetProcessesByName).ToArray();
-            foreach (var process in running) process.Dispose();
-            if (running.Length == 0) break;
+            var running = names.SelectMany(Process.GetProcessesByName).ToArray();
+            if (running.Length == 0) return pre;
+            foreach (var p in running)
+            {
+                var name = "unknown";
+                var pid = p.Id;
+                try
+                {
+                    name = p.ProcessName;
+                    if (!p.HasExited) p.Kill(entireProcessTree: true);
+                    if (!p.WaitForExit(5_000))
+                        log?.Invoke($"警告: 无法确认 {name} (PID={pid}) 已退出");
+                }
+                catch (Exception ex) { log?.Invoke($"警告: 终止 {name} (PID={pid}) 失败: {ex.Message}"); }
+                finally { p.Dispose(); }
+            }
             Thread.Sleep(250);
         }
+
+        var survivors = names.SelectMany(Process.GetProcessesByName).ToArray();
+        foreach (var p in survivors)
+        {
+            log?.Invoke($"错误: 清场失败，{p.ProcessName} (PID={p.Id}) 仍在运行，停止更新以避免半更新");
+            p.Dispose();
+        }
+        if (survivors.Length > 0)
+            throw new IOException("相关服务/进程未完全退出，已中止文件替换");
+        return pre;
+    }
+
+    private static bool ServiceRunning(string name)
+    {
+        try
+        {
+            using var controller = new ServiceController(name);
+            return controller.Status is not ServiceControllerStatus.Stopped and not ServiceControllerStatus.StopPending;
+        }
+        catch { return false; }
     }
 
     private static System.Net.Http.HttpClient NewHttp()

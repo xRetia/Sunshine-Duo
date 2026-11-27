@@ -14,6 +14,9 @@ internal static class Program
         if (args.Any(a => a.Equals("--replace-probe", StringComparison.OrdinalIgnoreCase)))
             return ReplaceProbe.Run();
 
+        if (args.Any(a => a.Equals("--process-lab", StringComparison.OrdinalIgnoreCase)))
+            return ProcessLab.Run(args);
+
         var shotIdx = Array.FindIndex(args, a => a.Equals("--shots", StringComparison.OrdinalIgnoreCase));
         if (shotIdx >= 0)
             return Shot.Run(args.Length > shotIdx + 1 ? args[shotIdx + 1] : Path.Combine(Paths.Root, ".temp", "uitest"));

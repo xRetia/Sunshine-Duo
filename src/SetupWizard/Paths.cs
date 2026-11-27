@@ -42,6 +42,7 @@ internal static class Paths
     public const string SvcDispName = "Sunshine Duo 核心服务";
     public const string LegacySvc = "GameViewerSessionHook";
     public const string GmSvcName = "GameManagerService";
+    public const string GvSvcName = "GameViewerService"; // 网易 GameViewer 服务进程，gv_hook 注入目标
     public const string RdpWrapDir = @"C:\Program Files\RDP Wrapper";
     public const string LegacyTaskName = "Sunshine Autostart";
     public const string LegacyTaskName2 = "Sunshine Autostart (Game)";
