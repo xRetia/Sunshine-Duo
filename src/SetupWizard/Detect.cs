@@ -19,23 +19,29 @@ internal static class Detect
     }
 
     // .NET 9 桌面运行时：安装程序必须存在，缺失则阻断安装
+    // 探测系统级、当前用户级安装及 DOTNET_ROOT，避免 Program Files 重定向时漏检。
     public static State DotNetDesktop9()
     {
-        var roots = new[]
+        var roots = new List<string>
         {
-            @"C:\Program Files\dotnet\shared\Microsoft.WindowsDesktop.App",
-            @"C:\Program Files (x86)\dotnet\shared\Microsoft.WindowsDesktop.App",
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "dotnet", "shared", "Microsoft.WindowsDesktop.App"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "dotnet", "shared", "Microsoft.WindowsDesktop.App"),
+            // 用户级安装（.NET 安装器默认 %LocalAppData%\Microsoft\dotnet）
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Microsoft", "dotnet", "shared", "Microsoft.WindowsDesktop.App"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".dotnet", "shared", "Microsoft.WindowsDesktop.App"),
         };
-        foreach (var root in roots)
+        if (Environment.GetEnvironmentVariable("DOTNET_ROOT") is { Length: > 0 } dotnetRoot)
+            roots.Add(Path.Combine(dotnetRoot, "shared", "Microsoft.WindowsDesktop.App"));
+
+        foreach (var dir in roots.Where(r => r.Length > 0 && Directory.Exists(r)))
         {
-            if (!Directory.Exists(root)) continue;
-            foreach (var dir in Directory.GetDirectories(root))
+            foreach (var ver in Directory.GetDirectories(dir))
             {
-                var name = Path.GetFileName(dir);
-                if (name.StartsWith("9.", StringComparison.Ordinal))
-                    return new State(true, "已安装 " + name);
+                if (Path.GetFileName(ver).StartsWith("9.", StringComparison.Ordinal))
+                    return new State(true, "已安装 " + Path.GetFileName(ver));
             }
         }
+
         return new State(false, "未安装（需下载并安装 .NET 9 桌面运行时）");
     }
 
@@ -159,5 +165,37 @@ internal static class Services
             return new Info(name, sc.Status.ToString());
         }
         catch { return null; }
+    }
+
+    // 有界轮询等待服务进入 Running：StartPending/StopPending 属启动过渡态，继续等；
+    // Running 即成功；始终不 Running 返回 false 并把最终状态/诊断写入 diagnostic。
+    // 服务不存在/查询失败时立即返回 false（不空等），diagnostic 带异常描述。
+    // 与 Updater.ConfirmServiceRunning 同语义（每轮新建控制器读实时状态而非缓存），
+    // 安装路径（Ops.InstallCoreService）与更新路径（Updater）共用此判定。
+    public static bool ConfirmRunning(string name, int timeoutMs, out string diagnostic)
+    {
+        diagnostic = "";
+        var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+        var lastState = "未知";
+        while (true)
+        {
+            try
+            {
+                using var controller = new ServiceController(name);
+                var status = controller.Status;
+                lastState = status.ToString();
+                if (status == ServiceControllerStatus.Running) return true;
+            }
+            catch (Exception ex)
+            {
+                diagnostic = "状态查询失败: " + ex.GetType().Name
+                    + (string.IsNullOrWhiteSpace(ex.Message) ? "" : $": {ex.Message}");
+                return false;
+            }
+            if (DateTime.UtcNow >= deadline) break;
+            Thread.Sleep(500);
+        }
+        diagnostic = $"最终状态: {lastState}";
+        return false;
     }
 }

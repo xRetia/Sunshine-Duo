@@ -290,19 +290,7 @@ internal static class Updater
 
     // 更新后拉起：core 服务直接 sc start（注册未动）；托盘按原自启设置决定是否拉起
     private static void RestartCoreService(Action<string> log)
-    {
-        try
-        {
-            var r = Ops.ProcRun("sc.exe", $"start {Paths.SvcName}", 30_000);
-            log(r.ExitCode == 0 || r.ExitCode == 1056 || r.ExitCode == 1062
-                ? $"OK: 服务 {Paths.SvcName} 已启动（sunshine.exe 由守卫自动拉起）"
-                : $"警告: 服务 {Paths.SvcName} 启动返回码 {r.ExitCode}，稍后可手动执行: sc start {Paths.SvcName}");
-        }
-        catch (Exception ex)
-        {
-            log($"警告: 启动服务 {Paths.SvcName} 失败: {ex.Message}");
-        }
-    }
+        => StartServiceVerified(Paths.SvcName, log, okHint: "sunshine.exe 由守卫自动拉起", manualHint: true);
 
     // 更新前在跑的服务原样拉起（旧服务 GameViewerSessionHook 多数机器不存在，存在且在跑才恢复）
     private static void RestoreStoppedServices(PreStopState pre, Action<string> log)
@@ -315,18 +303,81 @@ internal static class Updater
     private static void TryStartService(string name, bool condition, Action<string> log)
     {
         if (!condition) return;
+        StartServiceVerified(name, log);
+    }
+
+    // 启动服务并做后验确认：sc start 的返回码/命令异常并不等于服务最终没起来
+    // （sc.exe 可能已把启动请求提交给 SCM，服务随后正常拉起；异步流读取/等待也可能抛异常）。
+    // 因此返回码异常或命令抛异常时，都用 ServiceController 复核最终状态再下结论，
+    // 避免把"服务已启动"误报成"启动服务 xxx 失败"。
+    private static void StartServiceVerified(string name, Action<string> log, string? okHint = null, bool manualHint = false)
+    {
+        var hint = string.IsNullOrWhiteSpace(okHint) ? "" : $"（{okHint}）";
+        var manual = manualHint ? $"，稍后可手动执行: sc start {name}" : "";
         try
         {
             var r = Ops.ProcRun("sc.exe", $"start {name}", 30_000);
-            log(r.ExitCode == 0 || r.ExitCode == 1056 || r.ExitCode == 1062
-                ? $"OK: 服务 {name} 已启动"
-                : $"警告: 服务 {name} 启动返回码 {r.ExitCode}");
+            if (r.ExitCode == 0 || r.ExitCode == 1056 || r.ExitCode == 1062)
+            {
+                log($"OK: 服务 {name} 已启动{hint}");
+                return;
+            }
+            // 返回码非预期：启动请求可能已提交、只是尚未生效，复核最终状态
+            if (ConfirmServiceRunning(name, 10_000, out var diag))
+            {
+                log($"OK: 服务 {name} 已启动{hint}（sc start 返回码 {r.ExitCode}，但服务已处于运行状态）");
+                return;
+            }
+            log($"警告: 服务 {name} 启动返回码 {r.ExitCode}，且服务未进入运行状态（{diag}）{manual}");
         }
         catch (Exception ex)
         {
-            log($"警告: 启动服务 {name} 失败: {ex.Message}");
+            // 启动命令异常：同样以后验状态为准，避免误报"启动失败"
+            var detail = DescribeException(ex);
+            if (ConfirmServiceRunning(name, 10_000, out var diag))
+            {
+                log($"OK: 服务 {name} 已启动（启动命令异常但服务已运行）{hint}；命令异常: {detail}");
+                return;
+            }
+            log($"警告: 启动服务 {name} 失败: {detail}；状态确认: {diag}{manual}");
         }
     }
+
+    // 后验状态确认：按服务名查询 SCM 状态，最多轮询约 10 秒。
+    // Running → 成功；StartPending → 继续等；始终非 Running → 失败并给出诊断信息。
+    // 服务不存在/无法查询时返回 false，并把异常信息放进 diagnostic（保留警告但带诊断）。
+    private static bool ConfirmServiceRunning(string name, int timeoutMs, out string diagnostic)
+    {
+        diagnostic = "";
+        var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+        var lastState = "未知";
+        while (true)
+        {
+            try
+            {
+                // 每轮新建控制器，确保读到的是当前状态而非缓存值
+                using var controller = new ServiceController(name);
+                var status = controller.Status;
+                lastState = status.ToString();
+                // Running 即成功；StartPending（正在启动）不算成功，继续轮询等它落定
+                if (status == ServiceControllerStatus.Running) return true;
+            }
+            catch (Exception ex)
+            {
+                // 服务不存在 / 无权限查询 / 服务名非法等：无法确认，转为警告并带诊断
+                diagnostic = $"状态查询失败: {DescribeException(ex)}";
+                return false;
+            }
+            if (DateTime.UtcNow >= deadline) break;
+            Thread.Sleep(500);
+        }
+        diagnostic = $"最终状态: {lastState}";
+        return false;
+    }
+
+    // 异常描述：保证非空——异常类型名 + 非空消息（有些异常的 Message 为空）
+    private static string DescribeException(Exception ex)
+        => ex.GetType().Name + (string.IsNullOrWhiteSpace(ex.Message) ? "" : $": {ex.Message}");
 
     private static void StartTray(Action<string> log)
     {

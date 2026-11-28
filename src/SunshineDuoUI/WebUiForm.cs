@@ -318,7 +318,15 @@ internal sealed class WebUiForm : Form, IMainUi
             case "poll":
             {
                 var p = await PollSnapshot();
-                return new { sessions = p.sessions, service = p.service, wan = p.wan, tunnel = p.tunnel };
+                return new
+                {
+                    sessions = p.sessions,
+                    service = p.service,
+                    wan = p.wan,
+                    tunnel = p.tunnel,
+                    consoleEnabled = p.consoleEnabled,
+                    gameEnabled = p.gameEnabled,
+                };
             }
 
             case "getWanIp":
@@ -382,6 +390,9 @@ internal sealed class WebUiForm : Form, IMainUi
             case "restartApollo":
             {
                 var id = Str(a, "id", "console");
+                // 单会话安装：被禁用的会话直接拒绝（核心服务侧同样校验）
+                if (id == "console" ? !Paths.IsConsoleEnabled() : !Paths.IsGameEnabled())
+                    throw new Exception("会话不可用");
                 var name = id == "console" ? "当前会话" : "游戏会话";
                 var err = await GuardPipe.RestartApollo(id);
                 if (err != null) throw new Exception(err);
@@ -527,8 +538,8 @@ internal sealed class WebUiForm : Form, IMainUi
             theme = _cfg.Theme ?? "system",
             page = PageId(_page),
             focusPin = _focusPin,
-            consoleEnabled = Paths.ConsoleEnabled,
-            gameEnabled = Paths.GameEnabled,
+            consoleEnabled = Paths.IsConsoleEnabled(),
+            gameEnabled = Paths.IsGameEnabled(),
             sessions,
             net = new { lan = NetInfo.LocalIp(), wan = _wanIp },
             core = new
@@ -547,7 +558,8 @@ internal sealed class WebUiForm : Form, IMainUi
         };
     }
 
-    private async Task<(Dictionary<string, bool?> sessions, string service, string wan, object? tunnel)> PollSnapshot()
+    private async Task<(Dictionary<string, bool?> sessions, string service, string wan, object? tunnel,
+        bool consoleEnabled, bool gameEnabled)> PollSnapshot()
     {
         var sessions = new Dictionary<string, bool?>();
         foreach (var s in Paths.GetSessions(_cfg))
@@ -561,7 +573,8 @@ internal sealed class WebUiForm : Form, IMainUi
         }
         var service = await Task.Run(ServiceControl.Query);
         var tunnel = await GuardPipe.EasyTierStatus();
-        return (sessions, service, _wanIp, tunnel == null ? null : EasyTierObj(tunnel));
+        return (sessions, service, _wanIp, tunnel == null ? null : EasyTierObj(tunnel),
+            Paths.IsConsoleEnabled(), Paths.IsGameEnabled());
     }
 
     private async Task PollAsync()
@@ -573,6 +586,7 @@ internal sealed class WebUiForm : Form, IMainUi
             var s = await PollSnapshot();
             Push("session", s.sessions);
             Push("service", s.service);
+            Push("visibility", new { consoleEnabled = s.consoleEnabled, gameEnabled = s.gameEnabled });
             if (s.tunnel != null) Push("tunnel", s.tunnel);
             if (_wanIp.Length > 0) Push("wan", _wanIp);
             if (DateTime.Now - _wanAt > TimeSpan.FromHours(1)) _ = WarmWanAsync();
@@ -645,10 +659,16 @@ internal sealed class WebUiForm : Form, IMainUi
     {
         var errors = new List<string>();
         var changed = new List<string>();
-        foreach (var (id, name) in new[] { ("console", "当前会话"), ("game", "游戏会话") })
+        // 单会话安装：guard 开关为 false 的会话不写 conf、不重启（conf 可能不存在）
+        var targets = new List<(string Id, string Name, int Port)>
         {
+            ("console", "当前会话", cp),
+            ("game", "游戏会话", gp),
+        };
+        foreach (var (id, name, port) in targets)
+        {
+            if (id == "console" ? !Paths.IsConsoleEnabled() : !Paths.IsGameEnabled()) continue;
             var s = Paths.GetSessions(_cfg).FirstOrDefault(x => x.Id == id);
-            var port = id == "console" ? cp : gp;
             if (s != null && s.StreamPort != port)
             {
                 if (WriteConfPort(s.ConfPath, port)) changed.Add(name);
@@ -657,7 +677,7 @@ internal sealed class WebUiForm : Form, IMainUi
             }
         }
         _cfg.Save();
-        foreach (var (id, name) in new[] { ("console", "当前会话"), ("game", "游戏会话") })
+        foreach (var (id, name) in targets)
             if (changed.Contains(name))
             {
                 var err = await GuardPipe.RestartApollo(id);
@@ -696,7 +716,7 @@ internal sealed class WebUiForm : Form, IMainUi
 
     private async Task<string> ApplyCredentials(string user, string pass)
     {
-        if (user.Length == 0 || pass.Length < 4) throw new Exception("用户名不能为空，密码至少 4 位。");
+        if (user.Length == 0 || pass.Length < 6) throw new Exception("用户名不能为空，密码至少 6 位。");
         string? err;
         try { err = await Task.Run(() => CredentialReset.Apply(user, pass)); }
         catch (Exception e) { err = e.Message; }
@@ -706,10 +726,13 @@ internal sealed class WebUiForm : Form, IMainUi
         _cfg.SetPass(pass);
         _cfg.Save();
         var failures = new List<string>();
-        foreach (var id in new[] { "console", "game" })
+        // 单会话安装：跳过被禁用的会话（conf 可能不存在，重启也会被核心服务拒绝）
+        foreach (var (id, label) in new[] { ("console", "当前会话："), ("game", "游戏会话：") })
         {
+            var enabled = id == "console" ? Paths.IsConsoleEnabled() : Paths.IsGameEnabled();
+            if (!enabled) continue;
             var re = await GuardPipe.RestartApollo(id);
-            if (re != null) failures.Add((id == "console" ? "当前会话：" : "游戏会话：") + re);
+            if (re != null) failures.Add(label + re);
         }
         return failures.Count == 0
             ? "凭证已应用，Apollo 正在重启。"

@@ -76,13 +76,25 @@ public static class Paths
         catch { return fallback; }
     }
 
+    // 全部会话（不按开关过滤）：托盘菜单用，运行期按 GetSessions 的实时结果显隐
+    public static List<SessionInfo> AllSessions(AppConfig cfg)
+    {
+        var list = new List<SessionInfo>
+        {
+            MakeSession("console", "当前会话", ConsoleConf, cfg.ConsolePort),
+            MakeSession("game", "游戏会话", GameConf, cfg.GamePort),
+        };
+        return list;
+    }
+
     // 已启用会话列表（顺序 console → game）；端口以 conf 的 port= 行为准，
-    // 读不到时退回 trayapp.json 保存的端口。
+    // 读不到时退回 trayapp.json 保存的端口。开关实时读取（IsConsoleEnabled/IsGameEnabled），
+    // 单会话/双会话切换后无需重启托盘即生效。
     public static List<SessionInfo> GetSessions(AppConfig cfg)
     {
         var list = new List<SessionInfo>();
-        if (ConsoleEnabled) list.Add(MakeSession("console", "当前会话", ConsoleConf, cfg.ConsolePort));
-        if (GameEnabled) list.Add(MakeSession("game", "游戏会话", GameConf, cfg.GamePort));
+        if (IsConsoleEnabled()) list.Add(MakeSession("console", "当前会话", ConsoleConf, cfg.ConsolePort));
+        if (IsGameEnabled()) list.Add(MakeSession("game", "游戏会话", GameConf, cfg.GamePort));
         return list;
     }
 

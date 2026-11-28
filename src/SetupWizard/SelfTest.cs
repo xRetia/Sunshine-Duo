@@ -93,6 +93,33 @@ internal static class SelfTest
 
         Console.WriteLine($"  [INFO] 本地版本（.VERSION）= {Updater.LocalVersion}");
 
+        // .NET 9 Desktop Runtime 检测只按实际安装目录判定，自包含 setup 不应绕过系统前置要求。
+        var dotnet = Detect.DotNetDesktop9();
+        Console.WriteLine($"  [INFO] .NET 9 桌面运行时检测 = Installed:{dotnet.Installed} ({dotnet.Detail})");
+        Check(".NET 9 检测可执行且结论非空", () => dotnet.Detail.Length > 0);
+        Check(".NET 9 检测结果与共享运行时目录一致", () =>
+            dotnet.Installed == dotnet.Detail.StartsWith("已安装 ", StringComparison.Ordinal));
+
+        // 服务有界轮询：不存在/无法查询的服务必须立即失败并带诊断（不空等、不抛异常）
+        const string bogusSvc = "SunshineDuoSetup_SelfTest_NoSuchService";
+        var t0 = Environment.TickCount64;
+        var confirmMissing = Services.ConfirmRunning(bogusSvc, 5_000, out var diagMissing);
+        Check("ConfirmRunning 对不存在服务快速失败并带诊断", () =>
+            !confirmMissing && diagMissing.Length > 0 && Environment.TickCount64 - t0 < 2_000);
+
+        // guard_uu 依据：GvServiceInstalled 只读查询外部服务（与 Services.Query 一致，且不控制它）
+        var gv = Ops.GvServiceInstalled();
+        Console.WriteLine($"  [INFO] GameViewerService（{Paths.GvSvcName}）安装 = {gv}");
+        Check("GvServiceInstalled 与服务查询一致", () => gv == (Services.Query(Paths.GvSvcName) is not null));
+        Check("guard_uu 布尔值可写入 core config（JSON 语义）", () =>
+        {
+            // 复刻 InstallCoreService 的写法（cfg["guard_uu"] = bool），解析回读验证布尔落盘
+            var cfg = new System.Text.Json.Nodes.JsonObject();
+            cfg["guard_uu"] = Ops.GvServiceInstalled();
+            var back = System.Text.Json.Nodes.JsonNode.Parse(cfg.ToJsonString());
+            return (bool?)back?["guard_uu"] == gv;
+        });
+
         if (_fail > 0)
         {
             Console.WriteLine($"== SelfTest FAILED ({_fail} 项) ==");

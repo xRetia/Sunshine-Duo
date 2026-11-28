@@ -435,9 +435,13 @@ internal static class Ops
         }
 
         // config.json
+        // guard_uu：GameViewer hook 守护开关——仅当本机装了网易 GameViewerService 服务时开启
+        //（SCM 只读查询，不发控制码、不停启该外部服务）；未装则写 false，避免 PS 守护空转报错。
+        var gvInstalled = GvServiceInstalled();
         if (File.Exists(Paths.CoreCfgPath))
         {
             var cfg = JsonNode.Parse(File.ReadAllText(Paths.CoreCfgPath)) as JsonObject ?? new JsonObject();
+            cfg["guard_uu"] = gvInstalled;
             cfg["guard_apollo"] = o.GameEnabled;
             cfg["guard_apollo_console"] = true;
             cfg["auto_logon"] = o.AutoLogon;
@@ -453,7 +457,7 @@ internal static class Ops
                 cfg["height"] = o.Vh;
             }
             File.WriteAllText(Paths.CoreCfgPath, cfg.ToJsonString(JsonOpts), Utf8NoBomEnc);
-            log.Log($"OK: 会话配置已同步");
+            log.Log($"OK: 会话配置已同步（GameViewer 守护: {(gvInstalled ? "已启用" : "未装服务，已关闭")}）");
         }
         else
         {
@@ -468,7 +472,7 @@ internal static class Ops
                 ["width"] = w,
                 ["height"] = h,
                 ["keepalive"] = true,
-                ["guard_uu"] = true,
+                ["guard_uu"] = gvInstalled,
                 ["guard_apollo"] = o.GameEnabled,
                 ["display_keepalive"] = true,
                 ["console_port"] = o.PortMain,
@@ -484,7 +488,7 @@ internal static class Ops
             if (o.SudovdaResolutions.Count > 0)
                 cfg["sudovda_resolutions"] = new JsonArray(o.SudovdaResolutions.Select(r => JsonValue.Create(r)).ToArray());
             File.WriteAllText(Paths.CoreCfgPath, cfg.ToJsonString(JsonOpts), Utf8NoBomEnc);
-            log.Log($"OK: 会话配置已生成（{w}x{h}，30 分钟重建，开机自动拉起，{(o.AutoLogon ? "开机自动登录开" : "开机自动登录关")}）");
+            log.Log($"OK: 会话配置已生成（{w}x{h}，30 分钟重建，开机自动拉起，{(o.AutoLogon ? "开机自动登录开" : "开机自动登录关")}，GameViewer 守护: {(gvInstalled ? "已启用" : "未装服务，已关闭")}）");
         }
 
         // 服务幂等注册
@@ -504,11 +508,13 @@ internal static class Ops
         Proc.Run("sc.exe", $"failure {Paths.SvcName} reset= 86400 actions= restart/60000/restart/60000/restart/60000");
         var startedAt = DateTime.Now;
         Proc.Run("sc.exe", $"start {Paths.SvcName}");
-        Thread.Sleep(3000);
-        var svcInfo = Services.Query(Paths.SvcName);
-        if (svcInfo is null) throw new Exception($"会话守护服务注册失败");
-        if (svcInfo.State != "Running")
-            throw new Exception($"服务已安装但未能启动（状态 {svcInfo.State}），请重启电脑后重试");
+        // 启动是异步的：sc start 返回≠服务已 Running。SCM 先报 START_PENDING，
+        // 服务初始化（SCM dispatcher + keepalive 线程）完成后才转 RUNNING。
+        // 此前固定睡 3s 后单次查询，机器慢/杀软扫描启动镜像时极易误判失败。
+        // 改为有界轮询：StartPending/StopPending 属过渡态继续等，Running 即成功，超时报最终状态。
+        var svcRunning = Services.ConfirmRunning(Paths.SvcName, timeoutMs: 30_000, out var diag);
+        if (!svcRunning)
+            throw new Exception($"会话守护服务未能进入运行状态（{diag}），请重启电脑后重试");
         log.Log($"OK: 会话守护服务运行中（系统账户 / 自动启动）");
 
         // 回显本次启动后的 watch.log 新增行
@@ -1013,4 +1019,9 @@ internal static class Ops
         }
         catch { return false; }
     }
+
+    // GameViewerService（网易远程助手服务，gv_hook 注入目标）是否已安装。
+    // 只做存在性查询（ServiceController 读 SCM 状态），绝不向该外部服务发控制码/停启。
+    // 任何异常（权限/服务名解析失败）一律按未安装处理：guard_uu=false 不会误开启 hook 守护。
+    public static bool GvServiceInstalled() => Services.Query(Paths.GvSvcName) is not null;
 }

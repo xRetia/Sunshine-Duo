@@ -457,6 +457,7 @@ const THEME_PARAM=QS.get("theme");
 let state={
   theme:THEME_PARAM||localStorage.getItem("sd.theme")||"system",
   page:QS.get("page")||"console",
+  consoleEnabled:true,gameEnabled:true,
   net:{lan:"192.168.12.64",wan:"203.0.113.66"},
   addrMode:{},
   sessions:{
@@ -599,7 +600,7 @@ function vdaHTML(){
   </section>`;
 }
 
-function tunnelOn(){return !!(state.tunnel.enabled||state.tunnel.running);}
+function tunnelOn(){return !!state.tunnel&&!!(state.tunnel.enabled||state.tunnel.running);}
 function addrValue(sid){
   const s=state.sessions[sid], mode=state.addrMode[sid]||"lan";
   if(mode==="wan")return (tunnelOn()?(state.tunnel.virtualIp||state.net.wan):state.net.wan)+":"+s.stream;
@@ -697,7 +698,7 @@ function settingsHTML(){
       <div>
         <div class="card">
           <div class="card-t">串流端口</div>
-          <p class="card-d">指定当前会话和游戏会话的串流端口，两者需相距超过50。</p>
+          <p class="card-d">设置已启用会话的串流端口；双会话模式下两者需相距至少 50。</p>
           <div class="row2 mt">
             <div class="field"><label for="p-c">当前会话串流端口</label><input class="input mono" id="p-c" value="${c.cport}" autocomplete="off"></div>
             <div class="field"><label for="p-g">游戏会话串流端口</label><input class="input mono" id="p-g" value="${c.gport}" autocomplete="off"></div>
@@ -791,23 +792,41 @@ function applySnapshot(s){
     net:{...state.net,...(s.net||{})},
     sessions:{...state.sessions,...(s.sessions||{})},
     core:{...state.core,...(s.core||{})},
-    vda:{...state.vda,...(s.vda||{})}};
+    vda:{...state.vda,...(s.vda||{})},
+    tunnel: s.tunnel==null ? state.tunnel : {...state.tunnel,...s.tunnel}};
   if(s.sessions)for(const x of Object.values(s.sessions))state.sessions[x.id]=x;
   render();
   applyTheme(state.theme);
+  applyVisibility(s); // 先应用会话可见性，导航目标若是被禁用的会话会被 navigate 拦下
   if(s.page)navigate(s.page);
   if(s.focusPin){const f=document.querySelector("#pin-console input");if(f)f.focus();}
-  if(s.consoleEnabled===false||s.gameEnabled===false){
-    $$('.nav-item').forEach(b=>{
-      if((s.consoleEnabled===false&&["console","vda"].includes(b.dataset.nav))||
-         (s.gameEnabled===false&&b.dataset.nav==="game")) b.style.display="none";
-    });
-    if(s.consoleEnabled===false){const el=$("#p-c");if(el)el.closest(".field").style.display="none";}
-    if(s.gameEnabled===false){const el=$("#p-g");if(el)el.closest(".field").style.display="none";}
-    $$('[data-a="restart"]').forEach(b=>{
-      const id=b.dataset.id;
-      if((id==="console"&&s.consoleEnabled===false)||(id==="game"&&s.gameEnabled===false))b.style.display="none";
-    });
+}
+
+/* 会话可见性：guard 开关为 false 的会话整体隐藏（导航页 / 端口输入 / 重启按钮）。
+   开关存入 state，render() 重建 DOM 后也会重新应用；宿主每次轮询都下发实时值，
+   单会话↔双会话切换后界面动态跟随，无需重开窗口 */
+function applyVisibility(s){
+  if(s.consoleEnabled!==undefined)state.consoleEnabled=s.consoleEnabled;
+  if(s.gameEnabled!==undefined)state.gameEnabled=s.gameEnabled;
+  const con=state.consoleEnabled, gam=state.gameEnabled;
+  if(con===undefined&&gam===undefined)return;
+  $$('.nav-item').forEach(b=>{
+    const n=b.dataset.nav;
+    if(con!==undefined&&(n==="console"||n==="vda"))b.style.display=con?"":"none";
+    if(gam!==undefined&&n==="game")b.style.display=gam?"":"none";
+  });
+  const pc=$("#p-c"), pg=$("#p-g");
+  if(con!==undefined&&pc)pc.closest(".field").style.display=con?"":"none";
+  if(gam!==undefined&&pg)pg.closest(".field").style.display=gam?"":"none";
+  $$('[data-a="restart"]').forEach(b=>{
+    const id=b.dataset.id;
+    if(id==="console"&&con!==undefined)b.style.display=con?"":"none";
+    if(id==="game"&&gam!==undefined)b.style.display=gam?"":"none";
+  });
+  const gp=$('[data-page="game"]');
+  if(gp&&gam!==undefined){
+    gp.style.display=gam?"":"none";
+    if(!gam&&state.page==="game")navigate("console");
   }
 }
 
@@ -822,6 +841,7 @@ function onEvent(name,data){
     return;
   }
   if(name==="service"){state.core.service=data;renderService();return;}
+  if(name==="visibility"){applyVisibility(data);return;}
   if(name==="tunnel"){applyTunnel(data||{});return;}
   if(name==="wan"){
     state.net.wan=data;
@@ -846,6 +866,7 @@ async function pollRemote(){
       const s=await call("poll");
       onEvent("session",s.sessions);
       onEvent("service",s.service);
+      onEvent("visibility",s);
       if(s.wan)onEvent("wan",s.wan);
     }catch{}
   }
@@ -860,7 +881,7 @@ function render(){
   $("#app").innerHTML=sidebarHTML()
     +`<main class="content">`
       +sessionHTML(state.sessions.console)
-      +sessionHTML(state.sessions.game)
+      +(state.gameEnabled===false||!state.sessions.game?"":sessionHTML(state.sessions.game))
       +vdaHTML()
       +tunnelHTML()
       +settingsHTML()
@@ -873,6 +894,7 @@ function render(){
       </div>
       <div class="toast" id="toast"><span id="toastIcon"></span><span id="toastText"></span></div>`;
   syncThemeBtn();
+  applyVisibility({});
   $("#stageNote").innerHTML=
     "<b>萌远控 Duo · WebView2 界面预览</b>　拖拽 / 窗口按钮 / 右键屏蔽 / 主题切换：宿主侧由 WebView2 + WinForms 承担";
   resRows();
@@ -882,6 +904,9 @@ function render(){
 }
 
 function navigate(id){
+  /* 会话被禁用时其页面不可达（游戏页隐藏后跳到当前会话页） */
+  if(id==="game"&&state.gameEnabled===false)id="console";
+  if((id==="console"||id==="vda")&&state.consoleEnabled===false)id="settings";
   state.page=id;
   $$(".nav-item").forEach(b=>b.classList.toggle("on",b.dataset.nav===id));
   $$(".page").forEach(p=>p.classList.toggle("on",p.dataset.page===id));
@@ -911,8 +936,17 @@ function applyTheme(mode){
 }
 
 function toast(text,ok=true){
-  $("#toastIcon").innerHTML=ic(ok?"check":"info");
-  $("#toastText").textContent=text;
+  var icEl=$("#toastIcon"), tx=$("#toastText");
+  if(!icEl||!tx){
+    // 兜底：render() 尚未完成时（如极端情况下首帧失败）也能把消息显示出来
+    var el=document.createElement("div");el.id="toast";el.className="toast";
+    el.innerHTML='<span id="toastIcon"></span><span id="toastText"></span>';
+    document.body.appendChild(el);
+    Object.assign(el.style,{position:"absolute",left:"50%",bottom:"20px",zIndex:999,transform:"translate(-50%,10px)",display:"flex",alignItems:"center",gap:"9px",minHeight:"36px",padding:"0 14px",borderRadius:"6px",fontSize:"13px",opacity:"0",pointerEvents:"none",transition:"opacity .167s,transform .167s",color:"var(--text-primary,#fff)"});
+    icEl=$("#toastIcon");tx=$("#toastText");
+  }
+  icEl.innerHTML=ic(ok?"check":"info");
+  tx.textContent=text;
   const t=$("#toast");
   t.classList.toggle("err",!ok);
   t.classList.add("on");
@@ -926,16 +960,18 @@ function setStatus(el,text,kind){
   el.textContent=text;
 }
 
-const SVC_KIND={"运行中":"ok","启动中":"warn","停止中":"warn"};
+const SVC_KIND={"运行中":"ok","启动中":"warn","停止中":"warn","未安装":"bad","查询失败":"bad"};
+function runningCore(s){return s==="运行中"||s==="启动中";}
+/* 侧栏/设置卡的服务状态渲染：异常态由托盘气泡原生提示，这里只更新文字与启停按钮 */
 function renderService(){
   const s=state.core.service, kind=SVC_KIND[s]||"bad";
+  const btn=$("#svcBtn");
   $("#svcSide").className="svc "+kind;
   $("#svcText").textContent="核心服务："+s;
   $("#svcCard").className="svc mt "+kind;
   $("#svcCardText").textContent="萌远控后台服务："+s;
-  const btn=$("#svcBtn");
-  btn.textContent=(s==="运行中"||s==="启动中"?"停止":"启动")+"服务";
   btn.disabled=s==="未安装"||s==="查询失败";
+  btn.textContent=(runningCore(s)?"停止":"启动")+"服务";
 }
 
 /* 内网穿透页 */
@@ -1152,17 +1188,20 @@ async function saveRes(){
 
 async function savePorts(){
   const st=$("#portStatus");
-  const cp=Number($("#p-c").value.trim()), gp=Number($("#p-g").value.trim());
+  const con=state.consoleEnabled!==false, gam=state.gameEnabled!==false;
+  const cp=Number($("#p-c").value.trim());
+  const gp=gam?Number($("#p-g").value.trim()):state.core.gport;
   const ok=v=>Number.isInteger(v)&&v>=1024&&v<=65535;
   if(!ok(cp)){setStatus(st,"当前会话端口必须是 1024-65535 的数字。","bad");return;}
-  if(!ok(gp)){setStatus(st,"游戏会话端口必须是 1024-65535 的数字。","bad");return;}
-  if(Math.abs(cp-gp)<50){setStatus(st,"两个端口差需 ≥ 50，避免端口族重叠。","bad");return;}
+  if(gam&&!ok(gp)){setStatus(st,"游戏会话端口必须是 1024-65535 的数字。","bad");return;}
+  if(con&&gam&&Math.abs(cp-gp)<50){setStatus(st,"两个端口差需 ≥ 50，避免端口族重叠。","bad");return;}
   if(HOSTED){
     setStatus(st,"端口已写入，正在重启会话…","");
     try{
       const msg=await call("savePorts",{cport:cp,gport:gp});
       state.core.cport=cp;state.core.gport=gp;
-      state.sessions.console.stream=cp;state.sessions.game.stream=gp;
+      if(state.sessions.console)state.sessions.console.stream=cp;
+      if(state.sessions.game)state.sessions.game.stream=gp;
       syncSessions();
       setStatus(st,msg,"ok");
     }catch(e){setStatus(st,"保存失败："+e.message,"bad");}
@@ -1170,9 +1209,10 @@ async function savePorts(){
   }
   const changed=[];
   if(cp!==state.core.cport)changed.push("当前会话");
-  if(gp!==state.core.gport)changed.push("游戏会话");
-  state.core.cport=cp;state.core.gport=gp;
-  state.sessions.console.stream=cp;state.sessions.game.stream=gp;
+  if(gam&&gp!==state.core.gport)changed.push("游戏会话");
+  state.core.cport=cp;if(gam)state.core.gport=gp;
+  if(state.sessions.console)state.sessions.console.stream=cp;
+  if(gam&&state.sessions.game)state.sessions.game.stream=gp;
   syncSessions();
   if(!changed.length){setStatus(st,"端口未变化。","");return;}
   setStatus(st,"端口已写入，正在重启 "+changed.join("、")+"…","");

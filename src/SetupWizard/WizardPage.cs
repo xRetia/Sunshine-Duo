@@ -647,6 +647,17 @@ internal sealed class WizardPage : Panel
             _pwdWebUi.Focus();
             return false;
         }
+        // 密码强度在步进时就拦下（不必等到最终安装的 Collect 才失败）：Apollo WebUI 凭据要求 ≥6 位
+        if (webPw.Length < 6)
+        {
+            _lblWebPwState.Text = "密码过短（至少 6 位）";
+            _lblWebPwState.ForeColor = Ui.Danger;
+            MessageBox.Show(this, "网页控制台密码长度不能少于 6 位，请修改后继续。", "密码过短",
+                MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            _pwdWebUi.Focus();
+            _pwdWebUi.SelectAll();
+            return false;
+        }
         if (webPw != _pwdWebUi2.Text)
         {
             _lblWebPwState.Text = "两次密码不一致";
@@ -738,6 +749,7 @@ internal sealed class WizardPage : Panel
         {
             MessageBox.Show(this, "网页控制台密码长度不能少于 6 位。", "密码过短",
                 MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            _pwdWebUi.Focus();
             return null;
         }
         if (o.PortMain < 1024 || o.PortMain > 65520)

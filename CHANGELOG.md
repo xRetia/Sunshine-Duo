@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## v1.1.2 (2026-11-28)
+
+- 安装向导在进入下一步时校验网页控制台密码不少于 6 位，并强制检测已安装的 .NET 9 Desktop Runtime
+- 按 GameViewerService 安装状态设置核心服务 guard_uu；核心服务安装后等待实际进入运行态，避免启动较慢时误报失败
+- 核心服务异常时显示原生提示框；移除界面内修复入口，保留明确的服务启停操作
+- 单会话模式不显示游戏会话页面、端口和重启操作，相关后台读写也跳过未启用会话
+
 ## v1.1.1 (2026-11-27)
 
 - GameManager 安装/卸载 CLI 命令（--register-all/--unregister-all/--install-service/--uninstall-service）改为 stdout/stderr 输出，不再弹 MessageBox，消除 setup.exe 等待子进程超时

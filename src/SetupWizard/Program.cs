@@ -54,6 +54,7 @@ internal static class Program
             return false;
         }
 
+        // .NET 9 Desktop Runtime：硬性前置，必须检测到系统或当前用户实际安装的运行时。
         var dotnet = Detect.DotNetDesktop9();
         if (!dotnet.Installed)
         {

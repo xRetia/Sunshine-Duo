@@ -85,14 +85,16 @@ internal static class UpdateCheck
     }
 
     // 返回 null 表示已启动；否则为用户可读的错误信息
-    public static string? StartUpdate()
+    // updateMode=false 时启动安装向导（安装/修复模式，服务注册幂等）；true 时走更新流程
+    public static string? StartUpdate(bool updateMode = true)
     {
         var setup = Path.Combine(Paths.Root, "setup.exe");
         if (!File.Exists(setup))
             return "未找到安装向导 setup.exe";
         try
         {
-            Process.Start(new ProcessStartInfo(setup, "--update") { UseShellExecute = true });
+            var args = updateMode ? "--update" : "";
+            Process.Start(new ProcessStartInfo(setup, args) { UseShellExecute = true });
             return null;
         }
         catch (Exception e)

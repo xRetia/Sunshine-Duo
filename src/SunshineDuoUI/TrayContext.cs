@@ -14,18 +14,22 @@ public class TrayContext : ApplicationContext
     private readonly AppConfig _cfg;
     private readonly Dictionary<string, ToolStripMenuItem> _statusItems = new();
     private readonly ToolStripMenuItem _mMirror, _mOnly, _mExtend;
+    private ToolStripMenuItem? _displayMenu;
+    private ToolStripSeparator? _displaySep;
     private readonly System.Windows.Forms.Timer _timer;
     private readonly System.Windows.Forms.Timer _eventTimer;
     private IMainUi? _mainForm;
     private volatile bool _openRequested;
     private bool _polling;
     private bool _pairDialogOpen;
+    private bool _svcWarned;
+    private bool _svcDialogShown;
 
     public TrayContext()
     {
         _cfg = AppConfig.Load();
         Theme.Apply(_cfg.Theme);
-        var sessions = Paths.GetSessions(_cfg);
+        var sessions = Paths.AllSessions(_cfg);
 
         foreach (var s in sessions)
             _statusItems[s.Id] = new ToolStripMenuItem($"{s.Name} [检测中] [https://*:{s.WebPort}]") { Enabled = false };
@@ -50,16 +54,15 @@ public class TrayContext : ApplicationContext
         // 只保留 5 个常用项：主界面 / 显示模式 / 高级设置 / 设备配对 / 检查更新
         // 其余（虚拟显示器、内网穿透、快捷键、隐藏指针、重启会话、服务启停）都在主界面里
         menu.Items.Add(M("打开主界面", () => ShowMain(FirstPage)));
-        if (Paths.ConsoleEnabled)
-        {
-            menu.Items.Add(new ToolStripSeparator());
-            var displayMenu = new ToolStripMenuItem("显示模式");
-            displayMenu.DropDownItems.Add(_mMirror);
-            displayMenu.DropDownItems.Add(_mOnly);
-            displayMenu.DropDownItems.Add(_mExtend);
-            UpdateDisplayCheckmarks();
-            menu.Items.Add(displayMenu);
-        }
+        // 显示模式菜单恒建，可见性由 SyncMenuVisibility 按实时 console 开关控制
+        _displaySep = new ToolStripSeparator();
+        menu.Items.Add(_displaySep);
+        _displayMenu = new ToolStripMenuItem("显示模式");
+        _displayMenu.DropDownItems.Add(_mMirror);
+        _displayMenu.DropDownItems.Add(_mOnly);
+        _displayMenu.DropDownItems.Add(_mExtend);
+        UpdateDisplayCheckmarks();
+        menu.Items.Add(_displayMenu);
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(M("高级设置…", () => ShowMain(MainPage.Settings)));
         menu.Items.Add(M("设备配对…", () => ShowMain(MainPage.Console, true)));
@@ -79,6 +82,7 @@ public class TrayContext : ApplicationContext
             Visible = true,
         };
         _tray.DoubleClick += (_, _) => ShowMain(FirstPage);
+        SyncMenuVisibility();
 
         _timer = new System.Windows.Forms.Timer { Interval = 2000 };
         _timer.Tick += async (_, _) => await PollAsync();
@@ -269,6 +273,7 @@ public class TrayContext : ApplicationContext
                 _openRequested = false;
                 ShowMain(FirstPage);
             }
+            SyncMenuVisibility(); // 会话开关实时读取，单/双会话切换后菜单动态跟随
             var sessions = Paths.GetSessions(_cfg);
             var up = new List<bool>();
             foreach (var s in sessions)
@@ -286,12 +291,41 @@ public class TrayContext : ApplicationContext
             _tray.Text = "Sunshine Duo 托盘\n" + string.Join("\n",
                 sessions.Select((s, i) => $"{s.Name} {(up[i] ? "运行中" : "未运行")}"));
             UpdateDisplayCheckmarks();
+            await CheckCoreServiceAsync();
         }
         catch { }
         finally
         {
             _polling = false;
         }
+    }
+
+    // 核心服务异常时弹托盘气泡提示（用户不打开主界面也能看到），同一状态只提示一次
+    private async Task CheckCoreServiceAsync()
+    {
+        var svc = await Task.Run(ServiceControl.Query);
+        var bad = svc != "运行中" && svc != "启动中";
+        if (!bad)
+        {
+            _svcWarned = false;
+            _svcDialogShown = false;
+            return;
+        }
+        if (_svcWarned) return;
+        _svcWarned = true;
+        var detail = svc == "未安装" ? "核心服务未安装，串流与配对都无法使用。"
+            : svc == "查询失败" ? "无法查询核心服务状态。"
+            : $"核心服务当前为「{svc}」，串流与配对无法使用。";
+        _tray.ShowBalloonTip(8000, "萌远控服务异常", detail, ToolTipIcon.Warning);
+        if (_mainForm is { Visible: true } || _svcDialogShown) return;
+        _svcDialogShown = true;
+        BeginInvoke(new Action(() =>
+        {
+            if (_mainForm is { Visible: true }) return;
+            var result = MessageBox.Show(detail + "\n\n是否现在打开设置？", "萌远控服务异常",
+                MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+            if (result == DialogResult.Yes) ShowMain(MainPage.Settings);
+        }));
     }
 
     // 被动配对事件：SunshineDuoCore 监听两个会话的 Apollo 通知/日志并压入事件队列，
@@ -320,6 +354,18 @@ public class TrayContext : ApplicationContext
         {
             _pairDialogOpen = false;
         }
+    }
+
+    // 依据实时会话开关同步托盘菜单显隐（单/双会话切换后无需重启托盘）
+    private void SyncMenuVisibility()
+    {
+        var con = Paths.IsConsoleEnabled();
+        // 导航状态项（console/game）：按当前启用的会话显示/隐藏
+        foreach (var kv in _statusItems)
+            kv.Item.Visible = kv.Key == "console" ? con : Paths.IsGameEnabled();
+        // 显示模式菜单（含前置分隔线）：仅当 console 启用时可见
+        if (_displayMenu != null) _displayMenu.Visible = con;
+        if (_displaySep != null) _displaySep.Visible = con;
     }
 
     private async Task SetDisplayMode(string mode)
@@ -375,15 +421,16 @@ public class TrayContext : ApplicationContext
     private void ShowPairFormPreset(bool console, string deviceName)
     {
         // WinForms Timer 的 Tick 在 UI 线程触发，这里天然在 UI 线程
-        using var f = new PairForm(_cfg, console, Paths.GameEnabled);
+        using var f = new PairForm(_cfg, console, Paths.IsGameEnabled());
         f.Text = $"设备配对 — {deviceName}";
         f.ShowDialog();
         _ = PollAsync();
     }
 
+    // 首页选择跟随实时会话开关（单会话安装后不再落在被禁用的页面）
     private static MainPage FirstPage =>
-        Paths.ConsoleEnabled ? MainPage.Console
-        : Paths.GameEnabled ? MainPage.Game
+        Paths.IsConsoleEnabled() ? MainPage.Console
+        : Paths.IsGameEnabled() ? MainPage.Game
         : MainPage.Settings;
 
     private void ShowMain(MainPage page, bool focusPin = false)
