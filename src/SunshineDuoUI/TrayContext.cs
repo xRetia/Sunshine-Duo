@@ -319,13 +319,10 @@ public class TrayContext : ApplicationContext
         _tray.ShowBalloonTip(8000, "萌远控服务异常", detail, ToolTipIcon.Warning);
         if (_mainForm is { Visible: true } || _svcDialogShown) return;
         _svcDialogShown = true;
-        BeginInvoke(new Action(() =>
-        {
-            if (_mainForm is { Visible: true }) return;
-            var result = MessageBox.Show(detail + "\n\n是否现在打开设置？", "萌远控服务异常",
-                MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
-            if (result == DialogResult.Yes) ShowMain(MainPage.Settings);
-        }));
+        if (_mainForm is { Visible: true }) return;
+        var result = MessageBox.Show(detail + "\n\n是否现在打开设置？", "萌远控服务异常",
+            MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+        if (result == DialogResult.Yes) ShowMain(MainPage.Settings);
     }
 
     // 被动配对事件：SunshineDuoCore 监听两个会话的 Apollo 通知/日志并压入事件队列，
@@ -362,7 +359,7 @@ public class TrayContext : ApplicationContext
         var con = Paths.IsConsoleEnabled();
         // 导航状态项（console/game）：按当前启用的会话显示/隐藏
         foreach (var kv in _statusItems)
-            kv.Item.Visible = kv.Key == "console" ? con : Paths.IsGameEnabled();
+            kv.Value.Visible = kv.Key == "console" ? con : Paths.IsGameEnabled();
         // 显示模式菜单（含前置分隔线）：仅当 console 启用时可见
         if (_displayMenu != null) _displayMenu.Visible = con;
         if (_displaySep != null) _displaySep.Visible = con;

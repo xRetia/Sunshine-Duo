@@ -677,7 +677,7 @@ internal sealed class WebUiForm : Form, IMainUi
             }
         }
         _cfg.Save();
-        foreach (var (id, name) in targets)
+        foreach (var (id, name, _) in targets)
             if (changed.Contains(name))
             {
                 var err = await GuardPipe.RestartApollo(id);
